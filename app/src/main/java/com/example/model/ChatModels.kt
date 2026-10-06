@@ -110,8 +110,10 @@ enum class AppTab {
 data class UserProfile(
     val id: String = "me",
     val name: String = "You",
-    val phoneNumber: String = "+91 98765 43210",
+    val phoneNumber: String = "",
+    val email: String = "",
     val statusMessage: String = "Hey there! I am using Olinam.",
     val avatarUrl: String? = null,
+    val isLoggedIn: Boolean = false,
     val safetyNumber: String = "45109 82341 09124 78652 14320 89125 67019 32145 90124 55102 78321 00412"
 )

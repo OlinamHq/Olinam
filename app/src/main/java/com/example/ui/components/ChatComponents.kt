@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -37,6 +38,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.DonutLarge
@@ -94,79 +96,52 @@ fun OlinamTopBar(
     onMenuSecurity: () -> Unit,
     onMenuSettings: () -> Unit,
     onSyncSms: () -> Unit = {},
-    onOpenSpam: () -> Unit = {}
+    onOpenSpam: () -> Unit = {},
+    onLogout: () -> Unit = {}
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 12.dp),
+            .statusBarsPadding()
+            .padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Ultra-Premium Olinam Title & Emblem
+        // WhatsApp-style compact branding title
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.testTag("app_title_olinam")
         ) {
+            Text(
+                text = "Olinam",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF0F172A),
+                letterSpacing = (-0.5).sp
+            )
+            Spacer(modifier = Modifier.width(4.dp))
             Box(
                 modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(11.dp))
-                    .background(
-                        androidx.compose.ui.graphics.Brush.linearGradient(
-                            colors = listOf(Color(0xFF0160E3), Color(0xFF1E3A8A))
-                        )
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.ChatBubble,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(10.dp))
-
-            Column {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "Olinam",
-                        fontSize = 26.sp,
-                        fontWeight = FontWeight.Black,
-                        style = TextStyle(
-                            brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
-                                colors = listOf(Color(0xFF0F172A), Color(0xFF0160E3))
-                            )
-                        ),
-                        letterSpacing = (-0.8).sp
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Box(
-                        modifier = Modifier
-                            .size(7.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF0160E3))
-                    )
-                }
-            }
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF0160E3))
+            )
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(
                 onClick = onCameraClick,
                 modifier = Modifier
-                    .size(48.dp)
+                    .size(42.dp)
                     .testTag("camera_button")
             ) {
                 Icon(
                     imageVector = Icons.Default.CameraAlt,
                     contentDescription = "Camera",
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(26.dp)
+                    tint = Color(0xFF1E293B),
+                    modifier = Modifier.size(23.dp)
                 )
             }
 
@@ -174,14 +149,14 @@ fun OlinamTopBar(
                 IconButton(
                     onClick = { menuExpanded = true },
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(42.dp)
                         .testTag("more_menu_button")
                 ) {
                     Icon(
                         imageVector = Icons.Default.MoreVert,
                         contentDescription = "More options",
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(26.dp)
+                        tint = Color(0xFF1E293B),
+                        modifier = Modifier.size(23.dp)
                     )
                 }
 
@@ -238,6 +213,14 @@ fun OlinamTopBar(
                         },
                         modifier = Modifier.testTag("menu_settings")
                     )
+                    DropdownMenuItem(
+                        text = { Text("Log out", color = Color(0xFFDC2626), fontWeight = FontWeight.Medium) },
+                        onClick = {
+                            menuExpanded = false
+                            onLogout()
+                        },
+                        modifier = Modifier.testTag("menu_logout")
+                    )
                 }
             }
         }
@@ -252,32 +235,32 @@ fun OlinamSearchBar(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
-            .height(50.dp)
+            .padding(horizontal = 14.dp, vertical = 4.dp)
+            .height(40.dp)
             .testTag("search_bar_container"),
-        shape = RoundedCornerShape(25.dp),
-        color = Color(0xFFE9EDF2), // Visible contrasting grey matching WhatsApp
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFD6DBE1))
+        shape = RoundedCornerShape(20.dp),
+        color = Color(0xFFF1F3F5),
+        border = androidx.compose.foundation.BorderStroke(0.6.dp, Color(0xFFE2E8F0))
     ) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 imageVector = Icons.Default.Search,
                 contentDescription = stringResource(R.string.search_hint),
-                tint = Color(0xFF6B7280),
-                modifier = Modifier.size(22.dp)
+                tint = Color(0xFF64748B),
+                modifier = Modifier.size(18.dp)
             )
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(10.dp))
             Box(modifier = Modifier.weight(1f)) {
                 if (query.isEmpty()) {
                     Text(
                         text = "Search...",
-                        color = Color(0xFF6B7280),
-                        fontSize = 16.sp,
+                        color = Color(0xFF64748B),
+                        fontSize = 14.5.sp,
                         fontWeight = FontWeight.Normal
                     )
                 }
@@ -286,8 +269,8 @@ fun OlinamSearchBar(
                     onValueChange = onQueryChange,
                     singleLine = true,
                     textStyle = TextStyle(
-                        color = Color(0xFF111827),
-                        fontSize = 16.sp,
+                        color = Color(0xFF0F172A),
+                        fontSize = 14.5.sp,
                         fontWeight = FontWeight.Normal
                     ),
                     cursorBrush = SolidColor(OlinamPrimary),
@@ -300,13 +283,13 @@ fun OlinamSearchBar(
             if (query.isNotEmpty()) {
                 IconButton(
                     onClick = { onQueryChange("") },
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(22.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Clear",
-                        tint = Color(0xFF6B7280),
-                        modifier = Modifier.size(18.dp)
+                        tint = Color(0xFF64748B),
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
@@ -530,26 +513,27 @@ fun ConversationListItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .padding(horizontal = 14.dp, vertical = 9.dp)
             .testTag("conversation_item_${conversation.id}"),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Avatar with online status
+        // WhatsApp compact circular avatar (48dp)
         Box(contentAlignment = Alignment.BottomEnd) {
             val avatarColor = remember(conversation.id) {
                 val colors = listOf(
-                    Color(0xFF3B82F6),
-                    Color(0xFF8B5CF6),
-                    Color(0xFFEC4899),
-                    Color(0xFF10B981),
-                    Color(0xFFF59E0B)
+                    Color(0xFF00A884), // WhatsApp Emerald
+                    Color(0xFF0284C7), // Sky
+                    Color(0xFF6366F1), // Indigo
+                    Color(0xFF8B5CF6), // Purple
+                    Color(0xFFEC4899), // Pink
+                    Color(0xFFF59E0B)  // Amber
                 )
                 colors[Math.abs(conversation.id.hashCode()) % colors.size]
             }
 
             Box(
                 modifier = Modifier
-                    .size(54.dp)
+                    .size(50.dp)
                     .clip(CircleShape)
                     .background(avatarColor),
                 contentAlignment = Alignment.Center
@@ -559,14 +543,21 @@ fun ConversationListItem(
                         imageVector = Icons.Default.Groups,
                         contentDescription = "Group",
                         tint = Color.White,
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(26.dp)
+                    )
+                } else if (conversation.isSpam) {
+                    Icon(
+                        imageVector = Icons.Default.Security,
+                        contentDescription = "Spam Alert",
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
                     )
                 } else {
                     Text(
                         text = conversation.title.take(1).uppercase(Locale.getDefault()),
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 22.sp
+                        fontSize = 20.sp
                     )
                 }
             }
@@ -574,9 +565,9 @@ fun ConversationListItem(
             if (conversation.onlineStatus == "online") {
                 Box(
                     modifier = Modifier
-                        .size(14.dp)
+                        .size(13.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surface)
+                        .background(Color.White)
                         .padding(2.dp)
                         .clip(CircleShape)
                         .background(OlinamOnlineGreen)
@@ -584,7 +575,7 @@ fun ConversationListItem(
             }
         }
 
-        Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(13.dp))
 
         Column(modifier = Modifier.weight(1f)) {
             Row(
@@ -592,12 +583,15 @@ fun ConversationListItem(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
                         text = conversation.title,
-                        fontSize = 17.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = Color(0xFF111827),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -606,21 +600,23 @@ fun ConversationListItem(
                         Icon(
                             imageVector = Icons.Default.CheckCircle,
                             contentDescription = "Verified",
-                            tint = OlinamPrimary,
-                            modifier = Modifier.size(16.dp)
+                            tint = Color(0xFF00A884),
+                            modifier = Modifier.size(15.dp)
                         )
                     }
                 }
 
+                Spacer(modifier = Modifier.width(8.dp))
+
                 Text(
                     text = formatMessageTime(conversation.lastMessageTimestamp),
                     fontSize = 12.sp,
-                    color = if (conversation.unreadCount > 0) OlinamPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (conversation.unreadCount > 0) Color(0xFF00A884) else Color(0xFF8696A0),
                     fontWeight = if (conversation.unreadCount > 0) FontWeight.SemiBold else FontWeight.Normal
                 )
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(3.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -635,7 +631,7 @@ fun ConversationListItem(
                         Surface(
                             shape = RoundedCornerShape(4.dp),
                             color = Color(0xFFFEE2E2),
-                            modifier = Modifier.padding(end = 6.dp)
+                            modifier = Modifier.padding(end = 5.dp)
                         ) {
                             Text(
                                 text = "SPAM",
@@ -649,7 +645,7 @@ fun ConversationListItem(
                         Surface(
                             shape = RoundedCornerShape(4.dp),
                             color = Color(0xFFFEF3C7),
-                            modifier = Modifier.padding(end = 6.dp)
+                            modifier = Modifier.padding(end = 5.dp)
                         ) {
                             Text(
                                 text = "SMS",
@@ -659,19 +655,22 @@ fun ConversationListItem(
                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                             )
                         }
-                    } else if (conversation.isE2EE) {
+                    } else {
+                        // WhatsApp double checkmarks for sent read receipts
                         Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = "Encrypted",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.size(13.dp)
+                            imageVector = Icons.Default.DoneAll,
+                            contentDescription = "Read",
+                            tint = Color(0xFF53BDEB),
+                            modifier = Modifier
+                                .size(16.dp)
+                                .padding(end = 3.dp)
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
                     }
+
                     Text(
                         text = conversation.lastMessageText,
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.5.sp,
+                        color = Color(0xFF64748B),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -680,10 +679,10 @@ fun ConversationListItem(
                 if (conversation.unreadCount > 0) {
                     Box(
                         modifier = Modifier
-                            .padding(start = 8.dp)
+                            .padding(start = 6.dp)
                             .size(20.dp)
                             .clip(CircleShape)
-                            .background(OlinamPrimary),
+                            .background(Color(0xFF25D366)),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -704,121 +703,145 @@ fun OlinamBottomNavBar(
     currentTab: AppTab,
     onTabSelected: (AppTab) -> Unit
 ) {
-    NavigationBar(
-        containerColor = Color.White,
-        tonalElevation = 4.dp,
-        modifier = Modifier.testTag("bottom_nav_bar")
+    Surface(
+        color = Color.White,
+        border = androidx.compose.foundation.BorderStroke(0.6.dp, Color(0xFFE2E8F0)),
+        modifier = Modifier.fillMaxWidth()
     ) {
-        val selectedColor = OlinamPrimary
-        val unselectedColor = MaterialTheme.colorScheme.onSurfaceVariant
+        NavigationBar(
+            containerColor = Color.White,
+            tonalElevation = 0.dp,
+            modifier = Modifier
+                .height(68.dp)
+                .testTag("bottom_nav_bar")
+        ) {
+            val selectedIndicatorColor = Color(0xFFD6E4F8)
+            val selectedContentColor = Color(0xFF0F172A)
+            val unselectedContentColor = Color(0xFF64748B)
 
-        // 1. Chats
-        NavigationBarItem(
-            selected = currentTab == AppTab.CHATS,
-            onClick = { onTabSelected(AppTab.CHATS) },
-            icon = {
-                Icon(
-                    imageVector = Icons.Rounded.ChatBubble,
-                    contentDescription = stringResource(R.string.chats),
-                    modifier = Modifier.size(24.dp)
-                )
-            },
-            label = {
-                Text(
-                    text = stringResource(R.string.chats),
-                    fontWeight = if (currentTab == AppTab.CHATS) FontWeight.SemiBold else FontWeight.Normal
-                )
-            },
-            colors = NavigationBarItemDefaults.colors(
-                selectedIconColor = selectedColor,
-                selectedTextColor = selectedColor,
-                indicatorColor = OlinamPrimaryContainer,
-                unselectedIconColor = unselectedColor,
-                unselectedTextColor = unselectedColor
-            ),
-            modifier = Modifier.testTag("nav_item_chats")
-        )
+            // 1. Chats
+            NavigationBarItem(
+                selected = currentTab == AppTab.CHATS,
+                onClick = { onTabSelected(AppTab.CHATS) },
+                icon = {
+                    BadgedBox(
+                        badge = {
+                            Badge(
+                                containerColor = Color(0xFF25D366),
+                                contentColor = Color.White
+                            ) {
+                                Text("5", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.ChatBubble,
+                            contentDescription = stringResource(R.string.chats),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                },
+                label = {
+                    Text(
+                        text = stringResource(R.string.chats),
+                        fontSize = 12.sp,
+                        fontWeight = if (currentTab == AppTab.CHATS) FontWeight.Bold else FontWeight.Medium
+                    )
+                },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = selectedContentColor,
+                    selectedTextColor = selectedContentColor,
+                    indicatorColor = selectedIndicatorColor,
+                    unselectedIconColor = unselectedContentColor,
+                    unselectedTextColor = unselectedContentColor
+                ),
+                modifier = Modifier.testTag("nav_item_chats")
+            )
 
-        // 2. Stories
-        NavigationBarItem(
-            selected = currentTab == AppTab.STORIES,
-            onClick = { onTabSelected(AppTab.STORIES) },
-            icon = {
-                Icon(
-                    imageVector = Icons.Rounded.DonutLarge,
-                    contentDescription = stringResource(R.string.stories),
-                    modifier = Modifier.size(24.dp)
-                )
-            },
-            label = {
-                Text(
-                    text = stringResource(R.string.stories),
-                    fontWeight = if (currentTab == AppTab.STORIES) FontWeight.SemiBold else FontWeight.Normal
-                )
-            },
-            colors = NavigationBarItemDefaults.colors(
-                selectedIconColor = selectedColor,
-                selectedTextColor = selectedColor,
-                indicatorColor = OlinamPrimaryContainer,
-                unselectedIconColor = unselectedColor,
-                unselectedTextColor = unselectedColor
-            ),
-            modifier = Modifier.testTag("nav_item_stories")
-        )
+            // 2. Stories / Updates
+            NavigationBarItem(
+                selected = currentTab == AppTab.STORIES,
+                onClick = { onTabSelected(AppTab.STORIES) },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Rounded.DonutLarge,
+                        contentDescription = "Updates",
+                        modifier = Modifier.size(24.dp)
+                    )
+                },
+                label = {
+                    Text(
+                        text = "Updates",
+                        fontSize = 12.sp,
+                        fontWeight = if (currentTab == AppTab.STORIES) FontWeight.Bold else FontWeight.Medium
+                    )
+                },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = selectedContentColor,
+                    selectedTextColor = selectedContentColor,
+                    indicatorColor = selectedIndicatorColor,
+                    unselectedIconColor = unselectedContentColor,
+                    unselectedTextColor = unselectedContentColor
+                ),
+                modifier = Modifier.testTag("nav_item_stories")
+            )
 
-        // 3. Oj Ai
-        NavigationBarItem(
-            selected = currentTab == AppTab.OJ_AI,
-            onClick = { onTabSelected(AppTab.OJ_AI) },
-            icon = {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_oj_ai),
-                    contentDescription = stringResource(R.string.oj_ai),
-                    modifier = Modifier.size(24.dp)
-                )
-            },
-            label = {
-                Text(
-                    text = stringResource(R.string.oj_ai),
-                    fontWeight = if (currentTab == AppTab.OJ_AI) FontWeight.SemiBold else FontWeight.Normal
-                )
-            },
-            colors = NavigationBarItemDefaults.colors(
-                selectedIconColor = selectedColor,
-                selectedTextColor = selectedColor,
-                indicatorColor = OlinamPrimaryContainer,
-                unselectedIconColor = unselectedColor,
-                unselectedTextColor = unselectedColor
-            ),
-            modifier = Modifier.testTag("nav_item_oj_ai")
-        )
+            // 3. Oj Ai
+            NavigationBarItem(
+                selected = currentTab == AppTab.OJ_AI,
+                onClick = { onTabSelected(AppTab.OJ_AI) },
+                icon = {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_oj_ai),
+                        contentDescription = stringResource(R.string.oj_ai),
+                        modifier = Modifier.size(24.dp)
+                    )
+                },
+                label = {
+                    Text(
+                        text = stringResource(R.string.oj_ai),
+                        fontSize = 12.sp,
+                        fontWeight = if (currentTab == AppTab.OJ_AI) FontWeight.Bold else FontWeight.Medium
+                    )
+                },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = selectedContentColor,
+                    selectedTextColor = selectedContentColor,
+                    indicatorColor = selectedIndicatorColor,
+                    unselectedIconColor = unselectedContentColor,
+                    unselectedTextColor = unselectedContentColor
+                ),
+                modifier = Modifier.testTag("nav_item_oj_ai")
+            )
 
-        // 4. Calls
-        NavigationBarItem(
-            selected = currentTab == AppTab.CALLS,
-            onClick = { onTabSelected(AppTab.CALLS) },
-            icon = {
-                Icon(
-                    imageVector = Icons.Default.Call,
-                    contentDescription = stringResource(R.string.calls),
-                    modifier = Modifier.size(24.dp)
-                )
-            },
-            label = {
-                Text(
-                    text = stringResource(R.string.calls),
-                    fontWeight = if (currentTab == AppTab.CALLS) FontWeight.SemiBold else FontWeight.Normal
-                )
-            },
-            colors = NavigationBarItemDefaults.colors(
-                selectedIconColor = selectedColor,
-                selectedTextColor = selectedColor,
-                indicatorColor = OlinamPrimaryContainer,
-                unselectedIconColor = unselectedColor,
-                unselectedTextColor = unselectedColor
-            ),
-            modifier = Modifier.testTag("nav_item_calls")
-        )
+            // 4. Calls
+            NavigationBarItem(
+                selected = currentTab == AppTab.CALLS,
+                onClick = { onTabSelected(AppTab.CALLS) },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.Call,
+                        contentDescription = stringResource(R.string.calls),
+                        modifier = Modifier.size(24.dp)
+                    )
+                },
+                label = {
+                    Text(
+                        text = stringResource(R.string.calls),
+                        fontSize = 12.sp,
+                        fontWeight = if (currentTab == AppTab.CALLS) FontWeight.Bold else FontWeight.Medium
+                    )
+                },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = selectedContentColor,
+                    selectedTextColor = selectedContentColor,
+                    indicatorColor = selectedIndicatorColor,
+                    unselectedIconColor = unselectedContentColor,
+                    unselectedTextColor = unselectedContentColor
+                ),
+                modifier = Modifier.testTag("nav_item_calls")
+            )
+        }
     }
 }
 

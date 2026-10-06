@@ -147,9 +147,10 @@ class ChatViewModel(
         repository.sendMessage(conversationId, text)
     }
 
-    fun createNewChat(name: String, isGroup: Boolean, initialMessage: String = "") {
+    fun createNewChat(name: String, isGroup: Boolean, initialMessage: String = ""): String {
         val convId = repository.createNewConversation(name, isGroup, initialMessage)
         openConversation(convId)
+        return convId
     }
 
     fun getOrCreateConversationForContact(name: String, phoneNumber: String, isSms: Boolean = false): String {
@@ -185,5 +186,57 @@ class ChatViewModel(
 
     fun getSafetyNumber(conversationId: String): String {
         return EncryptionManager.generateSafetyNumber(currentUser.value.id, conversationId, conversationId)
+    }
+
+    val isLoggedIn: StateFlow<Boolean> = combine(currentUser, MutableStateFlow(Unit)) { user, _ ->
+        user.isLoggedIn
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, repository.currentUser.value.isLoggedIn)
+
+    fun loginWithPhone(name: String, phoneNumber: String, context: Context? = null) {
+        repository.loginUser(name = name, phoneNumber = phoneNumber)
+        persistUserSession(name, phoneNumber, "", context)
+    }
+
+    fun loginWithEmail(name: String, email: String, phoneNumber: String = "", context: Context? = null) {
+        repository.loginUser(name = name, phoneNumber = phoneNumber, email = email)
+        persistUserSession(name, phoneNumber, email, context)
+    }
+
+    fun loginWithGoogle(name: String, email: String, phoneNumber: String = "", context: Context? = null) {
+        repository.loginUser(name = name, phoneNumber = phoneNumber, email = email)
+        persistUserSession(name, phoneNumber, email, context)
+    }
+
+    fun logout(context: Context? = null) {
+        repository.logoutUser()
+        if (context != null) {
+            context.getSharedPreferences("olinam_user_prefs", Context.MODE_PRIVATE)
+                .edit().clear().apply()
+        }
+    }
+
+    fun restoreSavedSession(context: Context) {
+        val prefs = context.getSharedPreferences("olinam_user_prefs", Context.MODE_PRIVATE)
+        val isLoggedIn = prefs.getBoolean("is_logged_in", false)
+        if (isLoggedIn) {
+            val name = prefs.getString("user_name", "") ?: ""
+            val phone = prefs.getString("user_phone", "") ?: ""
+            val email = prefs.getString("user_email", "") ?: ""
+            if (name.isNotBlank() || phone.isNotBlank() || email.isNotBlank()) {
+                repository.loginUser(name = name, phoneNumber = phone, email = email)
+            }
+        }
+    }
+
+    private fun persistUserSession(name: String, phone: String, email: String, context: Context?) {
+        if (context != null) {
+            val prefs = context.getSharedPreferences("olinam_user_prefs", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean("is_logged_in", true)
+                .putString("user_name", name)
+                .putString("user_phone", phone)
+                .putString("user_email", email)
+                .apply()
+        }
     }
 }

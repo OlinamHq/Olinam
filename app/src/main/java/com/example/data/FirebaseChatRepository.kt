@@ -57,9 +57,11 @@ class FirebaseChatRepository {
 
     private val _currentUser = MutableStateFlow(
         UserProfile(
-            id = "current_user_olinam",
-            name = "Om Kun",
-            phoneNumber = "+91 98765 43210",
+            id = "user_me",
+            name = "",
+            phoneNumber = "",
+            email = "",
+            isLoggedIn = false,
             statusMessage = "Using Olinam with End-to-End Encryption 🔒"
         )
     )
@@ -88,7 +90,9 @@ class FirebaseChatRepository {
                 _currentUser.value = _currentUser.value.copy(
                     id = currentAuthUser.uid,
                     name = currentAuthUser.displayName ?: "Olinam User",
-                    phoneNumber = currentAuthUser.phoneNumber ?: _currentUser.value.phoneNumber
+                    email = currentAuthUser.email ?: "",
+                    phoneNumber = currentAuthUser.phoneNumber ?: "",
+                    isLoggedIn = true
                 )
             }
             listenToConversations()
@@ -99,24 +103,35 @@ class FirebaseChatRepository {
     }
 
     private fun bootstrapInitialData() {
-        // Zero dummy data for clean enterprise production
+        // Zero dummy data as requested: pristine empty state for genuine testing
         _conversations.value = emptyList()
         _messages.value = emptyMap()
-
-        // Clean user stories
-        _stories.value = listOf(
-            Story(
-                id = "story_me",
-                userId = _currentUser.value.id,
-                userName = "My status",
-                caption = "Tap to add status update",
-                timestamp = System.currentTimeMillis(),
-                viewed = false
-            )
-        )
-
-        // Empty call history ready for real calls
+        _stories.value = emptyList()
         _callLogs.value = emptyList()
+    }
+
+    fun loginUser(name: String, phoneNumber: String, email: String = "") {
+        _currentUser.value = _currentUser.value.copy(
+            id = "user_${UUID.randomUUID().toString().take(8)}",
+            name = name.ifBlank { "You" },
+            phoneNumber = phoneNumber,
+            email = email,
+            isLoggedIn = true
+        )
+    }
+
+    fun logoutUser() {
+        try {
+            auth?.signOut()
+        } catch (_: Exception) {}
+        _currentUser.value = UserProfile(
+            id = "user_me",
+            name = "",
+            phoneNumber = "",
+            email = "",
+            isLoggedIn = false
+        )
+        _conversations.value = emptyList()
     }
 
     fun createLabel(name: String, colorHex: String, chatIds: List<String>): String {
@@ -343,8 +358,7 @@ class FirebaseChatRepository {
         )
 
         val updated = _conversations.value.toMutableList()
-        // Put after system alerts or at top
-        updated.add(2.coerceAtMost(updated.size), conv)
+        updated.add(0, conv)
         _conversations.value = updated
 
         if (initialMessage.isNotEmpty()) {

@@ -74,9 +74,11 @@ import com.example.data.DeviceContact
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SelectContactScreen(
-    userPhoneNumber: String = "+91 88000 20711",
+    userPhoneNumber: String = "",
     onBackClick: () -> Unit,
     onNewGroupClick: () -> Unit,
+    onNewContactClick: () -> Unit = {},
+    onQrClick: () -> Unit = {},
     onContactSelected: (name: String, phoneNumber: String, hasOlinam: Boolean) -> Unit,
     onInviteContactClick: () -> Unit
 ) {
@@ -87,7 +89,6 @@ fun SelectContactScreen(
     var searchQuery by remember { mutableStateOf("") }
     var isSearching by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
-    var showAddContactDialog by remember { mutableStateOf(false) }
 
     fun reloadContacts() {
         contacts = ContactHelper.getDeviceContacts(context)
@@ -263,7 +264,7 @@ fun SelectContactScreen(
                 )
             }
 
-            // Action 2: New Contact Action with QR scanner
+            // Action 2: New Contact Action with QR scanner (Matching Screenshot 3)
             item {
                 ActionRow(
                     title = "New contact",
@@ -284,23 +285,25 @@ fun SelectContactScreen(
                         }
                     },
                     trailing = {
-                        Icon(
-                            imageVector = Icons.Default.QrCodeScanner,
-                            contentDescription = "Scan QR",
-                            tint = Color(0xFF1F2937),
-                            modifier = Modifier.size(24.dp)
-                        )
+                        IconButton(onClick = onQrClick) {
+                            Icon(
+                                imageVector = Icons.Default.QrCodeScanner,
+                                contentDescription = "Scan QR",
+                                tint = Color(0xFF1F2937),
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
                     },
-                    onClick = { showAddContactDialog = true }
+                    onClick = onNewContactClick
                 )
             }
 
-            // Message Yourself Item
+            // Message Yourself Item (Zero dummy phone number!)
             item {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onContactSelected("You ($userPhoneNumber)", userPhoneNumber, true) }
+                        .clickable { onContactSelected("Message yourself", userPhoneNumber, true) }
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -323,13 +326,13 @@ fun SelectContactScreen(
 
                     Column {
                         Text(
-                            text = "$userPhoneNumber (You)",
+                            text = "Message yourself",
                             fontSize = 16.5.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = Color(0xFF111827)
                         )
                         Text(
-                            text = "Message yourself • Cloud storage & notes",
+                            text = if (userPhoneNumber.isNotBlank()) userPhoneNumber else "Message yourself • Cloud notes",
                             fontSize = 13.sp,
                             color = Color(0xFF6B7280)
                         )
@@ -494,7 +497,7 @@ fun SelectContactScreen(
                         Spacer(modifier = Modifier.height(20.dp))
 
                         Button(
-                            onClick = { showAddContactDialog = true },
+                            onClick = onNewContactClick,
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3)),
                             shape = RoundedCornerShape(12.dp)
                         ) {
@@ -510,98 +513,6 @@ fun SelectContactScreen(
                 }
             }
         }
-    }
-
-    // Modal to add contact / enter manual number
-    if (showAddContactDialog) {
-        var newName by remember { mutableStateOf("") }
-        var newPhone by remember { mutableStateOf("+91 ") }
-        var isNonAppUser by remember { mutableStateOf(false) }
-
-        AlertDialog(
-            onDismissRequest = { showAddContactDialog = false },
-            title = { Text("New Contact / Direct Number", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(
-                        value = newName,
-                        onValueChange = { newName = it },
-                        label = { Text("Contact Name") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = newPhone,
-                        onValueChange = { newPhone = it },
-                        label = { Text("Mobile Number (e.g. +91...)") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { isNonAppUser = !isNonAppUser }
-                            .padding(top = 4.dp)
-                    ) {
-                        androidx.compose.material3.Checkbox(
-                            checked = isNonAppUser,
-                            onCheckedChange = { isNonAppUser = it }
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Non-app user (send via SMS with Olinam link)",
-                            fontSize = 13.sp,
-                            color = Color(0xFF4B5563)
-                        )
-                    }
-
-                    // Direct link to open native system contact app
-                    TextButton(
-                        onClick = {
-                            try {
-                                val insertIntent = Intent(Intent.ACTION_INSERT).apply {
-                                    type = ContactsContract.Contacts.CONTENT_TYPE
-                                    if (newName.isNotBlank()) putExtra(ContactsContract.Intents.Insert.NAME, newName)
-                                    if (newPhone.isNotBlank()) putExtra(ContactsContract.Intents.Insert.PHONE, newPhone)
-                                }
-                                context.startActivity(insertIntent)
-                            } catch (_: Exception) {}
-                        },
-                        modifier = Modifier.align(Alignment.End)
-                    ) {
-                        Text("Save to Phone Address Book", fontSize = 12.sp, color = Color(0xFF0160E3))
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (newName.isNotBlank() && newPhone.isNotBlank()) {
-                            showAddContactDialog = false
-                            val newContact = DeviceContact(
-                                id = java.util.UUID.randomUUID().toString(),
-                                name = newName.trim(),
-                                phoneNumber = newPhone.trim(),
-                                status = if (isNonAppUser) "Mobile contact" else "Available on Olinam",
-                                hasOlinam = !isNonAppUser
-                            )
-                            ContactHelper.saveRealContact(context, newContact)
-                            reloadContacts()
-                            onContactSelected(newName.trim(), newPhone.trim(), !isNonAppUser)
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3))
-                ) {
-                    Text("Chat Now")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddContactDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
     }
 }
 

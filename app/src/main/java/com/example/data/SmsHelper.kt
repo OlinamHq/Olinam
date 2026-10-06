@@ -21,7 +21,9 @@ object SmsHelper {
         "congratulations", "claim now", "win cash", "rummy", "lottery", "jackpot",
         "flat 50%", "cashback", "credited with inr", "debited by inr", "promo code",
         "exclusive offer", "recharge now", "limited time offer", "unsubscribe",
-        "kyc suspended", "call now to claim", "free spins", "bonus"
+        "kyc suspended", "call now to claim", "free spins", "bonus", "discount",
+        "hurry", "urgent action required", "winner", "prize", "credit card", "personal loan",
+        "50% off", "flat 40%", "casino", "poker", "teen patti", "betting", "win 10000"
     )
 
     fun isSpamSenderOrBody(address: String, body: String): Boolean {
@@ -29,7 +31,7 @@ object SmsHelper {
         val lowerBody = body.lowercase(Locale.ROOT)
 
         // 1. Alphanumeric sender header typical of bulk business/promotional SMS in India and globally
-        // e.g. "AX-HDFCBK", "VK-SBIINB", "AD-JIOFBR", "VM-AIRTEL", "DM-AMAZON"
+        // e.g. "AX-HDFCBK", "VK-SBIINB", "AD-JIOFBR", "VM-AIRTEL", "DM-AMAZON", "JM-RUMMY"
         val hasLetters = cleanAddr.any { it.isLetter() }
         if (hasLetters) {
             return true
@@ -54,7 +56,6 @@ object SmsHelper {
     fun getDeviceSmsConversations(context: Context): SmsConversationResult {
         val personalList = mutableListOf<Conversation>()
         val spamList = mutableListOf<Conversation>()
-
         val seenAddresses = mutableMapOf<String, Conversation>()
 
         try {
@@ -86,8 +87,12 @@ object SmsHelper {
                     val cleanAddr = address.trim()
                     if (seenAddresses.containsKey(cleanAddr)) continue
 
-                    val isSpam = isSpamSenderOrBody(cleanAddr, body)
-                    val contactName = resolveContactName(context, cleanAddr) ?: cleanAddr
+                    val resolvedContactName = resolveContactName(context, cleanAddr)
+                    val isKnownContact = resolvedContactName != null && resolvedContactName.isNotBlank() && resolvedContactName != cleanAddr
+
+                    // If it is a saved contact, it's personal; otherwise run spam heuristics
+                    val isSpam = if (isKnownContact) false else isSpamSenderOrBody(cleanAddr, body)
+                    val contactName = resolvedContactName ?: cleanAddr
 
                     val conv = Conversation(
                         id = "sms_thread_$threadId",
@@ -113,7 +118,7 @@ object SmsHelper {
                 }
             }
         } catch (_: Exception) {
-            // Permission not granted or content provider error
+            // Permission not granted or query failed
         }
 
         return SmsConversationResult(

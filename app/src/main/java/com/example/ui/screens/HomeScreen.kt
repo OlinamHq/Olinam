@@ -28,6 +28,8 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.GroupAdd
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Security
@@ -83,6 +85,8 @@ import com.example.ui.theme.OlinamPrimary
 fun HomeScreen(
     viewModel: ChatViewModel
 ) {
+    val context = LocalContext.current
+    val isLoggedIn by viewModel.isLoggedIn.collectAsState()
     val currentTab by viewModel.currentTab.collectAsState()
     val conversations by viewModel.conversations.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
@@ -95,12 +99,92 @@ fun HomeScreen(
 
     var showNewChatDialog by remember { mutableStateOf(false) }
     var showSelectContactScreen by remember { mutableStateOf(false) }
+    var showNewGroupScreen by remember { mutableStateOf(false) }
+    var showNewContactScreen by remember { mutableStateOf(false) }
+    var showQrScreen by remember { mutableStateOf(false) }
     var showInviteDialog by remember { mutableStateOf(false) }
     var showCameraDialog by remember { mutableStateOf(false) }
     var showProfileDialog by remember { mutableStateOf(false) }
     var showSecurityDialog by remember { mutableStateOf(false) }
     var showCreateLabelSheet by remember { mutableStateOf(false) }
     val labelSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    LaunchedEffect(Unit) {
+        viewModel.restoreSavedSession(context)
+    }
+
+    // 1. Initial Login / Signup screen check
+    if (!isLoggedIn) {
+        LoginScreen(viewModel = viewModel)
+        return
+    }
+
+    // SMS & Contacts Permission handling for auto-syncing real phone messages & spam filtering
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { perms ->
+        val smsGranted = perms[Manifest.permission.READ_SMS] == true
+        if (smsGranted) {
+            viewModel.syncDeviceSms(context)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        val hasSmsPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.READ_SMS
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (hasSmsPermission) {
+            viewModel.syncDeviceSms(context)
+        } else {
+            // Prompt user for SMS & Contacts to read phone text messages
+            permissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.READ_SMS,
+                    Manifest.permission.READ_CONTACTS
+                )
+            )
+        }
+    }
+
+    // Short link QR Screen (Screenshots 3 & 5)
+    if (showQrScreen) {
+        ShortLinkQrScreen(
+            currentUser = currentUser,
+            onBackClick = { showQrScreen = false }
+        )
+        return
+    }
+
+    // New Contact Screen (Screenshot 6)
+    if (showNewContactScreen) {
+        NewContactScreen(
+            onBackClick = { showNewContactScreen = false },
+            onQrClick = {
+                showNewContactScreen = false
+                showQrScreen = true
+            },
+            onContactSaved = { name, phone ->
+                showNewContactScreen = false
+                val convId = viewModel.getOrCreateConversationForContact(name, phone, isSms = false)
+                viewModel.openConversation(convId)
+            }
+        )
+        return
+    }
+
+    // New Group Screen (Screenshots 2 & 4)
+    if (showNewGroupScreen) {
+        NewGroupScreen(
+            onBackClick = { showNewGroupScreen = false },
+            onGroupCreated = { name, participants ->
+                showNewGroupScreen = false
+                viewModel.createNewChat(name, isGroup = true)
+            }
+        )
+        return
+    }
 
     // If a conversation is opened, show ChatDetailScreen
     val selectedConv = conversations.find { it.id == activeConversationId }
@@ -124,7 +208,15 @@ fun HomeScreen(
             onBackClick = { showSelectContactScreen = false },
             onNewGroupClick = {
                 showSelectContactScreen = false
-                showNewChatDialog = true
+                showNewGroupScreen = true
+            },
+            onNewContactClick = {
+                showSelectContactScreen = false
+                showNewContactScreen = true
+            },
+            onQrClick = {
+                showSelectContactScreen = false
+                showQrScreen = true
             },
             onContactSelected = { name, phone, hasOlinam ->
                 showSelectContactScreen = false
@@ -146,23 +238,41 @@ fun HomeScreen(
         containerColor = Color.White,
         topBar = {
             if (currentTab == AppTab.CHATS) {
-                Column {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.White)
+                ) {
                     OlinamTopBar(
                         onCameraClick = { showCameraDialog = true },
-                        onMenuNewGroup = { showNewChatDialog = true },
+                        onMenuNewGroup = { showNewGroupScreen = true },
                         onMenuProfile = { showProfileDialog = true },
                         onMenuSecurity = { showSecurityDialog = true },
-                        onMenuSettings = { showProfileDialog = true }
+                        onMenuSettings = { showProfileDialog = true },
+                        onSyncSms = { viewModel.syncDeviceSms(context) },
+                        onOpenSpam = { viewModel.selectLabel("spam") },
+                        onLogout = { viewModel.logout(context) }
                     )
                     OlinamSearchBar(
                         query = searchQuery,
                         onQueryChange = { viewModel.setSearchQuery(it) }
                     )
-                    // WhatsApp-style Custom Labels / Folders Chips Row
+                    // WhatsApp-style Compact Custom Labels / Folders Chips Row
                     LabelChipsRow(
                         labels = labels,
                         selectedLabelId = selectedLabelId,
-                        onLabelClick = { label -> viewModel.selectLabel(label.id) },
+                        onLabelClick = { label ->
+                            if (label.id == "groups") {
+                                val hasGroups = conversations.any { it.isGroup }
+                                if (!hasGroups) {
+                                    showNewGroupScreen = true
+                                } else {
+                                    viewModel.selectLabel(label.id)
+                                }
+                            } else {
+                                viewModel.selectLabel(label.id)
+                            }
+                        },
                         onAddLabelClick = { showCreateLabelSheet = true }
                     )
                 }
@@ -176,21 +286,21 @@ fun HomeScreen(
         },
         floatingActionButton = {
             if (currentTab == AppTab.CHATS) {
-                // Squircle FAB with chat + icon matching screenshot in Royal Blue #0160E3
+                // WhatsApp-style compact squircle FAB
                 FloatingActionButton(
                     onClick = { showSelectContactScreen = true },
-                    shape = RoundedCornerShape(18.dp),
-                    containerColor = Color(0xFF0160E3),
+                    shape = RoundedCornerShape(16.dp),
+                    containerColor = Color(0xFF0F172A),
                     contentColor = Color.White,
-                    elevation = FloatingActionButtonDefaults.elevation(4.dp),
+                    elevation = FloatingActionButtonDefaults.elevation(3.dp),
                     modifier = Modifier
-                        .size(60.dp)
+                        .size(54.dp)
                         .testTag("new_chat_fab")
                 ) {
                     Icon(
                         imageVector = Icons.Default.AddComment,
                         contentDescription = "New Chat",
-                        modifier = Modifier.size(26.dp)
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }
@@ -206,8 +316,10 @@ fun HomeScreen(
                 AppTab.CHATS -> {
                     ChatsTabContent(
                         conversations = conversations,
+                        selectedLabelId = selectedLabelId,
                         onConversationClick = { conv -> viewModel.openConversation(conv.id) },
-                        onStartChatClick = { showSelectContactScreen = true }
+                        onStartChatClick = { showSelectContactScreen = true },
+                        onNewGroupClick = { showNewGroupScreen = true }
                     )
                 }
                 AppTab.STORIES -> {
@@ -291,8 +403,10 @@ fun HomeScreen(
 @Composable
 fun ChatsTabContent(
     conversations: List<Conversation>,
+    selectedLabelId: String = "all",
     onConversationClick: (Conversation) -> Unit,
-    onStartChatClick: () -> Unit
+    onStartChatClick: () -> Unit,
+    onNewGroupClick: () -> Unit = {}
 ) {
     if (conversations.isEmpty()) {
         Box(
@@ -307,49 +421,83 @@ fun ChatsTabContent(
             ) {
                 Surface(
                     shape = CircleShape,
-                    color = Color(0xFFE2EDFC),
-                    modifier = Modifier.size(80.dp)
+                    color = when (selectedLabelId) {
+                        "spam" -> Color(0xFFDCFCE7)
+                        "groups" -> Color(0xFFDCFCE7)
+                        else -> Color(0xFFE2EDFC)
+                    },
+                    modifier = Modifier.size(76.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            imageVector = Icons.Default.Chat,
+                            imageVector = when (selectedLabelId) {
+                                "spam" -> Icons.Default.Security
+                                "groups" -> Icons.Default.Groups
+                                else -> Icons.Default.Chat
+                            },
                             contentDescription = null,
-                            tint = Color(0xFF0160E3),
-                            modifier = Modifier.size(38.dp)
+                            tint = when (selectedLabelId) {
+                                "spam" -> Color(0xFF16A34A)
+                                "groups" -> Color(0xFF00A884)
+                                else -> Color(0xFF0160E3)
+                            },
+                            modifier = Modifier.size(36.dp)
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
-                    text = "No Chats Yet",
-                    fontSize = 20.sp,
+                    text = when (selectedLabelId) {
+                        "spam" -> "No Spam Messages"
+                        "groups" -> "No Groups Yet"
+                        else -> "No Chats Yet"
+                    },
+                    fontSize = 19.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF111827)
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
                 Text(
-                    text = "Start a private conversation or create a group with any contact or mobile number (+91...).",
-                    fontSize = 14.sp,
+                    text = when (selectedLabelId) {
+                        "spam" -> "Your messages are clean! Any detected promotional, betting, or spam SMS will automatically appear here."
+                        "groups" -> "Create a group to chat with family, friends, or teams."
+                        else -> "Start a conversation or invite friends on Olinam."
+                    },
+                    fontSize = 13.5.sp,
                     color = Color(0xFF6B7280),
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    lineHeight = 20.sp
+                    lineHeight = 19.sp
                 )
 
-                Spacer(modifier = Modifier.height(20.dp))
+                if (selectedLabelId == "groups") {
+                    Spacer(modifier = Modifier.height(18.dp))
+                    Button(
+                        onClick = onNewGroupClick,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A884)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.testTag("empty_state_new_group_button")
+                    ) {
+                        Icon(Icons.Default.GroupAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("New Group", fontWeight = FontWeight.SemiBold)
+                    }
+                } else if (selectedLabelId != "spam") {
+                    Spacer(modifier = Modifier.height(18.dp))
 
-                Button(
-                    onClick = onStartChatClick,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3)),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.testTag("empty_state_start_chat_button")
-                ) {
-                    Icon(Icons.Default.AddComment, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Start Chatting", fontWeight = FontWeight.SemiBold)
+                    Button(
+                        onClick = onStartChatClick,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F172A)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.testTag("empty_state_start_chat_button")
+                    ) {
+                        Icon(Icons.Default.AddComment, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Start Chatting", fontWeight = FontWeight.SemiBold)
+                    }
                 }
             }
         }
@@ -357,6 +505,79 @@ fun ChatsTabContent(
         LazyColumn(
             modifier = Modifier.fillMaxSize()
         ) {
+            if (selectedLabelId == "groups") {
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(onClick = onNewGroupClick)
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                            .testTag("action_new_group_row"),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF00A884)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.GroupAdd,
+                                contentDescription = "New group",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column {
+                            Text(
+                                text = "New group",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF111827)
+                            )
+                            Text(
+                                text = "Create a new group chat",
+                                fontSize = 12.5.sp,
+                                color = Color(0xFF6B7280)
+                            )
+                        }
+                    }
+                }
+            }
+            if (selectedLabelId == "spam") {
+                item {
+                    Surface(
+                        color = Color(0xFFFEF2F2),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFCA5A5)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Security,
+                                contentDescription = "Spam Shield",
+                                tint = Color(0xFFDC2626),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Automated Spam Filter: Promotional, loan, betting, and bulk SMS are automatically isolated here.",
+                                fontSize = 12.5.sp,
+                                color = Color(0xFF991B1B),
+                                lineHeight = 17.sp
+                            )
+                        }
+                    }
+                }
+            }
+
             items(conversations, key = { it.id }) { conv ->
                 ConversationListItem(
                     conversation = conv,
