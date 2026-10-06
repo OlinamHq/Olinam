@@ -1,0 +1,6 @@
+{
+  "name": "Olinam",
+  "description": "WhatsApp-level real-time messaging app with instant chats, groups, Oj AI assistant, stories, and end-to-end encrypted messaging.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
