@@ -232,6 +232,16 @@ class ChatViewModel(
     var webRtcCallManager: com.example.webrtc.call.WebRtcCallManager? = null
         private set
 
+    var aiAgentManager: com.example.ai.OjAiAgentManager? = null
+        private set
+
+    fun getOrCreateAiAgentManager(context: Context): com.example.ai.OjAiAgentManager {
+        if (aiAgentManager == null) {
+            aiAgentManager = com.example.ai.OjAiAgentManager(context.applicationContext)
+        }
+        return aiAgentManager!!
+    }
+
     fun getOrCreateWebRtcCallManager(context: Context): com.example.webrtc.call.WebRtcCallManager {
         if (webRtcCallManager == null) {
             webRtcCallManager = com.example.webrtc.call.WebRtcCallManager(context.applicationContext)

@@ -5,12 +5,15 @@ import org.webrtc.DefaultVideoDecoderFactory
 import org.webrtc.DefaultVideoEncoderFactory
 import org.webrtc.EglBase
 import org.webrtc.PeerConnectionFactory
+import org.webrtc.audio.AudioDeviceModule
 import org.webrtc.audio.JavaAudioDeviceModule
 
 class WebRtcPeerConnectionFactory(
     private val context: Context,
     val eglBase: EglBase = EglBase.create()
 ) {
+    private var audioDeviceModule: JavaAudioDeviceModule? = null
+
     val factory: PeerConnectionFactory by lazy {
         initFactory()
     }
@@ -22,10 +25,23 @@ class WebRtcPeerConnectionFactory(
             .createInitializationOptions()
         PeerConnectionFactory.initialize(initOptions)
 
-        val audioDeviceModule = JavaAudioDeviceModule.builder(context)
-            .setUseHardwareAcousticEchoCanceler(true)
-            .setUseHardwareNoiseSuppressor(true)
+        // Only enable hardware AEC and Noise Suppression if supported by the underlying device hardware
+        val isAecSupported = try {
+            JavaAudioDeviceModule.isBuiltInAcousticEchoCancelerSupported()
+        } catch (_: Exception) {
+            false
+        }
+        val isNsSupported = try {
+            JavaAudioDeviceModule.isBuiltInNoiseSuppressorSupported()
+        } catch (_: Exception) {
+            false
+        }
+
+        val adm = JavaAudioDeviceModule.builder(context)
+            .setUseHardwareAcousticEchoCanceler(isAecSupported)
+            .setUseHardwareNoiseSuppressor(isNsSupported)
             .createAudioDeviceModule()
+        audioDeviceModule = adm
 
         val videoEncoderFactory = DefaultVideoEncoderFactory(
             eglBase.eglBaseContext,
@@ -39,7 +55,7 @@ class WebRtcPeerConnectionFactory(
 
         return PeerConnectionFactory.builder()
             .setOptions(options)
-            .setAudioDeviceModule(audioDeviceModule)
+            .setAudioDeviceModule(adm)
             .setVideoEncoderFactory(videoEncoderFactory)
             .setVideoDecoderFactory(videoDecoderFactory)
             .createPeerConnectionFactory()
@@ -48,6 +64,7 @@ class WebRtcPeerConnectionFactory(
     fun release() {
         try {
             factory.dispose()
+            audioDeviceModule?.release()
             eglBase.release()
         } catch (_: Exception) {}
     }

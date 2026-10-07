@@ -111,6 +111,7 @@ fun HomeScreen(
     var showProfileDialog by remember { mutableStateOf(false) }
     var showSecurityDialog by remember { mutableStateOf(false) }
     var showCreateLabelSheet by remember { mutableStateOf(false) }
+    var showContactProfileScreen by remember { mutableStateOf(false) }
     val labelSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     LaunchedEffect(Unit) {
@@ -235,22 +236,38 @@ fun HomeScreen(
         return
     }
 
-    // If a conversation is opened, show ChatDetailScreen
+    // If contact profile is open
     val selectedConv = conversations.find { it.id == activeConversationId }
+    if (selectedConv != null && showContactProfileScreen) {
+        ContactProfileScreen(
+            conversation = selectedConv,
+            currentUser = currentUser,
+            safetyNumber = viewModel.getSafetyNumber(selectedConv.id),
+            onBackClick = { showContactProfileScreen = false },
+            onCallClick = { type -> viewModel.initiateCall(selectedConv.title, type) }
+        )
+        return
+    }
+
+    // If a conversation is opened, show ChatDetailScreen
     if (selectedConv != null) {
         ChatDetailScreen(
             conversation = selectedConv,
             messages = activeMessages,
             currentUserId = currentUser.id,
             safetyNumber = viewModel.getSafetyNumber(selectedConv.id),
-            onBackClick = { viewModel.closeConversation() },
+            onBackClick = {
+                showContactProfileScreen = false
+                viewModel.closeConversation()
+            },
             onSendMessage = { text -> viewModel.sendMessage(selectedConv.id, text) },
             onSendDirectSms = { text ->
                 val destPhone = selectedConv.phoneNumber ?: selectedConv.title.filter { it.isDigit() || it == '+' }
                 viewModel.sendDirectSms(context, selectedConv.id, destPhone, text)
             },
             onCallClick = { type -> viewModel.initiateCall(selectedConv.title, type) },
-            onVerifyAppStatus = { viewModel.verifyAndUpdateConversationAppStatus(selectedConv.id) }
+            onVerifyAppStatus = { viewModel.verifyAndUpdateConversationAppStatus(selectedConv.id) },
+            onOpenProfile = { showContactProfileScreen = true }
         )
         return
     }
@@ -424,6 +441,7 @@ fun HomeScreen(
     // Invite Friends Dialog
     if (showInviteDialog) {
         InviteFriendsModal(
+            currentUser = currentUser,
             onDismiss = { showInviteDialog = false }
         )
     }
@@ -684,6 +702,7 @@ fun NewChatModal(
 
 @Composable
 fun InviteFriendsModal(
+    currentUser: com.example.model.UserProfile,
     onDismiss: () -> Unit
 ) {
     var copied by remember { mutableStateOf(false) }
@@ -708,7 +727,7 @@ fun InviteFriendsModal(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = "https://olinam.app/join?ref=omkun",
+                        text = "https://olinam.app/join?ref=${currentUser.phoneNumber.ifBlank { currentUser.id }}",
                         modifier = Modifier.padding(12.dp),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 13.sp,
