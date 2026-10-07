@@ -41,10 +41,10 @@ jobs:
       - name: Setup Environment Files
         run: |
           if [ ! -f ".env.example" ]; then
-            touch .env.example
+            echo 'GEMINI_API_KEY=""' > .env.example
           fi
           if [ ! -f ".env" ]; then
-            touch .env
+            echo 'GEMINI_API_KEY=""' > .env
           fi
 
       - name: Setup Debug Keystore

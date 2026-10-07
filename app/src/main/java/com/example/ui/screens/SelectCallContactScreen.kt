@@ -95,24 +95,7 @@ fun SelectCallContactScreen(
     var showCallLinkDialog by remember { mutableStateOf(false) }
 
     fun loadContacts() {
-        val loaded = ContactHelper.getDeviceContacts(context)
-        if (loaded.isEmpty()) {
-            // Realistic WhatsApp contacts matching the user's screenshots
-            contacts = listOf(
-                DeviceContact("c1", "Aamir Up", "+91 98765 12001", hasOlinam = true),
-                DeviceContact("c2", "Abhishek Singh", "+91 98765 12002", hasOlinam = true),
-                DeviceContact("c3", "Ag", "+91 98765 12003", hasOlinam = true),
-                DeviceContact("c4", "Ajay", "+91 98765 12004", hasOlinam = true),
-                DeviceContact("c5", "Ajay Maharashtra", "+91 98765 12005", hasOlinam = true),
-                DeviceContact("c6", "Ajit Beswa", "+91 98765 12006", hasOlinam = true),
-                DeviceContact("c7", "Ajit Master", "+91 98765 12007", hasOlinam = true),
-                DeviceContact("c8", "Ajju", "+91 98765 12008", hasOlinam = true),
-                DeviceContact("c9", "Sonu", "+91 97738 62847", hasOlinam = true),
-                DeviceContact("c10", "Sanju", "+91 89207 36645", hasOlinam = true)
-            )
-        } else {
-            contacts = loaded
-        }
+        contacts = ContactHelper.getDeviceContacts(context)
     }
 
     LaunchedEffect(Unit) {
@@ -401,6 +384,31 @@ fun SelectCallContactScreen(
                     color = Color(0xFF64748B),
                     modifier = Modifier.padding(top = 18.dp, bottom = 10.dp)
                 )
+            }
+
+            if (filteredContacts.isEmpty()) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = if (searchQuery.isNotEmpty()) "No contacts matching \"$searchQuery\"" else "No contacts found yet",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF64748B)
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Tap 'New contact' above to add someone or invite contacts to Olinam.",
+                            fontSize = 13.sp,
+                            color = Color(0xFF94A3B8),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                }
             }
 
             // Contacts List with Avatar and Radio Selection Circle (Screenshots 1 & 2)

@@ -103,68 +103,8 @@ class FirebaseChatRepository {
     }
 
     private fun bootstrapInitialData() {
-        val now = System.currentTimeMillis()
-        val oneHour = 3600 * 1000L
-        val oneDay = 24 * 3600 * 1000L
-
-        val initialCalls = listOf(
-            CallLog(
-                id = "call_1",
-                contactName = "+91 89207 36645",
-                phoneNumber = "+91 89207 36645",
-                subtitleNote = "~ sanju",
-                count = 1,
-                direction = CallDirection.MISSED,
-                callType = CallType.VOICE,
-                timestamp = now - (oneDay + 4 * oneHour),
-                duration = "00:00"
-            ),
-            CallLog(
-                id = "call_2",
-                contactName = "+91 97738 62847",
-                phoneNumber = "+91 97738 62847",
-                subtitleNote = "~ sonu",
-                count = 1,
-                direction = CallDirection.OUTGOING,
-                callType = CallType.VOICE,
-                timestamp = now - (oneDay + 12 * oneHour),
-                duration = "01:24"
-            ),
-            CallLog(
-                id = "call_3",
-                contactName = "+91 97738 62847",
-                phoneNumber = "+91 97738 62847",
-                subtitleNote = "~ sonu",
-                count = 3,
-                direction = CallDirection.MISSED,
-                callType = CallType.VOICE,
-                timestamp = now - (oneDay + 12 * oneHour + 5000),
-                duration = "00:00"
-            ),
-            CallLog(
-                id = "call_4",
-                contactName = "+91 97738 62847",
-                phoneNumber = "+91 97738 62847",
-                subtitleNote = "~ sonu",
-                count = 1,
-                direction = CallDirection.INCOMING,
-                callType = CallType.VOICE,
-                timestamp = now - (oneDay + 13 * oneHour),
-                duration = "03:15"
-            ),
-            CallLog(
-                id = "call_5",
-                contactName = "+91 97738 62847",
-                phoneNumber = "+91 97738 62847",
-                subtitleNote = "~ sonu",
-                count = 1,
-                direction = CallDirection.MISSED,
-                callType = CallType.VOICE,
-                timestamp = now - (oneDay + 14 * oneHour),
-                duration = "00:00"
-            )
-        )
-        _callLogs.value = initialCalls
+        // Zero dummy data: production-grade clean initial state
+        _callLogs.value = emptyList()
         _conversations.value = emptyList()
         _messages.value = emptyMap()
         _stories.value = emptyList()

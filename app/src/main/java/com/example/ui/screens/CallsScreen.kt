@@ -178,12 +178,12 @@ fun CallsScreen(
                                 onDismissRequest = { showMenu = false }
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("Simulate Incoming Call from Sonu") },
+                                    text = { Text("Simulate Incoming Call") },
                                     onClick = {
                                         showMenu = false
                                         viewModel.simulateIncomingCall(
-                                            contactName = "Sonu",
-                                            contactPhone = "+91 97738 62847",
+                                            contactName = "Incoming Call",
+                                            contactPhone = "+91 98765 43210",
                                             callType = CallType.VOICE
                                         )
                                     }
@@ -248,6 +248,63 @@ fun CallsScreen(
                         color = Color(0xFF0F172A),
                         modifier = Modifier.padding(top = 10.dp, bottom = 8.dp)
                     )
+                }
+
+                if (filteredLogs.isEmpty()) {
+                    item {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 42.dp, horizontal = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(70.dp)
+                                    .clip(CircleShape)
+                                    .background(OlinamPrimaryContainer),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Call,
+                                    contentDescription = "Calls",
+                                    tint = OlinamPrimary,
+                                    modifier = Modifier.size(34.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(
+                                text = "No recent calls",
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF0F172A)
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "To make a call, tap the Call button or dial a number using the Keypad.",
+                                fontSize = 13.5.sp,
+                                color = Color(0xFF64748B),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(18.dp))
+                            Button(
+                                onClick = onOpenSelectContact,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = OlinamPrimary,
+                                    contentColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Call,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Start a call")
+                            }
+                        }
+                    }
                 }
 
                 // Call Logs List (Screenshot 4)
@@ -469,10 +526,13 @@ fun CallsScreen(
             title = { Text("Favourite Contacts") },
             text = {
                 Column {
-                    Text("Quickly call your most important contacts:")
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text("• Sonu (+91 97738 62847)", fontWeight = FontWeight.Medium)
-                    Text("• Sanju (+91 89207 36645)", fontWeight = FontWeight.Medium)
+                    Text("No favourite contacts added yet.", fontWeight = FontWeight.SemiBold)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Add contacts to favourites for one-tap calling.",
+                        fontSize = 13.sp,
+                        color = Color(0xFF64748B)
+                    )
                 }
             },
             confirmButton = {
