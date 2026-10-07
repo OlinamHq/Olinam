@@ -242,7 +242,7 @@ fun StoriesScreen(
             }
 
             FloatingActionButton(
-                onClick = { showAddStatusDialog = true },
+                onClick = { onCameraClick() },
                 containerColor = OlinamPrimary,
                 contentColor = Color.White,
                 shape = RoundedCornerShape(16.dp),

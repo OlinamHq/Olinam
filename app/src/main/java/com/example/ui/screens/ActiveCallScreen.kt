@@ -83,6 +83,46 @@ fun ActiveCallScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
+    val audioManager = remember {
+        context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+    }
+
+    // Real hardware speakerphone control
+    DisposableEffect(currentCall.isSpeakerOn) {
+        try {
+            audioManager?.isSpeakerphoneOn = currentCall.isSpeakerOn
+        } catch (_: Exception) {}
+        onDispose {}
+    }
+
+    // Real hardware microphone mute control
+    DisposableEffect(currentCall.isMuted) {
+        try {
+            audioManager?.isMicrophoneMute = currentCall.isMuted
+        } catch (_: Exception) {}
+        onDispose {}
+    }
+
+    // Real audible telephone ringing tone while connecting
+    DisposableEffect(currentCall.isConnected) {
+        var toneGen: android.media.ToneGenerator? = null
+        if (!currentCall.isConnected && !currentCall.isIncoming) {
+            try {
+                toneGen = android.media.ToneGenerator(
+                    AudioManager.STREAM_VOICE_CALL,
+                    android.media.ToneGenerator.MAX_VOLUME
+                )
+                toneGen.startTone(android.media.ToneGenerator.TONE_SUP_RINGTONE, 3500)
+            } catch (_: Exception) {}
+        }
+        onDispose {
+            try {
+                toneGen?.stopTone()
+                toneGen?.release()
+            } catch (_: Exception) {}
+        }
+    }
+
     val hasCameraPerm = remember {
         ContextCompat.checkSelfPermission(
             context,

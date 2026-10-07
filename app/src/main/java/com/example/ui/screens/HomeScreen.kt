@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddComment
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Chat
@@ -97,6 +98,7 @@ fun HomeScreen(
     val currentUser by viewModel.currentUser.collectAsState()
     val firebaseConnected by viewModel.firebaseConnected.collectAsState()
     val activeCallState by viewModel.activeCallState.collectAsState()
+    val registeredPhoneNumbers by viewModel.registeredPhoneNumbers.collectAsState()
 
     var showNewChatDialog by remember { mutableStateOf(false) }
     var showSelectContactScreen by remember { mutableStateOf(false) }
@@ -115,7 +117,16 @@ fun HomeScreen(
         viewModel.restoreSavedSession(context)
     }
 
-    // 0. Active Audio or Video Call Screen (real live call)
+    val webrtcManager = remember { viewModel.getOrCreateWebRtcCallManager(context) }
+    val webrtcCallState by webrtcManager.callState.collectAsState()
+
+    // 0. WebRTC Audio & Video Call Screen
+    if (webrtcCallState != com.example.webrtc.model.WebRtcCallState.IDLE) {
+        com.example.webrtc.ui.WebRtcActiveCallScreen(callManager = webrtcManager)
+        return
+    }
+
+    // Active Audio or Video Call Screen (real live call)
     if (activeCallState != null) {
         ActiveCallScreen(viewModel = viewModel)
         return
@@ -234,7 +245,12 @@ fun HomeScreen(
             safetyNumber = viewModel.getSafetyNumber(selectedConv.id),
             onBackClick = { viewModel.closeConversation() },
             onSendMessage = { text -> viewModel.sendMessage(selectedConv.id, text) },
-            onCallClick = { type -> viewModel.initiateCall(selectedConv.title, type) }
+            onSendDirectSms = { text ->
+                val destPhone = selectedConv.phoneNumber ?: selectedConv.title.filter { it.isDigit() || it == '+' }
+                viewModel.sendDirectSms(context, selectedConv.id, destPhone, text)
+            },
+            onCallClick = { type -> viewModel.initiateCall(selectedConv.title, type) },
+            onVerifyAppStatus = { viewModel.verifyAndUpdateConversationAppStatus(selectedConv.id) }
         )
         return
     }
@@ -243,6 +259,7 @@ fun HomeScreen(
     if (showSelectContactScreen) {
         SelectContactScreen(
             userPhoneNumber = currentUser.phoneNumber,
+            registeredPhoneNumbers = registeredPhoneNumbers,
             onBackClick = { showSelectContactScreen = false },
             onNewGroupClick = {
                 showSelectContactScreen = false
@@ -324,21 +341,22 @@ fun HomeScreen(
         },
         floatingActionButton = {
             if (currentTab == AppTab.CHATS) {
-                // WhatsApp-style compact squircle FAB in Royal Blue (OlinamPrimary)
+                // Large '+' FAB in Royal Blue (OlinamPrimary) requested by user
                 FloatingActionButton(
                     onClick = { showSelectContactScreen = true },
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(18.dp),
                     containerColor = OlinamPrimary,
                     contentColor = Color.White,
-                    elevation = FloatingActionButtonDefaults.elevation(3.dp),
+                    elevation = FloatingActionButtonDefaults.elevation(4.dp),
                     modifier = Modifier
-                        .size(54.dp)
+                        .size(56.dp)
                         .testTag("new_chat_fab")
                 ) {
                     Icon(
-                        imageVector = Icons.Default.AddComment,
+                        imageVector = Icons.Default.Add,
                         contentDescription = "New Chat",
-                        modifier = Modifier.size(24.dp)
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp)
                     )
                 }
             }

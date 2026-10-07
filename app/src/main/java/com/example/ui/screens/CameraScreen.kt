@@ -140,10 +140,10 @@ fun CameraScreen(
     var isFrontCamera by remember { mutableStateOf(false) }
     var flashMode by remember { mutableStateOf(0) } // 0: Off, 1: On, 2: Auto
     var selectedMode by remember { mutableStateOf("Photo") } // "Video" or "Photo"
+    var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
 
     // Photo captured / selected state (transition to Screenshot 3)
     var capturedImageUri by remember { mutableStateOf<Uri?>(null) }
-    var isSimulatedCapture by remember { mutableStateOf(false) }
 
     // Screen 2 Editor states (Screenshot 3)
     var captionText by remember { mutableStateOf("") }
@@ -163,12 +163,11 @@ fun CameraScreen(
     ) { uri: Uri? ->
         if (uri != null) {
             capturedImageUri = uri
-            isSimulatedCapture = false
         }
     }
 
     // SCREEN 2: Photo Editor & Status Send (Screenshot 3)
-    if (capturedImageUri != null || isSimulatedCapture) {
+    if (capturedImageUri != null) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -182,42 +181,12 @@ fun CameraScreen(
                     .align(Alignment.Center),
                 contentAlignment = Alignment.Center
             ) {
-                if (capturedImageUri != null) {
-                    AsyncImage(
-                        model = capturedImageUri,
-                        contentDescription = "Selected image",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit
-                    )
-                } else {
-                    // Beautiful simulated captured camera photo
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xFF1E293B)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            drawCircle(
-                                color = Color(0xFF334155),
-                                radius = size.minDimension / 2.5f,
-                                center = center,
-                                style = Stroke(width = 12f)
-                            )
-                            drawCircle(
-                                color = Color(0xFF475569),
-                                radius = size.minDimension / 4f,
-                                center = center,
-                                style = Stroke(width = 8f)
-                            )
-                            drawCircle(
-                                color = Color.White,
-                                radius = 24f,
-                                center = center
-                            )
-                        }
-                    }
-                }
+                AsyncImage(
+                    model = capturedImageUri,
+                    contentDescription = "Selected image",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit
+                )
 
                 // Drawing Canvas Overlay (allows user to draw with finger)
                 Canvas(
@@ -320,7 +289,6 @@ fun CameraScreen(
                 IconButton(
                     onClick = {
                         capturedImageUri = null
-                        isSimulatedCapture = false
                         drawnPaths.clear()
                         customTextOverlay = ""
                     },
@@ -644,6 +612,17 @@ fun CameraScreen(
                         val preview = Preview.Builder().build().also {
                             it.setSurfaceProvider(previewView.surfaceProvider)
                         }
+                        val capture = ImageCapture.Builder()
+                            .setFlashMode(
+                                when (flashMode) {
+                                    1 -> ImageCapture.FLASH_MODE_ON
+                                    2 -> ImageCapture.FLASH_MODE_AUTO
+                                    else -> ImageCapture.FLASH_MODE_OFF
+                                }
+                            )
+                            .build()
+                        imageCapture = capture
+
                         val selector = if (isFrontCamera) {
                             CameraSelector.DEFAULT_FRONT_CAMERA
                         } else {
@@ -654,10 +633,17 @@ fun CameraScreen(
                             cameraProvider.bindToLifecycle(
                                 lifecycleOwner,
                                 selector,
-                                preview
+                                preview,
+                                capture
                             )
                         } catch (e: Exception) {
-                            // Camera binding notice
+                            try {
+                                cameraProvider.bindToLifecycle(
+                                    lifecycleOwner,
+                                    selector,
+                                    preview
+                                )
+                            } catch (_: Exception) {}
                         }
                     }, ContextCompat.getMainExecutor(ctx))
                     previewView
@@ -774,7 +760,11 @@ fun CameraScreen(
                             .background(bg)
                             .border(1.dp, Color.White.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
                             .clickable {
-                                isSimulatedCapture = true
+                                photoPickerLauncher.launch(
+                                    androidx.activity.result.PickVisualMediaRequest(
+                                        ActivityResultContracts.PickVisualMedia.ImageOnly
+                                    )
+                                )
                             }
                     )
                 }
@@ -819,8 +809,33 @@ fun CameraScreen(
                         .clip(CircleShape)
                         .border(4.dp, Color.White, CircleShape)
                         .clickable {
-                            // Snap photo and transition to Photo Editor Screen
-                            isSimulatedCapture = true
+                            val cap = imageCapture
+                            val photoFile = java.io.File(context.cacheDir, "camera_snap_${System.currentTimeMillis()}.jpg")
+                            if (cap != null) {
+                                val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+                                cap.takePicture(
+                                    outputOptions,
+                                    ContextCompat.getMainExecutor(context),
+                                    object : ImageCapture.OnImageSavedCallback {
+                                        override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                                            capturedImageUri = Uri.fromFile(photoFile)
+                                        }
+                                        override fun onError(exc: androidx.camera.core.ImageCaptureException) {
+                                            photoPickerLauncher.launch(
+                                                androidx.activity.result.PickVisualMediaRequest(
+                                                    ActivityResultContracts.PickVisualMedia.ImageOnly
+                                                )
+                                            )
+                                        }
+                                    }
+                                )
+                            } else {
+                                photoPickerLauncher.launch(
+                                    androidx.activity.result.PickVisualMediaRequest(
+                                        ActivityResultContracts.PickVisualMedia.ImageOnly
+                                    )
+                                )
+                            }
                         }
                         .testTag("camera_shutter_button"),
                     contentAlignment = Alignment.Center

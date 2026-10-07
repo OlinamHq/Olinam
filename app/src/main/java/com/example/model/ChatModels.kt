@@ -29,6 +29,7 @@ data class Message(
     val encryptedPayload: EncryptedPayload? = null,
     val timestamp: Long = System.currentTimeMillis(),
     val isEncrypted: Boolean = true,
+    val isSms: Boolean = false,
     val status: MessageStatus = MessageStatus.SENT,
     val mediaUrl: String? = null,
     val mediaType: MediaType = MediaType.TEXT

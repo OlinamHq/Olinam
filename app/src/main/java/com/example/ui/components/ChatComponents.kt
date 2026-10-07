@@ -689,130 +689,136 @@ fun OlinamBottomNavBar(
         border = androidx.compose.foundation.BorderStroke(0.6.dp, Color(0xFFE2E8F0)),
         modifier = Modifier
             .fillMaxWidth()
+            .navigationBarsPadding()
             .testTag("bottom_nav_bar")
     ) {
-        NavigationBar(
-            containerColor = Color.White,
-            tonalElevation = 0.dp,
-            windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
+        Row(
             modifier = Modifier
-                .height(60.dp)
                 .fillMaxWidth()
+                .height(62.dp)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceAround,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            val selectedIndicatorColor = OlinamPrimaryContainer
-            val selectedContentColor = OlinamPrimary
-            val unselectedContentColor = Color(0xFF64748B)
-
             // 1. Chats
-            NavigationBarItem(
+            BottomNavItem(
                 selected = currentTab == AppTab.CHATS,
-                onClick = { onTabSelected(AppTab.CHATS) },
-                icon = {
+                label = stringResource(R.string.chats),
+                icon = { tint ->
                     Icon(
                         imageVector = Icons.Rounded.ChatBubble,
                         contentDescription = stringResource(R.string.chats),
-                        modifier = Modifier.size(24.dp)
+                        tint = tint,
+                        modifier = Modifier.size(23.dp)
                     )
                 },
-                label = {
-                    Text(
-                        text = stringResource(R.string.chats),
-                        fontSize = 12.sp,
-                        fontWeight = if (currentTab == AppTab.CHATS) FontWeight.Bold else FontWeight.Medium
-                    )
-                },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = selectedContentColor,
-                    selectedTextColor = selectedContentColor,
-                    indicatorColor = selectedIndicatorColor,
-                    unselectedIconColor = unselectedContentColor,
-                    unselectedTextColor = unselectedContentColor
-                ),
-                modifier = Modifier.testTag("nav_item_chats")
+                onClick = { onTabSelected(AppTab.CHATS) },
+                testTag = "nav_item_chats"
             )
 
             // 2. Status
-            NavigationBarItem(
+            BottomNavItem(
                 selected = currentTab == AppTab.STORIES,
-                onClick = { onTabSelected(AppTab.STORIES) },
-                icon = {
+                label = "Status",
+                icon = { tint ->
                     Icon(
                         imageVector = Icons.Rounded.DonutLarge,
                         contentDescription = "Status",
-                        modifier = Modifier.size(24.dp)
+                        tint = tint,
+                        modifier = Modifier.size(23.dp)
                     )
                 },
-                label = {
-                    Text(
-                        text = "Status",
-                        fontSize = 12.sp,
-                        fontWeight = if (currentTab == AppTab.STORIES) FontWeight.Bold else FontWeight.Medium
-                    )
-                },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = selectedContentColor,
-                    selectedTextColor = selectedContentColor,
-                    indicatorColor = selectedIndicatorColor,
-                    unselectedIconColor = unselectedContentColor,
-                    unselectedTextColor = unselectedContentColor
-                ),
-                modifier = Modifier.testTag("nav_item_stories")
+                onClick = { onTabSelected(AppTab.STORIES) },
+                testTag = "nav_item_stories"
             )
 
             // 3. Oj Ai
-            NavigationBarItem(
+            BottomNavItem(
                 selected = currentTab == AppTab.OJ_AI,
-                onClick = { onTabSelected(AppTab.OJ_AI) },
-                icon = {
+                label = stringResource(R.string.oj_ai),
+                icon = { tint ->
                     Icon(
                         painter = painterResource(id = R.drawable.ic_oj_ai),
                         contentDescription = stringResource(R.string.oj_ai),
-                        modifier = Modifier.size(24.dp)
+                        tint = tint,
+                        modifier = Modifier.size(23.dp)
                     )
                 },
-                label = {
-                    Text(
-                        text = stringResource(R.string.oj_ai),
-                        fontSize = 12.sp,
-                        fontWeight = if (currentTab == AppTab.OJ_AI) FontWeight.Bold else FontWeight.Medium
-                    )
-                },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = selectedContentColor,
-                    selectedTextColor = selectedContentColor,
-                    indicatorColor = selectedIndicatorColor,
-                    unselectedIconColor = unselectedContentColor,
-                    unselectedTextColor = unselectedContentColor
-                ),
-                modifier = Modifier.testTag("nav_item_oj_ai")
+                onClick = { onTabSelected(AppTab.OJ_AI) },
+                testTag = "nav_item_oj_ai"
             )
 
             // 4. Calls
-            NavigationBarItem(
+            BottomNavItem(
                 selected = currentTab == AppTab.CALLS,
-                onClick = { onTabSelected(AppTab.CALLS) },
-                icon = {
+                label = stringResource(R.string.calls),
+                icon = { tint ->
                     Icon(
                         imageVector = Icons.Default.Call,
                         contentDescription = stringResource(R.string.calls),
-                        modifier = Modifier.size(24.dp)
+                        tint = tint,
+                        modifier = Modifier.size(23.dp)
                     )
                 },
-                label = {
-                    Text(
-                        text = stringResource(R.string.calls),
-                        fontSize = 12.sp,
-                        fontWeight = if (currentTab == AppTab.CALLS) FontWeight.Bold else FontWeight.Medium
-                    )
-                },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = selectedContentColor,
-                    selectedTextColor = selectedContentColor,
-                    indicatorColor = selectedIndicatorColor,
-                    unselectedIconColor = unselectedContentColor,
-                    unselectedTextColor = unselectedContentColor
-                ),
-                modifier = Modifier.testTag("nav_item_calls")
+                onClick = { onTabSelected(AppTab.CALLS) },
+                testTag = "nav_item_calls"
+            )
+        }
+    }
+}
+
+@Composable
+private fun androidx.compose.foundation.layout.RowScope.BottomNavItem(
+    selected: Boolean,
+    label: String,
+    icon: @Composable (Color) -> Unit,
+    onClick: () -> Unit,
+    testTag: String
+) {
+    Column(
+        modifier = Modifier
+            .weight(1f)
+            .height(56.dp)
+            .clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = null
+            ) { onClick() }
+            .testTag(testTag),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        if (selected) {
+            // Royal Blue capsule pill with White icon (requested by user)
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(OlinamPrimary)
+                    .padding(horizontal = 18.dp, vertical = 3.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                icon(Color.White)
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = label,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Bold,
+                color = OlinamPrimary
+            )
+        } else {
+            // Unselected: slate icon and text
+            Box(
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 3.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                icon(Color(0xFF64748B))
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = label,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Normal,
+                color = Color(0xFF64748B)
             )
         }
     }

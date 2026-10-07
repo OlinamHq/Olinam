@@ -122,10 +122,21 @@ class ChatViewModel(
         }
     }
 
+    val registeredPhoneNumbers: StateFlow<Set<String>> = repository.registeredPhoneNumbers
+
+    fun isPhoneNumberRegistered(phone: String): Boolean = repository.isPhoneNumberRegistered(phone)
+
+    suspend fun verifyPhoneNumberRegistered(phone: String): Boolean = repository.verifyPhoneNumberRegistered(phone)
+
+    fun verifyAndUpdateConversationAppStatus(conversationId: String) {
+        repository.verifyAndUpdateConversationAppStatus(conversationId)
+    }
+
     fun openConversation(conversationId: String, context: Context? = null) {
         _activeConversationId.value = conversationId
         repository.markConversationAsRead(conversationId)
         repository.listenToMessages(conversationId)
+        repository.verifyAndUpdateConversationAppStatus(conversationId)
 
         val conv = repository.conversations.value.find { it.id == conversationId }
         if (conv?.isSmsContact == true && conv.phoneNumber != null && context != null) {
@@ -145,6 +156,11 @@ class ChatViewModel(
     fun sendMessage(conversationId: String, text: String) {
         if (text.isBlank()) return
         repository.sendMessage(conversationId, text)
+    }
+
+    fun sendDirectSms(context: Context, conversationId: String, recipientPhone: String, text: String): Boolean {
+        if (text.isBlank() || recipientPhone.isBlank()) return false
+        return repository.sendDirectSmsMessage(conversationId, text, recipientPhone, context)
     }
 
     fun createNewChat(name: String, isGroup: Boolean, initialMessage: String = ""): String {
@@ -213,6 +229,42 @@ class ChatViewModel(
         persistUserSession(user.name, phone, "", context)
     }
 
+    var webRtcCallManager: com.example.webrtc.call.WebRtcCallManager? = null
+        private set
+
+    fun getOrCreateWebRtcCallManager(context: Context): com.example.webrtc.call.WebRtcCallManager {
+        if (webRtcCallManager == null) {
+            webRtcCallManager = com.example.webrtc.call.WebRtcCallManager(context.applicationContext)
+        }
+        return webRtcCallManager!!
+    }
+
+    fun startWebRtcCall(
+        context: Context,
+        contactName: String,
+        contactPhone: String,
+        contactAvatar: String? = null,
+        callType: CallType = CallType.VOICE
+    ) {
+        val manager = getOrCreateWebRtcCallManager(context)
+        val target = com.example.webrtc.model.WebRtcParticipant(
+            userId = contactPhone.ifBlank { contactName },
+            displayName = contactName,
+            phoneNumber = contactPhone,
+            avatarUrl = contactAvatar
+        )
+        val rtcType = if (callType == CallType.VIDEO) {
+            com.example.webrtc.model.WebRtcCallType.VIDEO
+        } else {
+            com.example.webrtc.model.WebRtcCallType.AUDIO
+        }
+        manager.startOutgoingCall(
+            senderId = currentUser.value.id.ifBlank { "user_me" },
+            targetParticipant = target,
+            type = rtcType
+        )
+    }
+
     fun startCall(
         contactName: String,
         contactPhone: String,
@@ -220,7 +272,7 @@ class ChatViewModel(
         callType: CallType = CallType.VOICE
     ) {
         val callId = "call_${java.util.UUID.randomUUID().toString().take(8)}"
-        _activeCallState.value = com.example.model.ActiveCallState(
+        val callObj = com.example.model.ActiveCallState(
             callId = callId,
             participantName = contactName,
             participantPhone = contactPhone,
@@ -234,6 +286,8 @@ class ChatViewModel(
             isVideoEnabled = callType == CallType.VIDEO,
             isFrontCamera = true
         )
+        _activeCallState.value = callObj
+        repository.publishOutgoingCall(callObj)
 
         callTimerJob?.cancel()
         callTimerJob = viewModelScope.launch {
@@ -251,30 +305,40 @@ class ChatViewModel(
         }
     }
 
-    fun simulateIncomingCall(
-        contactName: String,
-        contactPhone: String,
-        contactAvatar: String? = null,
-        callType: CallType = CallType.VOICE
-    ) {
-        val callId = "call_${java.util.UUID.randomUUID().toString().take(8)}"
-        _activeCallState.value = com.example.model.ActiveCallState(
-            callId = callId,
-            participantName = contactName,
-            participantPhone = contactPhone,
-            participantAvatar = contactAvatar,
-            callType = callType,
-            isIncoming = true,
-            isConnected = false,
-            durationSeconds = 0
-        )
+    fun makeDirectPhoneCall(context: Context, phoneNumber: String) {
+        try {
+            val cleanNumber = phoneNumber.replace(" ", "").replace("-", "")
+            val intent = android.content.Intent(android.content.Intent.ACTION_DIAL).apply {
+                data = android.net.Uri.parse("tel:$cleanNumber")
+                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+
+            // Also record call in call logs
+            repository.addCallLog(
+                contactName = cleanNumber,
+                phoneNumber = cleanNumber,
+                subtitleNote = "Direct Phone Call",
+                type = CallType.VOICE,
+                direction = CallDirection.OUTGOING,
+                duration = "Dialed"
+            )
+        } catch (_: Exception) {}
+    }
+
+    fun clearCallHistory() {
+        repository.clearCallHistory()
     }
 
     fun answerCall() {
+        val callId = _activeCallState.value?.callId ?: ""
         _activeCallState.value = _activeCallState.value?.copy(
             isConnected = true,
             isIncoming = false
         )
+        if (callId.isNotEmpty()) {
+            repository.updateCallStatus(callId, "CONNECTED")
+        }
 
         callTimerJob?.cancel()
         callTimerJob = viewModelScope.launch {
@@ -293,6 +357,7 @@ class ChatViewModel(
         callTimerJob = null
 
         if (currentCall != null) {
+            repository.updateCallStatus(currentCall.callId, "ENDED")
             val minutes = currentCall.durationSeconds / 60
             val seconds = currentCall.durationSeconds % 60
             val durationStr = String.format("%02d:%02d", minutes, seconds)
@@ -305,7 +370,7 @@ class ChatViewModel(
             repository.addCallLog(
                 contactName = currentCall.participantName,
                 phoneNumber = currentCall.participantPhone,
-                subtitleNote = "~ ${currentCall.participantName.lowercase()}",
+                subtitleNote = if (currentCall.participantPhone.isNotEmpty()) currentCall.participantPhone else "Voice Call",
                 type = currentCall.callType,
                 direction = direction,
                 duration = durationStr
@@ -343,7 +408,9 @@ class ChatViewModel(
     }
 
     fun initiateCall(contactName: String, type: CallType) {
-        startCall(contactName, "+91 97738 62847", null, type)
+        val conv = conversations.value.find { it.title.equals(contactName, ignoreCase = true) }
+        val phone = conv?.phoneNumber ?: contactName
+        startCall(contactName, phone, null, type)
     }
 
     fun updateProfile(name: String, status: String, phone: String) {

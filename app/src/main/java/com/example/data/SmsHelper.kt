@@ -165,6 +165,31 @@ object SmsHelper {
         return messages
     }
 
+    fun sendDirectSms(context: Context, destinationAddress: String, text: String): Boolean {
+        return try {
+            val cleanNumber = destinationAddress.replace(" ", "").replace("-", "")
+            if (cleanNumber.isBlank()) return false
+
+            val smsManager: android.telephony.SmsManager = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                context.getSystemService(android.telephony.SmsManager::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                android.telephony.SmsManager.getDefault()
+            }
+
+            val parts = smsManager.divideMessage(text)
+            if (parts.size > 1) {
+                smsManager.sendMultipartTextMessage(cleanNumber, null, parts, null, null)
+            } else {
+                smsManager.sendTextMessage(cleanNumber, null, text, null, null)
+            }
+            true
+        } catch (e: Exception) {
+            android.util.Log.e("SmsHelper", "Failed to send direct SIM SMS: ${e.message}")
+            false
+        }
+    }
+
     private fun resolveContactName(context: Context, phoneNumber: String): String? {
         try {
             val uri = Uri.withAppendedPath(

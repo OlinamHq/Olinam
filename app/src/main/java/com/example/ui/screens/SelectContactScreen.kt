@@ -75,6 +75,7 @@ import com.example.data.DeviceContact
 @Composable
 fun SelectContactScreen(
     userPhoneNumber: String = "",
+    registeredPhoneNumbers: Set<String> = emptySet(),
     onBackClick: () -> Unit,
     onNewGroupClick: () -> Unit,
     onNewContactClick: () -> Unit = {},
@@ -116,11 +117,21 @@ fun SelectContactScreen(
         }
     }
 
-    val filteredContacts = remember(contacts, searchQuery) {
-        if (searchQuery.isBlank()) contacts
+    val filteredContacts = remember(contacts, searchQuery, registeredPhoneNumbers) {
+        val list = if (searchQuery.isBlank()) contacts
         else contacts.filter {
             it.name.contains(searchQuery, ignoreCase = true) ||
                     it.phoneNumber.contains(searchQuery)
+        }
+        list.map { contact ->
+            val clean = contact.phoneNumber.trim()
+            val digits = clean.filter { it.isDigit() }
+            val last10 = digits.takeLast(10)
+            val isReg = registeredPhoneNumbers.contains(clean) ||
+                    registeredPhoneNumbers.contains(digits) ||
+                    (last10.length >= 7 && registeredPhoneNumbers.contains(last10))
+            if (isReg) contact.copy(hasOlinam = true, status = "Hey there! I am using Olinam 🔒")
+            else contact.copy(hasOlinam = false, status = "Non-App Contact (Chat via SMS)")
         }
     }
 

@@ -97,7 +97,9 @@ fun ChatDetailScreen(
     safetyNumber: String,
     onBackClick: () -> Unit,
     onSendMessage: (String) -> Unit,
-    onCallClick: (CallType) -> Unit
+    onSendDirectSms: (String) -> Boolean = { false },
+    onCallClick: (CallType) -> Unit,
+    onVerifyAppStatus: () -> Unit = {}
 ) {
     BackHandler {
         onBackClick()
@@ -105,16 +107,73 @@ fun ChatDetailScreen(
 
     val context = LocalContext.current
     var inputText by remember { mutableStateOf("") }
-    var sendViaSms by remember(conversation.id) { mutableStateOf(conversation.isSmsContact) }
+    var pendingSmsText by remember { mutableStateOf("") }
+    var sendViaSms by remember(conversation.id, conversation.isSmsContact) { mutableStateOf(conversation.isSmsContact) }
     var showSafetyDialog by remember { mutableStateOf(false) }
     var selectedMessageForCrypto by remember { mutableStateOf<Message?>(null) }
     var showQuickAttachMenu by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
 
+    // Dynamically re-verify if recipient has registered on Olinam
+    LaunchedEffect(conversation.id) {
+        onVerifyAppStatus()
+    }
+
+    LaunchedEffect(conversation.isSmsContact) {
+        sendViaSms = conversation.isSmsContact
+    }
+
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.size - 1)
+        }
+    }
+
+    // Permission launcher for sending SMS directly from SIM without opening external apps
+    val smsPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            if (pendingSmsText.isNotBlank()) {
+                val ok = onSendDirectSms(pendingSmsText)
+                if (ok) {
+                    android.widget.Toast.makeText(context, "SMS sent via SIM", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                pendingSmsText = ""
+            }
+        } else {
+            android.widget.Toast.makeText(context, "SMS permission needed to send direct SIM text", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun handleSendAction() {
+        val textToSend = inputText.trim()
+        if (textToSend.isBlank()) {
+            onSendMessage("🎙️ Voice note (0:04)")
+            return
+        }
+
+        if (sendViaSms) {
+            val hasPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.SEND_SMS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+            if (hasPermission) {
+                val ok = onSendDirectSms(textToSend)
+                if (ok) {
+                    android.widget.Toast.makeText(context, "SMS sent via SIM to ${conversation.title}", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                inputText = ""
+            } else {
+                pendingSmsText = textToSend
+                inputText = ""
+                smsPermissionLauncher.launch(android.Manifest.permission.SEND_SMS)
+            }
+        } else {
+            onSendMessage(textToSend)
+            inputText = ""
         }
     }
 
@@ -129,14 +188,14 @@ fun ChatDetailScreen(
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
-                            .clickable { showSafetyDialog = true }
+                            .clickable { if (!sendViaSms) showSafetyDialog = true }
                             .padding(vertical = 4.dp)
                     ) {
                         Box(
                             modifier = Modifier
                                 .size(40.dp)
                                 .clip(CircleShape)
-                                .background(OlinamPrimary),
+                                .background(if (sendViaSms) Color(0xFFD97706) else OlinamPrimary),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
@@ -160,17 +219,27 @@ fun ChatDetailScreen(
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Icon(
-                                    imageVector = Icons.Default.Lock,
-                                    contentDescription = "Encrypted",
-                                    tint = OlinamPrimary,
+                                    imageVector = if (sendViaSms) Icons.Default.Sms else Icons.Default.Lock,
+                                    contentDescription = if (sendViaSms) "Cellular SMS" else "Encrypted",
+                                    tint = if (sendViaSms) Color(0xFFD97706) else OlinamPrimary,
                                     modifier = Modifier.size(13.dp)
                                 )
                             }
-                            Text(
-                                text = conversation.onlineStatus ?: "End-to-End Encrypted",
-                                fontSize = 12.sp,
-                                color = if (conversation.onlineStatus == "online") OlinamOnlineGreen else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            if (sendViaSms) {
+                                Text(
+                                    text = "Cellular SMS (Recipient does not have Olinam)",
+                                    fontSize = 11.5.sp,
+                                    color = Color(0xFFB45309),
+                                    fontWeight = FontWeight.Medium
+                                )
+                            } else {
+                                Text(
+                                    text = conversation.onlineStatus ?: "End-to-End Encrypted",
+                                    fontSize = 12.sp,
+                                    color = if (conversation.onlineStatus == "online") OlinamOnlineGreen else OlinamPrimary,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
                     }
                 },
@@ -296,7 +365,7 @@ fun ChatDetailScreen(
                                     .padding(horizontal = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // SMS/E2EE Toggle Chip
+                                // SMS/E2EE Mode Indicator Chip
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
                                     color = if (sendViaSms) Color(0xFFFEF3C7) else OlinamPrimaryContainer,
@@ -316,7 +385,7 @@ fun ChatDetailScreen(
                                         )
                                         Spacer(modifier = Modifier.width(3.dp))
                                         Text(
-                                            text = if (sendViaSms) "SMS" else "E2EE",
+                                            text = if (sendViaSms) "SIM SMS" else "E2EE",
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = if (sendViaSms) Color(0xFFB45309) else Color(0xFF0160E3)
@@ -329,7 +398,7 @@ fun ChatDetailScreen(
                                 Box(modifier = Modifier.weight(1f)) {
                                     if (inputText.isEmpty()) {
                                         Text(
-                                            text = if (sendViaSms) "SMS/MMS to non-app user..." else "Message",
+                                            text = if (sendViaSms) "Text message via SIM..." else "Message (Encrypted)...",
                                             fontSize = 15.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                         )
@@ -344,25 +413,7 @@ fun ChatDetailScreen(
                                         cursorBrush = SolidColor(Color(0xFF0160E3)),
                                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                                         keyboardActions = KeyboardActions(
-                                            onSend = {
-                                                if (inputText.isNotBlank()) {
-                                                    if (sendViaSms) {
-                                                        val fullSmsBody = "$inputText\n\n— Powered by Olinam\nDownload app: https://olinam.app/download"
-                                                        val rawPhone = conversation.phoneNumber ?: conversation.title.filter { it.isDigit() || it == '+' }
-                                                        val targetUri = if (rawPhone.isNotEmpty()) "smsto:$rawPhone" else "smsto:"
-                                                        val smsIntent = Intent(Intent.ACTION_SENDTO, Uri.parse(targetUri)).apply {
-                                                            putExtra("sms_body", fullSmsBody)
-                                                        }
-                                                        try {
-                                                            context.startActivity(smsIntent)
-                                                        } catch (_: Exception) {}
-                                                        onSendMessage("💬 [SMS] $inputText\n\n— Powered by Olinam (https://olinam.app/download)")
-                                                    } else {
-                                                        onSendMessage(inputText)
-                                                    }
-                                                    inputText = ""
-                                                }
-                                            }
+                                            onSend = { handleSendAction() }
                                         ),
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -392,27 +443,7 @@ fun ChatDetailScreen(
                                 .size(48.dp)
                                 .clip(CircleShape)
                                 .background(Color(0xFF0160E3)) // Royal Blue #0160E3
-                                .clickable {
-                                    if (inputText.isNotBlank()) {
-                                        if (sendViaSms) {
-                                            val fullSmsBody = "$inputText\n\n— Powered by Olinam\nDownload app: https://olinam.app/download"
-                                            val rawPhone = conversation.phoneNumber ?: conversation.title.filter { it.isDigit() || it == '+' }
-                                            val targetUri = if (rawPhone.isNotEmpty()) "smsto:$rawPhone" else "smsto:"
-                                            val smsIntent = Intent(Intent.ACTION_SENDTO, Uri.parse(targetUri)).apply {
-                                                putExtra("sms_body", fullSmsBody)
-                                            }
-                                            try {
-                                                context.startActivity(smsIntent)
-                                            } catch (_: Exception) {}
-                                            onSendMessage("💬 [SMS] $inputText\n\n— Powered by Olinam (https://olinam.app/download)")
-                                        } else {
-                                            onSendMessage(inputText)
-                                        }
-                                        inputText = ""
-                                    } else {
-                                        onSendMessage("🎙️ Voice note (0:04)")
-                                    }
-                                }
+                                .clickable { handleSendAction() }
                                 .testTag("send_message_button"),
                             contentAlignment = Alignment.Center
                         ) {
@@ -434,8 +465,8 @@ fun ChatDetailScreen(
                 .padding(innerPadding)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            // E2EE Notice Banner or SMS Notice Banner
-            if (conversation.isSmsContact) {
+            // Dynamic Banner: Cellular SMS Notice vs E2EE Notice
+            if (sendViaSms) {
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -451,16 +482,25 @@ fun ChatDetailScreen(
                             imageVector = Icons.Default.Sms,
                             contentDescription = "SMS Contact",
                             tint = Color(0xFFB45309),
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(20.dp)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Non-App Contact: Messages are delivered via SMS with Olinam download link so they can reply. Once they install Olinam, this chat upgrades to End-to-End Encryption.",
-                            fontSize = 11.5.sp,
-                            color = Color(0xFF92400E),
-                            lineHeight = 15.sp,
-                            textAlign = TextAlign.Start
-                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "💬 Text Message (SMS) • Non-App Contact",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF92400E)
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Recipient does not have Olinam installed. Messages are sent directly from your device's SIM card as standard SMS text. No external app opens.",
+                                fontSize = 11.5.sp,
+                                color = Color(0xFF92400E),
+                                lineHeight = 15.sp,
+                                textAlign = TextAlign.Start
+                            )
+                        }
                     }
                 }
             } else {

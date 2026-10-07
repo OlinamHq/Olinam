@@ -70,6 +70,10 @@ class FirebaseChatRepository {
     private val _firebaseConnected = MutableStateFlow(false)
     val firebaseConnected: StateFlow<Boolean> = _firebaseConnected.asStateFlow()
 
+    private val _registeredPhoneNumbers = MutableStateFlow<Set<String>>(emptySet())
+    val registeredPhoneNumbers: StateFlow<Set<String>> = _registeredPhoneNumbers.asStateFlow()
+
+    private var usersListener: ListenerRegistration? = null
     private val messageListeners = mutableMapOf<String, ListenerRegistration>()
     private var conversationsListener: ListenerRegistration? = null
 
@@ -96,9 +100,143 @@ class FirebaseChatRepository {
                 )
             }
             listenToConversations()
+            listenToRegisteredUsers()
         } catch (e: Exception) {
             Log.w(tag, "Firebase initialization notice: ${e.message}. Using high-speed reactive local engine.")
             _firebaseConnected.value = false
+        }
+    }
+
+    private fun listenToRegisteredUsers() {
+        val db = firestore ?: return
+        try {
+            usersListener?.remove()
+            usersListener = db.collection("users").addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null) return@addSnapshotListener
+                val set = mutableSetOf<String>()
+                for (doc in snapshot.documents) {
+                    val phone = doc.getString("phoneNumber") ?: ""
+                    val cleanPhone = doc.getString("cleanPhoneNumber") ?: ""
+                    if (phone.isNotBlank()) {
+                        set.add(phone.trim())
+                        val digits = phone.filter { it.isDigit() }
+                        if (digits.isNotBlank()) {
+                            set.add(digits)
+                            set.add(digits.takeLast(10))
+                        }
+                    }
+                    if (cleanPhone.isNotBlank()) {
+                        set.add(cleanPhone.trim())
+                        set.add(cleanPhone.takeLast(10))
+                    }
+                }
+                _registeredPhoneNumbers.value = set
+                // Automatically re-evaluate existing conversations app status
+                updateAllConversationsAppStatus()
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Users listen note: ${e.message}")
+        }
+    }
+
+    fun isPhoneNumberRegistered(phoneNumber: String): Boolean {
+        if (phoneNumber.isBlank()) return false
+        val cleanNumber = phoneNumber.trim()
+        val digits = cleanNumber.filter { it.isDigit() }
+        val last10 = digits.takeLast(10)
+        val registered = _registeredPhoneNumbers.value
+        return registered.contains(cleanNumber) ||
+                registered.contains(digits) ||
+                (last10.length >= 7 && registered.contains(last10))
+    }
+
+    suspend fun verifyPhoneNumberRegistered(phoneNumber: String): Boolean {
+        if (isPhoneNumberRegistered(phoneNumber)) return true
+        val db = firestore ?: return false
+        return kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+            val cleanNumber = phoneNumber.trim()
+            val digits = cleanNumber.filter { it.isDigit() }
+            val last10 = digits.takeLast(10)
+
+            db.collection("users")
+                .whereEqualTo("phoneNumber", cleanNumber)
+                .limit(1)
+                .get()
+                .addOnSuccessListener { querySnapshot ->
+                    if (!querySnapshot.isEmpty) {
+                        val set = _registeredPhoneNumbers.value.toMutableSet()
+                        set.add(cleanNumber)
+                        if (digits.isNotEmpty()) {
+                            set.add(digits)
+                            set.add(last10)
+                        }
+                        _registeredPhoneNumbers.value = set
+                        if (cont.isActive) cont.resume(true) {}
+                    } else if (last10.length >= 7) {
+                        db.collection("users")
+                            .whereEqualTo("cleanPhoneNumber", last10)
+                            .limit(1)
+                            .get()
+                            .addOnSuccessListener { subQuery ->
+                                val found = !subQuery.isEmpty
+                                if (found) {
+                                    val set = _registeredPhoneNumbers.value.toMutableSet()
+                                    set.add(cleanNumber)
+                                    set.add(last10)
+                                    _registeredPhoneNumbers.value = set
+                                }
+                                if (cont.isActive) cont.resume(found) {}
+                            }
+                            .addOnFailureListener {
+                                if (cont.isActive) cont.resume(false) {}
+                            }
+                    } else {
+                        if (cont.isActive) cont.resume(false) {}
+                    }
+                }
+                .addOnFailureListener {
+                    if (cont.isActive) cont.resume(false) {}
+                }
+        }
+    }
+
+    private fun updateAllConversationsAppStatus() {
+        val current = _conversations.value
+        val updated = current.map { conv ->
+            val phone = conv.phoneNumber ?: conv.title.filter { it.isDigit() || it == '+' }
+            if (phone.isNotBlank() && !conv.isGroup) {
+                val hasApp = isPhoneNumberRegistered(phone)
+                conv.copy(
+                    isSmsContact = !hasApp,
+                    isE2EE = hasApp,
+                    onlineStatus = if (hasApp) "End-to-End Encrypted 🔒" else "Cellular SMS (No Olinam app installed)"
+                )
+            } else {
+                conv
+            }
+        }
+        if (updated != current) {
+            _conversations.value = updated
+        }
+    }
+
+    fun verifyAndUpdateConversationAppStatus(conversationId: String) {
+        val conv = _conversations.value.find { it.id == conversationId } ?: return
+        val phone = conv.phoneNumber ?: conv.title.filter { it.isDigit() || it == '+' }
+        if (phone.isBlank() || conv.isGroup) return
+
+        scope.launch {
+            val hasApp = verifyPhoneNumberRegistered(phone)
+            val updated = _conversations.value.map { item ->
+                if (item.id == conversationId) {
+                    item.copy(
+                        isSmsContact = !hasApp,
+                        isE2EE = hasApp,
+                        onlineStatus = if (hasApp) "End-to-End Encrypted 🔒" else "Cellular SMS (No Olinam app installed)"
+                    )
+                } else item
+            }
+            _conversations.value = updated
         }
     }
 
@@ -394,25 +532,37 @@ class FirebaseChatRepository {
                     it.title.contains(phoneNumber)
         }
         if (existing != null) {
+            // Verify if user registered since last seen
+            verifyAndUpdateConversationAppStatus(existing.id)
             return existing.id
         }
+
+        val hasApp = isPhoneNumberRegistered(phoneNumber)
+        val finalIsSms = if (phoneNumber.isNotBlank()) !hasApp else isSms
 
         val newId = "conv_${UUID.randomUUID().toString().take(8)}"
         val conv = Conversation(
             id = newId,
             title = name,
             isGroup = false,
-            lastMessageText = if (isSms) "SMS Chat (Powered by Olinam)" else "Chat started",
+            lastMessageText = if (finalIsSms) "SMS Chat (Standard SIM Text)" else "End-to-End Encrypted Chat started",
             lastMessageTimestamp = System.currentTimeMillis(),
             unreadCount = 0,
             iconType = "USER",
-            isSmsContact = isSms,
+            isSmsContact = finalIsSms,
+            isE2EE = !finalIsSms,
+            onlineStatus = if (!finalIsSms) "End-to-End Encrypted 🔒" else "Cellular SMS (No Olinam app installed)",
             phoneNumber = phoneNumber
         )
 
         val updated = _conversations.value.toMutableList()
         updated.add(0, conv)
         _conversations.value = updated
+
+        // Verify asynchronously in case phone was just registered
+        if (phoneNumber.isNotBlank()) {
+            verifyAndUpdateConversationAppStatus(newId)
+        }
 
         val db = firestore
         if (db != null) {
@@ -423,7 +573,8 @@ class FirebaseChatRepository {
                             "title" to name,
                             "phoneNumber" to phoneNumber,
                             "isGroup" to false,
-                            "isSmsContact" to isSms,
+                            "isSmsContact" to finalIsSms,
+                            "isE2EE" to !finalIsSms,
                             "lastMessageText" to conv.lastMessageText,
                             "lastMessageTimestamp" to conv.lastMessageTimestamp,
                             "unreadCount" to 0,
@@ -436,6 +587,52 @@ class FirebaseChatRepository {
             }
         }
         return newId
+    }
+
+    fun sendDirectSmsMessage(
+        conversationId: String,
+        text: String,
+        destinationPhone: String,
+        context: android.content.Context
+    ): Boolean {
+        if (text.isBlank() || destinationPhone.isBlank()) return false
+        val success = SmsHelper.sendDirectSms(context, destinationPhone, text)
+
+        val messageId = "sms_sent_${UUID.randomUUID().toString().take(8)}"
+        val timestamp = System.currentTimeMillis()
+        val currentUser = _currentUser.value
+
+        val newMessage = Message(
+            id = messageId,
+            conversationId = conversationId,
+            senderId = currentUser.id,
+            senderName = currentUser.name.ifBlank { "You" },
+            text = text,
+            isEncrypted = false,
+            isSms = true,
+            status = if (success) MessageStatus.SENT else MessageStatus.SENDING,
+            timestamp = timestamp
+        )
+
+        // 1. Instantly append to active messages
+        val currentMap = _messages.value.toMutableMap()
+        val list = (currentMap[conversationId] ?: emptyList()).toMutableList()
+        list.add(newMessage)
+        currentMap[conversationId] = list
+        _messages.value = currentMap
+
+        // 2. Update conversation snippet
+        val updatedConversations = _conversations.value.map { conv ->
+            if (conv.id == conversationId) {
+                conv.copy(
+                    lastMessageText = text,
+                    lastMessageTimestamp = timestamp,
+                    unreadCount = 0
+                )
+            } else conv
+        }
+        _conversations.value = updatedConversations
+        return success
     }
 
     fun addStory(caption: String, mediaUrl: String? = null, isImage: Boolean = false) {
@@ -516,8 +713,13 @@ class FirebaseChatRepository {
         }
     }
 
+    fun clearCallHistory() {
+        _callLogs.value = emptyList()
+    }
+
     fun saveUserToFirestore(profile: UserProfile) {
         val db = firestore
+        val clean = profile.phoneNumber.filter { it.isDigit() }.takeLast(10)
         if (db != null) {
             scope.launch {
                 try {
@@ -526,6 +728,7 @@ class FirebaseChatRepository {
                             "id" to profile.id,
                             "name" to profile.name,
                             "phoneNumber" to profile.phoneNumber,
+                            "cleanPhoneNumber" to clean,
                             "email" to profile.email,
                             "statusMessage" to profile.statusMessage,
                             "avatarUrl" to (profile.avatarUrl ?: ""),
@@ -545,6 +748,77 @@ class FirebaseChatRepository {
             statusMessage = status,
             phoneNumber = phone
         )
+    }
+
+    private var incomingCallsListener: ListenerRegistration? = null
+
+    fun listenToIncomingCalls(userPhone: String, onIncomingCall: (com.example.model.ActiveCallState) -> Unit) {
+        val db = firestore ?: return
+        if (userPhone.isBlank()) return
+
+        incomingCallsListener?.remove()
+        try {
+            incomingCallsListener = db.collection("active_calls")
+                .whereEqualTo("calleePhone", userPhone.trim())
+                .whereEqualTo("status", "RINGING")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null || snapshot == null) return@addSnapshotListener
+                    for (doc in snapshot.documents) {
+                        val callId = doc.id
+                        val callerName = doc.getString("callerName") ?: "Incoming Call"
+                        val callerPhone = doc.getString("callerPhone") ?: ""
+                        val callTypeStr = doc.getString("callType") ?: "VOICE"
+                        val callType = if (callTypeStr == "VIDEO") CallType.VIDEO else CallType.VOICE
+
+                        onIncomingCall(
+                            com.example.model.ActiveCallState(
+                                callId = callId,
+                                participantName = callerName,
+                                participantPhone = callerPhone,
+                                callType = callType,
+                                isIncoming = true,
+                                isConnected = false
+                            )
+                        )
+                        break
+                    }
+                }
+        } catch (e: Exception) {
+            Log.w(tag, "Listen incoming calls note: ${e.message}")
+        }
+    }
+
+    fun publishOutgoingCall(callState: com.example.model.ActiveCallState) {
+        val db = firestore ?: return
+        scope.launch {
+            try {
+                db.collection("active_calls").document(callState.callId).set(
+                    mapOf(
+                        "callerId" to _currentUser.value.id,
+                        "callerName" to _currentUser.value.name.ifBlank { "Olinam User" },
+                        "callerPhone" to _currentUser.value.phoneNumber,
+                        "calleePhone" to callState.participantPhone,
+                        "calleeName" to callState.participantName,
+                        "callType" to callState.callType.name,
+                        "status" to "RINGING",
+                        "timestamp" to System.currentTimeMillis()
+                    )
+                )
+            } catch (e: Exception) {
+                Log.w(tag, "Publish outgoing call note: ${e.message}")
+            }
+        }
+    }
+
+    fun updateCallStatus(callId: String, status: String) {
+        val db = firestore ?: return
+        scope.launch {
+            try {
+                db.collection("active_calls").document(callId).update("status", status)
+            } catch (e: Exception) {
+                Log.w(tag, "Update call status note: ${e.message}")
+            }
+        }
     }
 
     fun markConversationAsRead(conversationId: String) {

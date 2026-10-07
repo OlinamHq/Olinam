@@ -178,19 +178,11 @@ fun CallsScreen(
                                 onDismissRequest = { showMenu = false }
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("Simulate Incoming Call") },
+                                    text = { Text("Clear call history") },
                                     onClick = {
                                         showMenu = false
-                                        viewModel.simulateIncomingCall(
-                                            contactName = "Incoming Call",
-                                            contactPhone = "+91 98765 43210",
-                                            callType = CallType.VOICE
-                                        )
+                                        viewModel.clearCallHistory()
                                     }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Clear call log") },
-                                    onClick = { showMenu = false }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Settings") },
@@ -330,17 +322,13 @@ fun CallsScreen(
                             .testTag("call_item_${call.id}"),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Avatar (Screenshot 4)
+                        // Avatar
                         Box(
                             modifier = Modifier
                                 .size(50.dp)
                                 .clip(CircleShape)
                                 .background(
-                                    if (call.contactName.contains("sanju", ignoreCase = true) || call.contactName.contains("89207")) {
-                                        Color(0xFFFDE8E8)
-                                    } else {
-                                        Color(0xFFE0F2FE)
-                                    }
+                                    if (isMissed) Color(0xFFFDE8E8) else Color(0xFFE0F2FE)
                                 ),
                             contentAlignment = Alignment.Center
                         ) {
@@ -355,7 +343,7 @@ fun CallsScreen(
 
                         Spacer(modifier = Modifier.width(14.dp))
 
-                        // Middle column: Phone number / Name, ~ subtitle, Arrow & Timestamp
+                        // Middle column: Phone number / Name, subtitle note, Arrow & Timestamp
                         Column(modifier = Modifier.weight(1f)) {
                             // Title: Red if missed call, Black if answered/outgoing
                             Text(
@@ -365,7 +353,7 @@ fun CallsScreen(
                                 color = if (isMissed) Color(0xFFDC2626) else Color(0xFF0F172A)
                             )
 
-                            // Subtitle 1: ~ sanju / ~ sonu
+                            // Subtitle note
                             if (!call.subtitleNote.isNullOrBlank()) {
                                 Text(
                                     text = call.subtitleNote,
@@ -421,7 +409,7 @@ fun CallsScreen(
                             onClick = {
                                 viewModel.startCall(
                                     contactName = call.contactName,
-                                    contactPhone = call.phoneNumber.ifBlank { "+91 97738 62847" },
+                                    contactPhone = call.phoneNumber.ifBlank { call.contactName },
                                     callType = call.callType
                                 )
                             },
@@ -588,7 +576,8 @@ fun QuickCallButton(
 // Dialpad Sheet for dialing numbers
 @Composable
 fun KeypadSheetContent(
-    onStartCall: (number: String, isVideo: Boolean) -> Unit
+    onStartCall: (number: String, isVideo: Boolean) -> Unit,
+    onDirectPhoneCall: (number: String) -> Unit = {}
 ) {
     var dialedNumber by remember { mutableStateOf("") }
 
@@ -662,52 +651,85 @@ fun KeypadSheetContent(
 
         Spacer(modifier = Modifier.height(18.dp))
 
-        // Call Action Buttons (Audio & Video)
+        // Call Action Buttons (Direct Cellular, Olinam HD Voice, Olinam HD Video)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Video Call button
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFF1F5F9))
-                    .clickable {
-                        if (dialedNumber.isNotBlank()) {
-                            onStartCall(dialedNumber, true)
-                        }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Videocam,
-                    contentDescription = "Video Call",
-                    tint = OlinamPrimary,
-                    modifier = Modifier.size(28.dp)
-                )
+            // Direct Cellular / Phone Call (SIM)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFF1F5F9))
+                        .clickable {
+                            if (dialedNumber.isNotBlank()) {
+                                onDirectPhoneCall(dialedNumber)
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Phone,
+                        contentDescription = "Phone Call",
+                        tint = Color(0xFF0F172A),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Cellular", fontSize = 11.sp, color = Color(0xFF64748B))
             }
 
-            // Audio Call button (Royal Blue)
-            Box(
-                modifier = Modifier
-                    .size(60.dp)
-                    .clip(CircleShape)
-                    .background(OlinamPrimary)
-                    .clickable {
-                        if (dialedNumber.isNotBlank()) {
-                            onStartCall(dialedNumber, false)
-                        }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Call,
-                    contentDescription = "Audio Call",
-                    tint = Color.White,
-                    modifier = Modifier.size(28.dp)
-                )
+            // Olinam HD Audio Call button (Royal Blue)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(
+                    modifier = Modifier
+                        .size(60.dp)
+                        .clip(CircleShape)
+                        .background(OlinamPrimary)
+                        .clickable {
+                            if (dialedNumber.isNotBlank()) {
+                                onStartCall(dialedNumber, false)
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Call,
+                        contentDescription = "Olinam Call",
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Olinam HD", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = OlinamPrimary)
+            }
+
+            // Olinam Video Call button
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFF1F5F9))
+                        .clickable {
+                            if (dialedNumber.isNotBlank()) {
+                                onStartCall(dialedNumber, true)
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Videocam,
+                        contentDescription = "Video Call",
+                        tint = OlinamPrimary,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Video", fontSize = 11.sp, color = Color(0xFF64748B))
             }
         }
 
