@@ -47,10 +47,10 @@ class FirebaseChatRepository {
     val callLogs: StateFlow<List<CallLog>> = _callLogs.asStateFlow()
 
     private val defaultLabels = listOf(
-        ChatLabel(id = "all", name = "Chats", colorHex = "#0160E3"),
-        ChatLabel(id = "direct", name = "Direct", colorHex = "#0160E3"),
+        ChatLabel(id = "all", name = "All", colorHex = "#0160E3"),
+        ChatLabel(id = "direct", name = "Chats", colorHex = "#0160E3"),
         ChatLabel(id = "groups", name = "Groups", colorHex = "#0160E3"),
-        ChatLabel(id = "spam", name = "Spam", colorHex = "#EF4444")
+        ChatLabel(id = "sms", name = "SMS", colorHex = "#00A884")
     )
     private val _labels = MutableStateFlow<List<ChatLabel>>(defaultLabels)
     val labels: StateFlow<List<ChatLabel>> = _labels.asStateFlow()
@@ -482,7 +482,13 @@ class FirebaseChatRepository {
 
     fun mergeSmsConversations(personal: List<Conversation>, spam: List<Conversation>) {
         val existing = _conversations.value.toMutableList()
-        val allSms = personal + spam
+        // Include all text messages into SMS label (no spam folder segregation)
+        val allSms = (personal + spam).map {
+            it.copy(
+                isSpam = false,
+                labelIds = if (it.labelIds.contains("sms")) it.labelIds else it.labelIds + "sms"
+            )
+        }
 
         for (smsConv in allSms) {
             val idx = existing.indexOfFirst {
@@ -492,7 +498,8 @@ class FirebaseChatRepository {
                 existing[idx] = existing[idx].copy(
                     lastMessageText = smsConv.lastMessageText,
                     lastMessageTimestamp = smsConv.lastMessageTimestamp,
-                    isSpam = smsConv.isSpam
+                    isSpam = false,
+                    labelIds = if (existing[idx].labelIds.contains("sms")) existing[idx].labelIds else existing[idx].labelIds + "sms"
                 )
             } else {
                 existing.add(smsConv)

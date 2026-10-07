@@ -250,7 +250,7 @@ fun HomeScreen(
                         onMenuSecurity = { showSecurityDialog = true },
                         onMenuSettings = { showProfileDialog = true },
                         onSyncSms = { viewModel.syncDeviceSms(context) },
-                        onOpenSpam = { viewModel.selectLabel("spam") },
+                        onOpenSms = { viewModel.selectLabel("sms") },
                         onLogout = { viewModel.logout(context) }
                     )
                     OlinamSearchBar(
@@ -422,7 +422,7 @@ fun ChatsTabContent(
                 Surface(
                     shape = CircleShape,
                     color = when (selectedLabelId) {
-                        "spam" -> Color(0xFFDCFCE7)
+                        "sms" -> Color(0xFFDCFCE7)
                         "groups" -> Color(0xFFDCFCE7)
                         else -> Color(0xFFE2EDFC)
                     },
@@ -431,13 +431,13 @@ fun ChatsTabContent(
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = when (selectedLabelId) {
-                                "spam" -> Icons.Default.Security
+                                "sms" -> Icons.Default.Chat
                                 "groups" -> Icons.Default.Groups
                                 else -> Icons.Default.Chat
                             },
                             contentDescription = null,
                             tint = when (selectedLabelId) {
-                                "spam" -> Color(0xFF16A34A)
+                                "sms" -> Color(0xFF00A884)
                                 "groups" -> Color(0xFF00A884)
                                 else -> Color(0xFF0160E3)
                             },
@@ -450,8 +450,9 @@ fun ChatsTabContent(
 
                 Text(
                     text = when (selectedLabelId) {
-                        "spam" -> "No Spam Messages"
+                        "sms" -> "No SMS Messages"
                         "groups" -> "No Groups Yet"
+                        "direct" -> "No Direct Chats"
                         else -> "No Chats Yet"
                     },
                     fontSize = 19.sp,
@@ -463,8 +464,9 @@ fun ChatsTabContent(
 
                 Text(
                     text = when (selectedLabelId) {
-                        "spam" -> "Your messages are clean! Any detected promotional, betting, or spam SMS will automatically appear here."
+                        "sms" -> "All your phone text messages (SMS) will appear here in this dedicated label."
                         "groups" -> "Create a group to chat with family, friends, or teams."
+                        "direct" -> "Only app-to-app chats appear here."
                         else -> "Start a conversation or invite friends on Olinam."
                     },
                     fontSize = 13.5.sp,
@@ -485,7 +487,7 @@ fun ChatsTabContent(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("New Group", fontWeight = FontWeight.SemiBold)
                     }
-                } else if (selectedLabelId != "spam") {
+                } else {
                     Spacer(modifier = Modifier.height(18.dp))
 
                     Button(
@@ -546,38 +548,6 @@ fun ChatsTabContent(
                     }
                 }
             }
-            if (selectedLabelId == "spam") {
-                item {
-                    Surface(
-                        color = Color(0xFFFEF2F2),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFCA5A5)),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Security,
-                                contentDescription = "Spam Shield",
-                                tint = Color(0xFFDC2626),
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = "Automated Spam Filter: Promotional, loan, betting, and bulk SMS are automatically isolated here.",
-                                fontSize = 12.5.sp,
-                                color = Color(0xFF991B1B),
-                                lineHeight = 17.sp
-                            )
-                        }
-                    }
-                }
-            }
-
             items(conversations, key = { it.id }) { conv ->
                 ConversationListItem(
                     conversation = conv,

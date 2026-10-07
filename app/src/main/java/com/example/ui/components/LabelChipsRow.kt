@@ -61,30 +61,14 @@ fun LabelChipsRow(
                     .clickable { onLabelClick(label) }
                     .testTag("label_chip_${label.id}"),
                 shape = RoundedCornerShape(16.dp),
-                color = when {
-                    isSelected && label.id == "spam" -> Color(0xFFFEE2E2)
-                    isSelected -> Color(0xFFE2EDFC)
-                    else -> Color.White
-                },
-                border = when {
-                    isSelected && label.id == "spam" -> BorderStroke(1.dp, Color(0xFFFCA5A5))
-                    isSelected -> BorderStroke(1.dp, Color(0xFFBFDBFE))
-                    else -> BorderStroke(1.dp, Color(0xFFE2E8F0))
-                }
+                color = if (isSelected) Color(0xFFE2EDFC) else Color.White,
+                border = if (isSelected) BorderStroke(1.dp, Color(0xFFBFDBFE)) else BorderStroke(1.dp, Color(0xFFE2E8F0))
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (label.id == "spam") {
-                        Icon(
-                            imageVector = Icons.Default.Security,
-                            contentDescription = "Spam Shield",
-                            tint = if (isSelected) Color(0xFFDC2626) else Color(0xFFEF4444),
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                    } else if (label.id != "all" && label.id != "direct" && label.id != "groups") {
+                    if (label.id != "all" && label.id != "direct" && label.id != "groups" && label.id != "sms") {
                         Box(
                             modifier = Modifier
                                 .size(7.dp)
@@ -97,12 +81,7 @@ fun LabelChipsRow(
                         text = if (label.id == "all") "All" else label.name,
                         fontSize = 13.5.sp,
                         fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-                        color = when {
-                            isSelected && label.id == "spam" -> Color(0xFFDC2626)
-                            isSelected -> Color(0xFF0160E3)
-                            label.id == "spam" -> Color(0xFFEF4444)
-                            else -> Color(0xFF4B5563)
-                        }
+                        color = if (isSelected) Color(0xFF0160E3) else Color(0xFF4B5563)
                     )
                 }
             }

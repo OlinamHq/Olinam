@@ -71,13 +71,13 @@ class ChatViewModel(
     ) { allConv, query, labelId, labelsList ->
         allConv.filter { conv ->
             val matchesLabel = when (labelId) {
-                "all" -> !conv.isSpam
-                "direct" -> !conv.isGroup && !conv.isSpam
-                "groups" -> conv.isGroup && !conv.isSpam
-                "spam" -> conv.isSpam
+                "all" -> true
+                "direct" -> !conv.isSmsContact && !conv.isGroup
+                "groups" -> conv.isGroup
+                "sms" -> conv.isSmsContact
                 else -> {
                     val target = labelsList.find { it.id == labelId }
-                    (target?.chatIds?.contains(conv.id) == true || conv.labelIds.contains(labelId)) && !conv.isSpam
+                    target?.chatIds?.contains(conv.id) == true || conv.labelIds.contains(labelId)
                 }
             }
 

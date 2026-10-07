@@ -9,9 +9,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -96,7 +98,7 @@ fun OlinamTopBar(
     onMenuSecurity: () -> Unit,
     onMenuSettings: () -> Unit,
     onSyncSms: () -> Unit = {},
-    onOpenSpam: () -> Unit = {},
+    onOpenSms: () -> Unit = {},
     onLogout: () -> Unit = {}
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
@@ -182,12 +184,12 @@ fun OlinamTopBar(
                         modifier = Modifier.testTag("menu_sync_sms")
                     )
                     DropdownMenuItem(
-                        text = { Text("Spam & Blocked", fontWeight = FontWeight.Medium) },
+                        text = { Text("Text Messages (SMS)", fontWeight = FontWeight.Medium) },
                         onClick = {
                             menuExpanded = false
-                            onOpenSpam()
+                            onOpenSms()
                         },
-                        modifier = Modifier.testTag("menu_spam_sms")
+                        modifier = Modifier.testTag("menu_sms_messages")
                     )
                     DropdownMenuItem(
                         text = { Text("End-to-End Encryption", fontWeight = FontWeight.Medium) },
@@ -545,13 +547,6 @@ fun ConversationListItem(
                         tint = Color.White,
                         modifier = Modifier.size(26.dp)
                     )
-                } else if (conversation.isSpam) {
-                    Icon(
-                        imageVector = Icons.Default.Security,
-                        contentDescription = "Spam Alert",
-                        tint = Color.White,
-                        modifier = Modifier.size(24.dp)
-                    )
                 } else {
                     Text(
                         text = conversation.title.take(1).uppercase(Locale.getDefault()),
@@ -627,31 +622,17 @@ fun ConversationListItem(
                     modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (conversation.isSpam) {
+                    if (conversation.isSmsContact) {
                         Surface(
                             shape = RoundedCornerShape(4.dp),
-                            color = Color(0xFFFEE2E2),
-                            modifier = Modifier.padding(end = 5.dp)
-                        ) {
-                            Text(
-                                text = "SPAM",
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFDC2626),
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                            )
-                        }
-                    } else if (conversation.isSmsContact) {
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = Color(0xFFFEF3C7),
+                            color = Color(0xFFF1F5F9),
                             modifier = Modifier.padding(end = 5.dp)
                         ) {
                             Text(
                                 text = "SMS",
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFFB45309),
+                                color = Color(0xFF64748B),
                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                             )
                         }
@@ -706,14 +687,17 @@ fun OlinamBottomNavBar(
     Surface(
         color = Color.White,
         border = androidx.compose.foundation.BorderStroke(0.6.dp, Color(0xFFE2E8F0)),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("bottom_nav_bar")
     ) {
         NavigationBar(
             containerColor = Color.White,
             tonalElevation = 0.dp,
+            windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
             modifier = Modifier
-                .height(68.dp)
-                .testTag("bottom_nav_bar")
+                .height(60.dp)
+                .fillMaxWidth()
         ) {
             val selectedIndicatorColor = Color(0xFFD6E4F8)
             val selectedContentColor = Color(0xFF0F172A)
@@ -724,22 +708,11 @@ fun OlinamBottomNavBar(
                 selected = currentTab == AppTab.CHATS,
                 onClick = { onTabSelected(AppTab.CHATS) },
                 icon = {
-                    BadgedBox(
-                        badge = {
-                            Badge(
-                                containerColor = Color(0xFF25D366),
-                                contentColor = Color.White
-                            ) {
-                                Text("5", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.ChatBubble,
-                            contentDescription = stringResource(R.string.chats),
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Rounded.ChatBubble,
+                        contentDescription = stringResource(R.string.chats),
+                        modifier = Modifier.size(24.dp)
+                    )
                 },
                 label = {
                     Text(

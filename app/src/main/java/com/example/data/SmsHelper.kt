@@ -90,8 +90,6 @@ object SmsHelper {
                     val resolvedContactName = resolveContactName(context, cleanAddr)
                     val isKnownContact = resolvedContactName != null && resolvedContactName.isNotBlank() && resolvedContactName != cleanAddr
 
-                    // If it is a saved contact, it's personal; otherwise run spam heuristics
-                    val isSpam = if (isKnownContact) false else isSpamSenderOrBody(cleanAddr, body)
                     val contactName = resolvedContactName ?: cleanAddr
 
                     val conv = Conversation(
@@ -102,19 +100,15 @@ object SmsHelper {
                         lastMessageTimestamp = date,
                         unreadCount = if (isRead) 0 else 1,
                         isE2EE = false,
-                        iconType = if (isSpam) "ALERT" else "USER",
+                        iconType = "USER",
                         isSmsContact = true,
                         phoneNumber = cleanAddr,
-                        isSpam = isSpam
+                        isSpam = false,
+                        labelIds = listOf("sms")
                     )
 
                     seenAddresses[cleanAddr] = conv
-
-                    if (isSpam) {
-                        spamList.add(conv)
-                    } else {
-                        personalList.add(conv)
-                    }
+                    personalList.add(conv)
                 }
             }
         } catch (_: Exception) {
