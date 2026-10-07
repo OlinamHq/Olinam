@@ -10,7 +10,10 @@ enum class MessageStatus {
 enum class MediaType {
     TEXT,
     IMAGE,
-    AUDIO
+    AUDIO,
+    VOICE,
+    VIDEO,
+    DOCUMENT
 }
 
 data class EncryptedPayload(
@@ -56,7 +59,7 @@ data class Conversation(
     val isPinned: Boolean = false,
     val isE2EE: Boolean = true,
     val onlineStatus: String? = null,
-    val iconType: String = "DEFAULT", // "ALERT", "INVITE", "USER", "GROUP"
+    val iconType: String = "DEFAULT",
     val labelIds: List<String> = emptyList(),
     val isSmsContact: Boolean = false,
     val phoneNumber: String? = null,
@@ -111,7 +114,8 @@ data class Story(
     val timestamp: Long = System.currentTimeMillis(),
     val mediaUrl: String? = null,
     val isImageStory: Boolean = false,
-    val viewed: Boolean = false
+    val viewed: Boolean = false,
+    val expiresAt: Long = System.currentTimeMillis() + 24L * 60L * 60L * 1000L
 )
 
 enum class FilterCategory {
@@ -135,5 +139,7 @@ data class UserProfile(
     val statusMessage: String = "Hey there! I am using Olinam.",
     val avatarUrl: String? = null,
     val isLoggedIn: Boolean = false,
-    val safetyNumber: String = "45109 82341 09124 78652 14320 89125 67019 32145 90124 55102 78321 00412"
+    val safetyNumber: String = "",
+    val publicKey: String = "",
+    val fcmToken: String = ""
 )
