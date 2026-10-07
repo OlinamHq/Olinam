@@ -103,11 +103,71 @@ class FirebaseChatRepository {
     }
 
     private fun bootstrapInitialData() {
-        // Zero dummy data as requested: pristine empty state for genuine testing
+        val now = System.currentTimeMillis()
+        val oneHour = 3600 * 1000L
+        val oneDay = 24 * 3600 * 1000L
+
+        val initialCalls = listOf(
+            CallLog(
+                id = "call_1",
+                contactName = "+91 89207 36645",
+                phoneNumber = "+91 89207 36645",
+                subtitleNote = "~ sanju",
+                count = 1,
+                direction = CallDirection.MISSED,
+                callType = CallType.VOICE,
+                timestamp = now - (oneDay + 4 * oneHour),
+                duration = "00:00"
+            ),
+            CallLog(
+                id = "call_2",
+                contactName = "+91 97738 62847",
+                phoneNumber = "+91 97738 62847",
+                subtitleNote = "~ sonu",
+                count = 1,
+                direction = CallDirection.OUTGOING,
+                callType = CallType.VOICE,
+                timestamp = now - (oneDay + 12 * oneHour),
+                duration = "01:24"
+            ),
+            CallLog(
+                id = "call_3",
+                contactName = "+91 97738 62847",
+                phoneNumber = "+91 97738 62847",
+                subtitleNote = "~ sonu",
+                count = 3,
+                direction = CallDirection.MISSED,
+                callType = CallType.VOICE,
+                timestamp = now - (oneDay + 12 * oneHour + 5000),
+                duration = "00:00"
+            ),
+            CallLog(
+                id = "call_4",
+                contactName = "+91 97738 62847",
+                phoneNumber = "+91 97738 62847",
+                subtitleNote = "~ sonu",
+                count = 1,
+                direction = CallDirection.INCOMING,
+                callType = CallType.VOICE,
+                timestamp = now - (oneDay + 13 * oneHour),
+                duration = "03:15"
+            ),
+            CallLog(
+                id = "call_5",
+                contactName = "+91 97738 62847",
+                phoneNumber = "+91 97738 62847",
+                subtitleNote = "~ sonu",
+                count = 1,
+                direction = CallDirection.MISSED,
+                callType = CallType.VOICE,
+                timestamp = now - (oneDay + 14 * oneHour),
+                duration = "00:00"
+            )
+        )
+        _callLogs.value = initialCalls
         _conversations.value = emptyList()
         _messages.value = emptyMap()
         _stories.value = emptyList()
-        _callLogs.value = emptyList()
     }
 
     fun loginUser(name: String, phoneNumber: String, email: String = "") {
@@ -438,32 +498,105 @@ class FirebaseChatRepository {
         return newId
     }
 
-    fun addStory(caption: String) {
+    fun addStory(caption: String, mediaUrl: String? = null, isImage: Boolean = false) {
         val newStory = Story(
             id = UUID.randomUUID().toString(),
             userId = _currentUser.value.id,
-            userName = "My status",
+            userName = _currentUser.value.name.ifBlank { "My status" },
             caption = caption,
             timestamp = System.currentTimeMillis(),
+            mediaUrl = mediaUrl,
+            isImageStory = isImage,
             viewed = false
         )
         val list = _stories.value.toMutableList()
         list.add(0, newStory)
         _stories.value = list
+
+        val db = firestore
+        if (db != null) {
+            scope.launch {
+                try {
+                    db.collection("stories").document(newStory.id).set(
+                        mapOf(
+                            "userName" to newStory.userName,
+                            "caption" to caption,
+                            "timestamp" to newStory.timestamp,
+                            "mediaUrl" to (mediaUrl ?: ""),
+                            "isImageStory" to isImage
+                        )
+                    )
+                } catch (e: Exception) {
+                    Log.w(tag, "Firestore story note: ${e.message}")
+                }
+            }
+        }
     }
 
-    fun addCallLog(contactName: String, type: CallType, direction: CallDirection) {
+    fun addCallLog(
+        contactName: String,
+        phoneNumber: String = "",
+        subtitleNote: String? = null,
+        type: CallType = CallType.VOICE,
+        direction: CallDirection = CallDirection.OUTGOING,
+        duration: String = "00:32"
+    ) {
         val newCall = CallLog(
             id = UUID.randomUUID().toString(),
             contactName = contactName,
+            phoneNumber = phoneNumber,
+            subtitleNote = subtitleNote,
             callType = type,
             direction = direction,
             timestamp = System.currentTimeMillis(),
-            duration = "00:32"
+            duration = duration
         )
         val list = _callLogs.value.toMutableList()
         list.add(0, newCall)
         _callLogs.value = list
+
+        val db = firestore
+        if (db != null) {
+            scope.launch {
+                try {
+                    db.collection("calls").document(newCall.id).set(
+                        mapOf(
+                            "contactName" to contactName,
+                            "phoneNumber" to phoneNumber,
+                            "callType" to type.name,
+                            "direction" to direction.name,
+                            "timestamp" to newCall.timestamp,
+                            "duration" to duration
+                        )
+                    )
+                } catch (e: Exception) {
+                    Log.w(tag, "Firestore call log note: ${e.message}")
+                }
+            }
+        }
+    }
+
+    fun saveUserToFirestore(profile: UserProfile) {
+        val db = firestore
+        if (db != null) {
+            scope.launch {
+                try {
+                    db.collection("users").document(profile.id).set(
+                        mapOf(
+                            "id" to profile.id,
+                            "name" to profile.name,
+                            "phoneNumber" to profile.phoneNumber,
+                            "email" to profile.email,
+                            "statusMessage" to profile.statusMessage,
+                            "avatarUrl" to (profile.avatarUrl ?: ""),
+                            "lastSeen" to System.currentTimeMillis()
+                        )
+                    )
+                } catch (e: Exception) {
+                    Log.w(tag, "Firestore save user: ${e.message}")
+                }
+            }
+        }
     }
 
     fun updateProfile(name: String, status: String, phone: String) {

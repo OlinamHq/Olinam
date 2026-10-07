@@ -699,8 +699,8 @@ fun OlinamBottomNavBar(
                 .height(60.dp)
                 .fillMaxWidth()
         ) {
-            val selectedIndicatorColor = Color(0xFFD6E4F8)
-            val selectedContentColor = Color(0xFF0F172A)
+            val selectedIndicatorColor = OlinamPrimaryContainer
+            val selectedContentColor = OlinamPrimary
             val unselectedContentColor = Color(0xFF64748B)
 
             // 1. Chats
@@ -731,20 +731,20 @@ fun OlinamBottomNavBar(
                 modifier = Modifier.testTag("nav_item_chats")
             )
 
-            // 2. Stories / Updates
+            // 2. Status
             NavigationBarItem(
                 selected = currentTab == AppTab.STORIES,
                 onClick = { onTabSelected(AppTab.STORIES) },
                 icon = {
                     Icon(
                         imageVector = Icons.Rounded.DonutLarge,
-                        contentDescription = "Updates",
+                        contentDescription = "Status",
                         modifier = Modifier.size(24.dp)
                     )
                 },
                 label = {
                     Text(
-                        text = "Updates",
+                        text = "Status",
                         fontSize = 12.sp,
                         fontWeight = if (currentTab == AppTab.STORIES) FontWeight.Bold else FontWeight.Medium
                     )

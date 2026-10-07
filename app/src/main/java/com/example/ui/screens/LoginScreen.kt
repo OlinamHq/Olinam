@@ -2,8 +2,11 @@ package com.example.ui.screens
 
 import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,30 +23,36 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
-import androidx.compose.material3.TabRowDefaults
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -53,15 +62,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.ChatViewModel
+import com.example.ui.theme.OlinamPrimary
+import com.example.ui.theme.OlinamPrimaryContainer
 
 data class CountryItem(val code: String, val dialCode: String, val name: String)
 
@@ -78,26 +90,34 @@ val COUNTRIES = listOf(
     CountryItem("JP", "+81", "Japan")
 )
 
-private val WhatsAppGreen = Color(0xFF00A884)
-private val WhatsAppDarkGreen = Color(0xFF008069)
-
 @Composable
 fun LoginScreen(
     viewModel: ChatViewModel
 ) {
     val context = LocalContext.current
-    var selectedTab by remember { mutableIntStateOf(0) } // 0: Phone, 1: Google, 2: Email
+    val generatedOtp by viewModel.generatedOtp.collectAsState()
+    val secondsRemaining by viewModel.otpSecondsRemaining.collectAsState()
 
-    // Form inputs
-    var name by remember { mutableStateOf("") }
-    var phoneNumber by remember { mutableStateOf("") }
+    // 0: Enter Phone, 1: Verify OTP, 2: Profile Setup
+    var step by remember { mutableIntStateOf(0) }
+
     var selectedCountry by remember { mutableStateOf(COUNTRIES[0]) }
     var countryMenuExpanded by remember { mutableStateOf(false) }
+    var phoneNumber by remember { mutableStateOf("") }
+    var enteredOtp by remember { mutableStateOf("") }
 
-    var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
+    var userName by remember { mutableStateOf("") }
+    var userHandle by remember { mutableStateOf("") }
+    var userStatus by remember { mutableStateOf("Hey there! I am using Olinam.") }
 
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var showOtpBanner by remember { mutableStateOf(false) }
+
+    LaunchedEffect(generatedOtp) {
+        if (generatedOtp != null) {
+            showOtpBanner = true
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -109,429 +129,614 @@ fun LoginScreen(
             .testTag("login_screen"),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(modifier = Modifier.height(32.dp))
 
-        // WhatsApp-style brand logo & title
+        // WhatsApp-style Olinam Logo & Branding in Royal Blue
         Box(
             modifier = Modifier
-                .size(72.dp)
+                .size(76.dp)
                 .clip(CircleShape)
-                .background(WhatsAppGreen.copy(alpha = 0.12f)),
+                .background(OlinamPrimaryContainer),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = Icons.Rounded.ChatBubble,
                 contentDescription = "Olinam",
-                tint = WhatsAppGreen,
-                modifier = Modifier.size(38.dp)
+                tint = OlinamPrimary,
+                modifier = Modifier.size(42.dp)
             )
         }
 
         Spacer(modifier = Modifier.height(14.dp))
 
         Text(
-            text = "Welcome to Olinam",
-            fontSize = 23.sp,
+            text = "Olinam",
+            fontSize = 26.sp,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFF111827)
+            color = Color(0xFF0F172A),
+            letterSpacing = (-0.5).sp
         )
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
         Text(
-            text = "Simple. Secure. Real-time messaging with end-to-end encryption.",
+            text = when (step) {
+                0 -> "Enter your phone number"
+                1 -> "Verifying your number"
+                else -> "Profile info"
+            },
+            fontSize = 17.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = OlinamPrimary
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = when (step) {
+                0 -> "Olinam will send an SMS to verify your phone number. Carrier SMS charges may apply."
+                1 -> "Waiting to automatically detect SMS sent to ${selectedCountry.dialCode} $phoneNumber"
+                else -> "Please provide your name and an optional profile handle."
+            },
             fontSize = 13.5.sp,
-            color = Color(0xFF6B7280),
+            color = Color(0xFF64748B),
             textAlign = TextAlign.Center,
             lineHeight = 18.sp,
-            modifier = Modifier.padding(horizontal = 12.dp)
+            modifier = Modifier.padding(horizontal = 16.dp)
         )
 
-        Spacer(modifier = Modifier.height(22.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
-        // Tab Row: Phone vs Google vs Email (supporting mobile number with all options)
-        TabRow(
-            selectedTabIndex = selectedTab,
-            containerColor = Color.White,
-            contentColor = WhatsAppGreen,
-            indicator = { tabPositions ->
-                TabRowDefaults.SecondaryIndicator(
-                    modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
-                    color = WhatsAppGreen
-                )
-            }
+        // Real OTP Banner simulation: shows incoming SMS with code & auto-fill button
+        AnimatedVisibility(
+            visible = step == 1 && generatedOtp != null && showOtpBanner,
+            enter = fadeIn(),
+            exit = fadeOut()
         ) {
-            Tab(
-                selected = selectedTab == 0,
-                onClick = {
-                    selectedTab = 0
-                    errorMessage = null
-                },
-                text = {
-                    Text(
-                        text = "Phone",
-                        fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Medium,
-                        fontSize = 13.5.sp,
-                        color = if (selectedTab == 0) WhatsAppGreen else Color(0xFF6B7280)
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = Color(0xFFF0FDF4)
+                ),
+                border = BorderStroke(1.dp, Color(0xFF86EFAC)),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 18.dp)
+                    .clickable {
+                        enteredOtp = generatedOtp ?: ""
+                        showOtpBanner = false
+                    }
+                    .testTag("otp_notification_banner")
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Sms,
+                        contentDescription = "SMS",
+                        tint = Color(0xFF16A34A),
+                        modifier = Modifier.size(24.dp)
                     )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "New Message • Olinam Verification",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF15803D)
+                        )
+                        Text(
+                            text = "Your verification code is: $generatedOtp. Tap to auto-fill.",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF166534)
+                        )
+                    }
                 }
-            )
-            Tab(
-                selected = selectedTab == 1,
-                onClick = {
-                    selectedTab = 1
-                    errorMessage = null
-                },
-                text = {
-                    Text(
-                        text = "Google",
-                        fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Medium,
-                        fontSize = 13.5.sp,
-                        color = if (selectedTab == 1) WhatsAppGreen else Color(0xFF6B7280)
-                    )
-                }
-            )
-            Tab(
-                selected = selectedTab == 2,
-                onClick = {
-                    selectedTab = 2
-                    errorMessage = null
-                },
-                text = {
-                    Text(
-                        text = "Email",
-                        fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Medium,
-                        fontSize = 13.5.sp,
-                        color = if (selectedTab == 2) WhatsAppGreen else Color(0xFF6B7280)
-                    )
-                }
-            )
+            }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
-
-        // Common Name Field
-        OutlinedTextField(
-            value = name,
-            onValueChange = { name = it },
-            label = { Text("Your Name") },
-            placeholder = { Text("Enter your full name") },
-            leadingIcon = {
-                Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF6B7280))
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("login_name_input"),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = WhatsAppGreen,
-                focusedLabelColor = WhatsAppGreen,
-                cursorColor = WhatsAppGreen
-            )
-        )
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        when (selectedTab) {
-            0 -> {
-                // Phone Number Tab (Pure WhatsApp style)
-                PhoneInputSection(
-                    selectedCountry = selectedCountry,
-                    countryMenuExpanded = countryMenuExpanded,
-                    onCountryExpandChange = { countryMenuExpanded = it },
-                    onCountrySelect = { selectedCountry = it },
-                    phoneNumber = phoneNumber,
-                    onPhoneNumberChange = { phoneNumber = it }
-                )
-            }
-            1 -> {
-                // Google Tab (Google Sign-In with Mobile Number)
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedButton(
-                        onClick = {
-                            // Quick fill for Google identification if name is blank
-                            if (name.isBlank()) {
-                                name = "Google Account"
-                            }
-                        },
+        // STEP 0: Phone Number Entry
+        if (step == 0) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Country Selector Dropdown
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(48.dp)
-                            .testTag("google_signin_button"),
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, Color(0xFFD1D5DB)),
-                        colors = ButtonDefaults.outlinedButtonColors(containerColor = Color(0xFFF9FAFB))
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { countryMenuExpanded = true }
+                            .testTag("country_selector"),
+                        color = Color(0xFFF8FAFC),
+                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                        shape = RoundedCornerShape(12.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(22.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF4285F4)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "G",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = 13.sp
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Text(
-                                text = "Signed in with Google",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF1F2937)
+                                text = "${selectedCountry.name} (${selectedCountry.dialCode})",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color(0xFF0F172A)
+                            )
+                            Icon(
+                                imageVector = Icons.Default.ArrowDropDown,
+                                contentDescription = "Select country",
+                                tint = Color(0xFF64748B)
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    Text(
-                        text = "Enter your mobile number to connect with your contacts:",
-                        fontSize = 12.5.sp,
-                        color = Color(0xFF4B5563),
-                        fontWeight = FontWeight.Medium
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    PhoneInputSection(
-                        selectedCountry = selectedCountry,
-                        countryMenuExpanded = countryMenuExpanded,
-                        onCountryExpandChange = { countryMenuExpanded = it },
-                        onCountrySelect = { selectedCountry = it },
-                        phoneNumber = phoneNumber,
-                        onPhoneNumberChange = { phoneNumber = it }
-                    )
-                }
-            }
-            2 -> {
-                // Email Tab (Email & Password with Mobile Number)
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedTextField(
-                        value = email,
-                        onValueChange = { email = it },
-                        label = { Text("Email address") },
-                        placeholder = { Text("your.email@example.com") },
-                        leadingIcon = {
-                            Icon(Icons.Default.Email, contentDescription = null, tint = Color(0xFF6B7280))
-                        },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("login_email_input"),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = WhatsAppGreen,
-                            focusedLabelColor = WhatsAppGreen,
-                            cursorColor = WhatsAppGreen
-                        )
-                    )
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    OutlinedTextField(
-                        value = password,
-                        onValueChange = { password = it },
-                        label = { Text("Password") },
-                        leadingIcon = {
-                            Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFF6B7280))
-                        },
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("login_password_input"),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = WhatsAppGreen,
-                            focusedLabelColor = WhatsAppGreen,
-                            cursorColor = WhatsAppGreen
-                        )
-                    )
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    Text(
-                        text = "Enter your mobile number to link your chats:",
-                        fontSize = 12.5.sp,
-                        color = Color(0xFF4B5563),
-                        fontWeight = FontWeight.Medium
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    PhoneInputSection(
-                        selectedCountry = selectedCountry,
-                        countryMenuExpanded = countryMenuExpanded,
-                        onCountryExpandChange = { countryMenuExpanded = it },
-                        onCountrySelect = { selectedCountry = it },
-                        phoneNumber = phoneNumber,
-                        onPhoneNumberChange = { phoneNumber = it }
-                    )
-                }
-            }
-        }
-
-        if (errorMessage != null) {
-            Spacer(modifier = Modifier.height(10.dp))
-            Text(
-                text = errorMessage ?: "",
-                color = Color(0xFFDC2626),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium
-            )
-        }
-
-        Spacer(modifier = Modifier.height(26.dp))
-
-        // WhatsApp-style primary "Agree & Continue" button
-        Button(
-            onClick = {
-                val trimmedName = name.trim()
-                if (trimmedName.isBlank()) {
-                    errorMessage = "Please enter your name"
-                    return@Button
-                }
-
-                val trimmedPhone = phoneNumber.trim()
-                if (trimmedPhone.length < 5) {
-                    errorMessage = "Please enter your mobile phone number"
-                    return@Button
-                }
-
-                val fullPhone = "${selectedCountry.dialCode} $trimmedPhone"
-
-                when (selectedTab) {
-                    0 -> {
-                        viewModel.loginWithPhone(trimmedName, fullPhone, context)
-                    }
-                    1 -> {
-                        val googleEmail = if (email.contains("@")) email.trim() else "google.user@olinam.com"
-                        viewModel.loginWithGoogle(trimmedName, googleEmail, fullPhone, context)
-                    }
-                    2 -> {
-                        if (!email.contains("@") || password.length < 4) {
-                            errorMessage = "Please enter a valid email and password (min 4 characters)"
-                            return@Button
+                    DropdownMenu(
+                        expanded = countryMenuExpanded,
+                        onDismissRequest = { countryMenuExpanded = false }
+                    ) {
+                        COUNTRIES.forEach { country ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = "${country.name} (${country.dialCode})",
+                                        fontWeight = if (country.code == selectedCountry.code) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                },
+                                onClick = {
+                                    selectedCountry = country
+                                    countryMenuExpanded = false
+                                }
+                            )
                         }
-                        viewModel.loginWithEmail(trimmedName, email.trim(), fullPhone, context)
                     }
                 }
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .testTag("login_submit_button"),
-            colors = ButtonDefaults.buttonColors(containerColor = WhatsAppGreen),
-            shape = RoundedCornerShape(24.dp)
-        ) {
-            Text(
-                text = "Agree & Continue",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Phone Number Input
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .width(78.dp)
+                            .height(54.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFF8FAFC),
+                        border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = selectedCountry.dialCode,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF0F172A)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    OutlinedTextField(
+                        value = phoneNumber,
+                        onValueChange = {
+                            if (it.length <= 12) {
+                                phoneNumber = it.filter { char -> char.isDigit() }
+                                errorMessage = null
+                            }
+                        },
+                        placeholder = { Text("Phone number", color = Color(0xFF94A3B8)) },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = OlinamPrimary,
+                            unfocusedBorderColor = Color(0xFFE2E8F0),
+                            focusedContainerColor = Color(0xFFF8FAFC),
+                            unfocusedContainerColor = Color(0xFFF8FAFC)
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(54.dp)
+                            .testTag("phone_number_input")
+                    )
+                }
+
+                if (errorMessage != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = errorMessage ?: "",
+                        color = Color(0xFFEF4444),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(28.dp))
+
+                // NEXT Button (Royal Blue)
+                Button(
+                    onClick = {
+                        if (phoneNumber.length < 8) {
+                            errorMessage = "Please enter a valid phone number"
+                        } else {
+                            errorMessage = null
+                            val fullPhone = "${selectedCountry.dialCode}$phoneNumber"
+                            viewModel.sendOtp(fullPhone, context)
+                            step = 1
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = OlinamPrimary,
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                        .testTag("send_otp_button")
+                ) {
+                    Text(
+                        text = "Next",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
-
-        Text(
-            text = "Tap 'Agree & Continue' to accept Olinam's Terms of Service and Privacy Policy.",
-            fontSize = 11.5.sp,
-            color = Color(0xFF9CA3AF),
-            textAlign = TextAlign.Center,
-            lineHeight = 16.sp,
-            modifier = Modifier.padding(bottom = 24.dp)
-        )
-    }
-}
-
-@Composable
-private fun PhoneInputSection(
-    selectedCountry: CountryItem,
-    countryMenuExpanded: Boolean,
-    onCountryExpandChange: (Boolean) -> Unit,
-    onCountrySelect: (CountryItem) -> Unit,
-    phoneNumber: String,
-    onPhoneNumberChange: (String) -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Country Code Picker
-        Box {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, Color(0xFFD1D5DB)),
-                color = Color(0xFFF9FAFB),
-                modifier = Modifier
-                    .height(56.dp)
-                    .clickable { onCountryExpandChange(true) }
+        // STEP 1: OTP Verification
+        if (step == 1) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "${selectedCountry.code} ${selectedCountry.dialCode}",
+                        text = "${selectedCountry.dialCode} $phoneNumber",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Wrong number?",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF111827)
-                    )
-                    Icon(
-                        imageVector = Icons.Default.ArrowDropDown,
-                        contentDescription = "Select Country",
-                        tint = Color(0xFF6B7280)
+                        color = OlinamPrimary,
+                        modifier = Modifier
+                            .clickable {
+                                step = 0
+                                errorMessage = null
+                            }
+                            .testTag("edit_number_button")
                     )
                 }
-            }
 
-            DropdownMenu(
-                expanded = countryMenuExpanded,
-                onDismissRequest = { onCountryExpandChange(false) }
-            ) {
-                COUNTRIES.forEach { country ->
-                    DropdownMenuItem(
-                        text = { Text("${country.name} (${country.dialCode})") },
-                        onClick = {
-                            onCountrySelect(country)
-                            onCountryExpandChange(false)
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // 6-digit OTP Input Boxes
+                BasicTextField(
+                    value = enteredOtp,
+                    onValueChange = {
+                        if (it.length <= 6) {
+                            enteredOtp = it.filter { char -> char.isDigit() }
+                            errorMessage = null
+                            if (enteredOtp.length == 6) {
+                                val valid = viewModel.verifyOtp(enteredOtp)
+                                if (valid) {
+                                    step = 2
+                                } else {
+                                    errorMessage = "Invalid verification code. Please check and retry."
+                                }
+                            }
                         }
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    cursorBrush = SolidColor(OlinamPrimary),
+                    modifier = Modifier.testTag("otp_input_field"),
+                    decorationBox = {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            for (i in 0 until 6) {
+                                val char = enteredOtp.getOrNull(i)?.toString() ?: ""
+                                val isCurrent = enteredOtp.length == i
+                                Surface(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(54.dp),
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFFF8FAFC),
+                                    border = BorderStroke(
+                                        width = if (isCurrent) 2.dp else 1.dp,
+                                        color = if (isCurrent) OlinamPrimary else Color(0xFFE2E8F0)
+                                    )
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = char,
+                                            fontSize = 22.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF0F172A)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                )
+
+                if (errorMessage != null) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = errorMessage ?: "",
+                        color = Color(0xFFEF4444),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Resend Timer or Button
+                if (secondsRemaining > 0) {
+                    Text(
+                        text = "Resend SMS in 00:${String.format("%02d", secondsRemaining)}",
+                        fontSize = 14.sp,
+                        color = Color(0xFF64748B)
+                    )
+                } else {
+                    TextButton(
+                        onClick = {
+                            val fullPhone = "${selectedCountry.dialCode}$phoneNumber"
+                            viewModel.sendOtp(fullPhone, context)
+                            errorMessage = null
+                        },
+                        modifier = Modifier.testTag("resend_otp_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Resend",
+                            tint = OlinamPrimary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Resend SMS",
+                            color = OlinamPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // VERIFY Button (Royal Blue)
+                Button(
+                    onClick = {
+                        val valid = viewModel.verifyOtp(enteredOtp)
+                        if (valid) {
+                            step = 2
+                        } else {
+                            errorMessage = "Invalid verification code. Please check and retry."
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = OlinamPrimary,
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                        .testTag("verify_otp_button")
+                ) {
+                    Text(
+                        text = "Verify OTP",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.width(10.dp))
+        // STEP 2: WhatsApp-style Profile Setup
+        if (step == 2) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Profile Avatar Picker
+                Box(
+                    contentAlignment = Alignment.BottomEnd,
+                    modifier = Modifier.padding(vertical = 12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(96.dp)
+                            .clip(CircleShape)
+                            .background(OlinamPrimaryContainer)
+                            .border(2.dp, OlinamPrimary, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (userName.isNotBlank()) {
+                            Text(
+                                text = userName.take(1).uppercase(),
+                                fontSize = 36.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = OlinamPrimary
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = "Profile",
+                                tint = OlinamPrimary,
+                                modifier = Modifier.size(48.dp)
+                            )
+                        }
+                    }
 
-        // Phone Number field
-        OutlinedTextField(
-            value = phoneNumber,
-            onValueChange = { onPhoneNumberChange(it.filter { char -> char.isDigit() }) },
-            label = { Text("Phone number") },
-            placeholder = { Text("Mobile number") },
-            leadingIcon = {
-                Icon(Icons.Default.Phone, contentDescription = null, tint = Color(0xFF6B7280))
-            },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-            singleLine = true,
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("login_phone_input"),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = WhatsAppGreen,
-                focusedLabelColor = WhatsAppGreen,
-                cursorColor = WhatsAppGreen
+                    Box(
+                        modifier = Modifier
+                            .size(30.dp)
+                            .clip(CircleShape)
+                            .background(OlinamPrimary)
+                            .border(2.dp, Color.White, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CameraAlt,
+                            contentDescription = "Change photo",
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                OutlinedTextField(
+                    value = userName,
+                    onValueChange = {
+                        userName = it
+                        errorMessage = null
+                    },
+                    label = { Text("Your Name") },
+                    placeholder = { Text("e.g. Ankit") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = OlinamPrimary,
+                        unfocusedBorderColor = Color(0xFFE2E8F0),
+                        focusedContainerColor = Color(0xFFF8FAFC),
+                        unfocusedContainerColor = Color(0xFFF8FAFC)
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("profile_name_input")
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                OutlinedTextField(
+                    value = userHandle,
+                    onValueChange = { userHandle = it },
+                    label = { Text("Username Handle (optional)") },
+                    placeholder = { Text("@username") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = OlinamPrimary,
+                        unfocusedBorderColor = Color(0xFFE2E8F0),
+                        focusedContainerColor = Color(0xFFF8FAFC),
+                        unfocusedContainerColor = Color(0xFFF8FAFC)
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("profile_handle_input")
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                OutlinedTextField(
+                    value = userStatus,
+                    onValueChange = { userStatus = it },
+                    label = { Text("About Status") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = OlinamPrimary,
+                        unfocusedBorderColor = Color(0xFFE2E8F0),
+                        focusedContainerColor = Color(0xFFF8FAFC),
+                        unfocusedContainerColor = Color(0xFFF8FAFC)
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("profile_status_input")
+                )
+
+                if (errorMessage != null) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = errorMessage ?: "",
+                        color = Color(0xFFEF4444),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(28.dp))
+
+                // FINISH & START MESSAGING (Royal Blue)
+                Button(
+                    onClick = {
+                        if (userName.isBlank()) {
+                            errorMessage = "Please enter your name"
+                        } else {
+                            val fullPhone = "${selectedCountry.dialCode}$phoneNumber"
+                            viewModel.completeProfileSetup(
+                                name = userName.trim(),
+                                username = userHandle.trim(),
+                                phone = fullPhone,
+                                avatarUrl = null,
+                                context = context
+                            )
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = OlinamPrimary,
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                        .testTag("finish_profile_button")
+                ) {
+                    Text(
+                        text = "Finish & Start Messaging",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(36.dp))
+
+        // Security Footnote
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(bottom = 16.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Lock,
+                contentDescription = "Encrypted",
+                tint = Color(0xFF94A3B8),
+                modifier = Modifier.size(14.dp)
             )
-        )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = "End-to-end encrypted • Your privacy is protected",
+                fontSize = 12.sp,
+                color = Color(0xFF94A3B8)
+            )
+        }
     }
 }

@@ -77,10 +77,28 @@ data class CallLog(
     val id: String = "",
     val contactName: String = "",
     val contactAvatar: String? = null,
+    val phoneNumber: String = "",
+    val subtitleNote: String? = null,
+    val count: Int = 1,
     val callType: CallType = CallType.VOICE,
     val direction: CallDirection = CallDirection.OUTGOING,
     val timestamp: Long = System.currentTimeMillis(),
     val duration: String = "00:00"
+)
+
+data class ActiveCallState(
+    val callId: String = "",
+    val participantName: String = "",
+    val participantPhone: String = "",
+    val participantAvatar: String? = null,
+    val callType: CallType = CallType.VOICE,
+    val isIncoming: Boolean = false,
+    val isConnected: Boolean = false,
+    val durationSeconds: Int = 0,
+    val isMuted: Boolean = false,
+    val isSpeakerOn: Boolean = false,
+    val isVideoEnabled: Boolean = true,
+    val isFrontCamera: Boolean = true
 )
 
 data class Story(
@@ -91,6 +109,7 @@ data class Story(
     val caption: String = "",
     val timestamp: Long = System.currentTimeMillis(),
     val mediaUrl: String? = null,
+    val isImageStory: Boolean = false,
     val viewed: Boolean = false
 )
 

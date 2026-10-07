@@ -55,7 +55,10 @@ import com.example.ui.components.formatMessageTime
 import com.example.ui.theme.OlinamPrimary
 
 @Composable
-fun StoriesScreen(viewModel: ChatViewModel) {
+fun StoriesScreen(
+    viewModel: ChatViewModel,
+    onCameraClick: () -> Unit = {}
+) {
     val stories by viewModel.stories.collectAsState()
     var showAddStatusDialog by remember { mutableStateOf(false) }
     var selectedStoryToView by remember { mutableStateOf<Story?>(null) }
@@ -73,7 +76,7 @@ fun StoriesScreen(viewModel: ChatViewModel) {
         ) {
             item {
                 Text(
-                    text = "Stories",
+                    text = "Status",
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -86,7 +89,7 @@ fun StoriesScreen(viewModel: ChatViewModel) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { showAddStatusDialog = true }
+                        .clickable { onCameraClick() }
                         .padding(vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {

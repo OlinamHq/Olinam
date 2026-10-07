@@ -1,6 +1,8 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -21,20 +24,33 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallMade
 import androidx.compose.material.icons.automirrored.filled.CallMissed
 import androidx.compose.material.icons.automirrored.filled.CallReceived
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Backspace
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Dialpad
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -45,281 +61,596 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.CallDirection
+import com.example.model.CallLog
 import com.example.model.CallType
 import com.example.ui.ChatViewModel
 import com.example.ui.components.formatMessageTime
 import com.example.ui.theme.OlinamOnlineGreen
 import com.example.ui.theme.OlinamPrimary
+import com.example.ui.theme.OlinamPrimaryContainer
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CallsScreen(viewModel: ChatViewModel) {
+fun CallsScreen(
+    viewModel: ChatViewModel,
+    onOpenSelectContact: () -> Unit = {}
+) {
     val callLogs by viewModel.callLogs.collectAsState()
-    var showNewCallDialog by remember { mutableStateOf(false) }
-    var activeOngoingCall by remember { mutableStateOf<String?>(null) }
+
+    var showMenu by remember { mutableStateOf(false) }
+    var showKeypadSheet by remember { mutableStateOf(false) }
+    var showScheduleDialog by remember { mutableStateOf(false) }
+    var showFavouritesDialog by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var isSearching by remember { mutableStateOf(false) }
+
+    val keypadSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    val filteredLogs = remember(callLogs, searchQuery) {
+        if (searchQuery.isBlank()) callLogs
+        else callLogs.filter {
+            it.contactName.contains(searchQuery, ignoreCase = true) ||
+                    it.phoneNumber.contains(searchQuery) ||
+                    (it.subtitleNote?.contains(searchQuery, ignoreCase = true) == true)
+        }
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .background(Color.White)
             .testTag("calls_screen")
     ) {
-        LazyColumn(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .statusBarsPadding()
         ) {
-            item {
-                Text(
-                    text = "Calls",
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(bottom = 6.dp)
-                )
-            }
-
-            // Create Call Link Card
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showNewCallDialog = true }
-                        .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
+            // TOP BAR: "Calls", Search, 3-dots (Screenshot 4)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (isSearching) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Search calls...") },
+                        singleLine = true,
                         modifier = Modifier
-                            .size(54.dp)
-                            .clip(CircleShape)
-                            .background(OlinamPrimary),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Call,
-                            contentDescription = "New call",
-                            tint = Color.White,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
+                            .weight(1f)
+                            .padding(end = 8.dp),
+                        trailingIcon = {
+                            IconButton(onClick = {
+                                isSearching = false
+                                searchQuery = ""
+                            }) {
+                                Text("✕", color = Color(0xFF64748B))
+                            }
+                        }
+                    )
+                } else {
+                    Text(
+                        text = "Calls",
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A),
+                        letterSpacing = (-0.5).sp
+                    )
 
-                    Spacer(modifier = Modifier.width(16.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(
+                            onClick = { isSearching = true },
+                            modifier = Modifier.testTag("calls_search_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Search calls",
+                                tint = Color(0xFF1E293B),
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
 
-                    Column {
-                        Text(
-                            text = "Start a Call",
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = "End-to-End encrypted HD voice & video",
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Box {
+                            IconButton(
+                                onClick = { showMenu = true },
+                                modifier = Modifier.testTag("calls_menu_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "More",
+                                    tint = Color(0xFF1E293B),
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Simulate Incoming Call from Sonu") },
+                                    onClick = {
+                                        showMenu = false
+                                        viewModel.simulateIncomingCall(
+                                            contactName = "Sonu",
+                                            contactPhone = "+91 97738 62847",
+                                            callType = CallType.VOICE
+                                        )
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Clear call log") },
+                                    onClick = { showMenu = false }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Settings") },
+                                    onClick = { showMenu = false }
+                                )
+                            }
+                        }
                     }
                 }
             }
 
-            item {
-                Text(
-                    text = "Recent",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            }
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp)
+            ) {
+                // 4 QUICK ACTION BUTTONS ROW (Screenshot 4)
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceAround,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        QuickCallButton(
+                            icon = Icons.Default.Call,
+                            label = "Call",
+                            onClick = onOpenSelectContact
+                        )
+                        QuickCallButton(
+                            icon = Icons.Default.CalendarMonth,
+                            label = "Schedule",
+                            onClick = { showScheduleDialog = true }
+                        )
+                        QuickCallButton(
+                            icon = Icons.Default.Dialpad,
+                            label = "Keypad",
+                            onClick = { showKeypadSheet = true }
+                        )
+                        QuickCallButton(
+                            icon = Icons.Default.Favorite,
+                            label = "Favourites",
+                            onClick = { showFavouritesDialog = true }
+                        )
+                    }
+                }
 
-            items(callLogs, key = { it.id }) { call ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                // "Recent" Section Header (Screenshot 4)
+                item {
+                    Text(
+                        text = "Recent",
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A),
+                        modifier = Modifier.padding(top = 10.dp, bottom = 8.dp)
+                    )
+                }
+
+                // Call Logs List (Screenshot 4)
+                items(filteredLogs, key = { it.id }) { call ->
+                    val isMissed = call.direction == CallDirection.MISSED
+                    val titleText = if (call.count > 1) {
+                        "${call.contactName} (${call.count})"
+                    } else {
+                        call.contactName
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                viewModel.startCall(
+                                    contactName = call.contactName,
+                                    contactPhone = call.phoneNumber.ifBlank { "+91 97738 62847" },
+                                    callType = call.callType
+                                )
+                            }
+                            .padding(vertical = 10.dp)
+                            .testTag("call_item_${call.id}"),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Avatar (Screenshot 4)
                         Box(
                             modifier = Modifier
                                 .size(50.dp)
                                 .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                                .background(
+                                    if (call.contactName.contains("sanju", ignoreCase = true) || call.contactName.contains("89207")) {
+                                        Color(0xFFFDE8E8)
+                                    } else {
+                                        Color(0xFFE0F2FE)
+                                    }
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = call.contactName.take(1).uppercase(),
-                                color = OlinamPrimary,
+                                text = (call.subtitleNote?.replace("~", "")?.trim()?.take(1)
+                                    ?: call.contactName.take(1)).uppercase(),
+                                fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 18.sp
+                                color = if (isMissed) Color(0xFFDC2626) else OlinamPrimary
                             )
                         }
 
                         Spacer(modifier = Modifier.width(14.dp))
 
-                        Column {
+                        // Middle column: Phone number / Name, ~ subtitle, Arrow & Timestamp
+                        Column(modifier = Modifier.weight(1f)) {
+                            // Title: Red if missed call, Black if answered/outgoing
                             Text(
-                                text = call.contactName,
-                                fontSize = 16.5.sp,
+                                text = titleText,
+                                fontSize = 16.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = if (isMissed) Color(0xFFDC2626) else Color(0xFF0F172A)
                             )
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                val directionIcon = when (call.direction) {
-                                    CallDirection.INCOMING -> Icons.AutoMirrored.Filled.CallReceived
-                                    CallDirection.OUTGOING -> Icons.AutoMirrored.Filled.CallMade
-                                    CallDirection.MISSED -> Icons.AutoMirrored.Filled.CallMissed
-                                }
-                                val directionColor = when (call.direction) {
-                                    CallDirection.MISSED -> Color(0xFFEF4444)
-                                    else -> OlinamOnlineGreen
-                                }
-                                Icon(
-                                    imageVector = directionIcon,
-                                    contentDescription = null,
-                                    tint = directionColor,
-                                    modifier = Modifier.size(14.dp)
+
+                            // Subtitle 1: ~ sanju / ~ sonu
+                            if (!call.subtitleNote.isNullOrBlank()) {
+                                Text(
+                                    text = call.subtitleNote,
+                                    fontSize = 13.sp,
+                                    color = Color(0xFF64748B)
                                 )
+                            }
+
+                            // Subtitle 2: Direction arrow & timestamp (e.g. ↙ Yesterday, 8:05 pm)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(top = 2.dp)
+                            ) {
+                                when (call.direction) {
+                                    CallDirection.MISSED -> {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.CallMissed,
+                                            contentDescription = "Missed call",
+                                            tint = Color(0xFFDC2626),
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                    }
+                                    CallDirection.INCOMING -> {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.CallReceived,
+                                            contentDescription = "Incoming call",
+                                            tint = OlinamOnlineGreen,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                    }
+                                    CallDirection.OUTGOING -> {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.CallMade,
+                                            contentDescription = "Outgoing call",
+                                            tint = OlinamOnlineGreen,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                    }
+                                }
+
                                 Spacer(modifier = Modifier.width(4.dp))
+
                                 Text(
                                     text = formatMessageTime(call.timestamp),
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    fontSize = 12.5.sp,
+                                    color = Color(0xFF64748B)
                                 )
                             }
                         }
-                    }
 
-                    IconButton(
-                        onClick = {
-                            activeOngoingCall = call.contactName
-                            viewModel.initiateCall(call.contactName, call.callType)
+                        // Right: Call Icon Button (Phone / Video)
+                        IconButton(
+                            onClick = {
+                                viewModel.startCall(
+                                    contactName = call.contactName,
+                                    contactPhone = call.phoneNumber.ifBlank { "+91 97738 62847" },
+                                    callType = call.callType
+                                )
+                            },
+                            modifier = Modifier.testTag("call_action_button_${call.id}")
+                        ) {
+                            Icon(
+                                imageVector = if (call.callType == CallType.VIDEO) Icons.Default.Videocam else Icons.Default.Call,
+                                contentDescription = "Call",
+                                tint = Color(0xFF1E293B),
+                                modifier = Modifier.size(22.dp)
+                            )
                         }
-                    ) {
-                        Icon(
-                            imageVector = if (call.callType == CallType.VIDEO) Icons.Default.Videocam else Icons.Default.Call,
-                            contentDescription = "Call",
-                            tint = OlinamPrimary,
-                            modifier = Modifier.size(24.dp)
-                        )
                     }
-                }
-            }
-
-            item {
-                Spacer(modifier = Modifier.height(16.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        modifier = Modifier.size(13.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Your personal calls are end-to-end encrypted",
-                        fontSize = 11.5.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                    )
                 }
             }
         }
 
+        // FLOATING ACTION BUTTON (Royal Blue FAB at bottom right with Phone+ icon)
         FloatingActionButton(
-            onClick = { showNewCallDialog = true },
+            onClick = onOpenSelectContact,
+            shape = CircleShape,
             containerColor = OlinamPrimary,
             contentColor = Color.White,
-            shape = RoundedCornerShape(16.dp),
+            elevation = FloatingActionButtonDefaults.elevation(4.dp),
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(20.dp)
+                .padding(bottom = 18.dp, end = 18.dp)
                 .size(56.dp)
+                .testTag("calls_fab_new_call")
         ) {
-            Icon(Icons.Default.Call, contentDescription = "New Call", modifier = Modifier.size(24.dp))
+            Icon(
+                imageVector = Icons.Default.Call,
+                contentDescription = "New Call",
+                modifier = Modifier.size(24.dp)
+            )
         }
     }
 
-    if (showNewCallDialog) {
-        var contactName by remember { mutableStateOf("") }
+    // Keypad Bottom Sheet (allows dialing any number and starting audio/video call)
+    if (showKeypadSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showKeypadSheet = false },
+            sheetState = keypadSheetState,
+            containerColor = Color.White
+        ) {
+            KeypadSheetContent(
+                onStartCall = { number, isVideo ->
+                    showKeypadSheet = false
+                    viewModel.startCall(
+                        contactName = number,
+                        contactPhone = number,
+                        callType = if (isVideo) CallType.VIDEO else CallType.VOICE
+                    )
+                }
+            )
+        }
+    }
+
+    // Schedule Call Dialog
+    if (showScheduleDialog) {
+        var scheduleTitle by remember { mutableStateOf("") }
         AlertDialog(
-            onDismissRequest = { showNewCallDialog = false },
-            title = { Text("Start New Call", fontWeight = FontWeight.Bold) },
+            onDismissRequest = { showScheduleDialog = false },
+            title = { Text("Schedule a Call") },
             text = {
-                OutlinedTextField(
-                    value = contactName,
-                    onValueChange = { contactName = it },
-                    label = { Text("Contact Name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Column {
+                    OutlinedTextField(
+                        value = scheduleTitle,
+                        onValueChange = { scheduleTitle = it },
+                        label = { Text("Call Subject / Participant") },
+                        placeholder = { Text("e.g. Project Sync") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "Meeting will be scheduled for tomorrow at 10:00 AM.",
+                        fontSize = 13.sp,
+                        color = Color(0xFF64748B)
+                    )
+                }
             },
             confirmButton = {
-                Row {
-                    Button(
-                        onClick = {
-                            if (contactName.isNotBlank()) {
-                                viewModel.initiateCall(contactName.trim(), CallType.VOICE)
-                                activeOngoingCall = contactName.trim()
-                                showNewCallDialog = false
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = OlinamPrimary)
-                    ) {
-                        Text("Voice")
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Button(
-                        onClick = {
-                            if (contactName.isNotBlank()) {
-                                viewModel.initiateCall(contactName.trim(), CallType.VIDEO)
-                                activeOngoingCall = contactName.trim()
-                                showNewCallDialog = false
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = OlinamPrimary)
-                    ) {
-                        Text("Video")
-                    }
+                Button(
+                    onClick = { showScheduleDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = OlinamPrimary)
+                ) {
+                    Text("Schedule")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showNewCallDialog = false }) {
+                TextButton(onClick = { showScheduleDialog = false }) {
                     Text("Cancel")
                 }
             }
         )
     }
 
-    activeOngoingCall?.let { name ->
+    // Favourites Dialog
+    if (showFavouritesDialog) {
         AlertDialog(
-            onDismissRequest = { activeOngoingCall = null },
-            icon = {
-                Icon(Icons.Default.Call, contentDescription = null, tint = OlinamOnlineGreen, modifier = Modifier.size(36.dp))
-            },
-            title = { Text("Calling $name...", fontWeight = FontWeight.Bold) },
+            onDismissRequest = { showFavouritesDialog = false },
+            title = { Text("Favourite Contacts") },
             text = {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("End-to-End Encrypted Call (AES-256)", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column {
+                    Text("Quickly call your most important contacts:")
                     Spacer(modifier = Modifier.height(10.dp))
-                    Text("00:08", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = OlinamPrimary)
+                    Text("• Sonu (+91 97738 62847)", fontWeight = FontWeight.Medium)
+                    Text("• Sanju (+91 89207 36645)", fontWeight = FontWeight.Medium)
                 }
             },
             confirmButton = {
                 Button(
-                    onClick = { activeOngoingCall = null },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+                    onClick = { showFavouritesDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = OlinamPrimary)
                 ) {
-                    Text("End Call")
+                    Text("Done")
                 }
             }
         )
+    }
+}
+
+// Circular Quick Action Button Component (matching Screenshot 4: Call, Schedule, Keypad, Favourites)
+@Composable
+fun QuickCallButton(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .padding(horizontal = 6.dp)
+            .testTag("quick_action_$label")
+    ) {
+        Box(
+            modifier = Modifier
+                .size(54.dp)
+                .clip(CircleShape)
+                .background(Color(0xFFF1F5F9)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = Color(0xFF0F172A),
+                modifier = Modifier.size(24.dp)
+            )
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = label,
+            fontSize = 12.5.sp,
+            fontWeight = FontWeight.Medium,
+            color = Color(0xFF334155)
+        )
+    }
+}
+
+// Dialpad Sheet for dialing numbers
+@Composable
+fun KeypadSheetContent(
+    onStartCall: (number: String, isVideo: Boolean) -> Unit
+) {
+    var dialedNumber by remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Number display
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = dialedNumber.ifEmpty { "Enter phone number" },
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (dialedNumber.isEmpty()) Color(0xFF94A3B8) else Color(0xFF0F172A)
+            )
+            if (dialedNumber.isNotEmpty()) {
+                Spacer(modifier = Modifier.width(16.dp))
+                IconButton(onClick = { dialedNumber = dialedNumber.dropLast(1) }) {
+                    Icon(
+                        imageVector = Icons.Default.Backspace,
+                        contentDescription = "Backspace",
+                        tint = Color(0xFF64748B)
+                    )
+                }
+            }
+        }
+
+        // Keypad grid
+        val keys = listOf(
+            listOf("1", "2", "3"),
+            listOf("4", "5", "6"),
+            listOf("7", "8", "9"),
+            listOf("*", "0", "#")
+        )
+
+        for (row in keys) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                for (key in row) {
+                    Box(
+                        modifier = Modifier
+                            .size(62.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFF8FAFC))
+                            .border(1.dp, Color(0xFFE2E8F0), CircleShape)
+                            .clickable { dialedNumber += key },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = key,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF0F172A)
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(18.dp))
+
+        // Call Action Buttons (Audio & Video)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Video Call button
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFF1F5F9))
+                    .clickable {
+                        if (dialedNumber.isNotBlank()) {
+                            onStartCall(dialedNumber, true)
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Videocam,
+                    contentDescription = "Video Call",
+                    tint = OlinamPrimary,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+
+            // Audio Call button (Royal Blue)
+            Box(
+                modifier = Modifier
+                    .size(60.dp)
+                    .clip(CircleShape)
+                    .background(OlinamPrimary)
+                    .clickable {
+                        if (dialedNumber.isNotBlank()) {
+                            onStartCall(dialedNumber, false)
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Call,
+                    contentDescription = "Audio Call",
+                    tint = Color.White,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
     }
 }

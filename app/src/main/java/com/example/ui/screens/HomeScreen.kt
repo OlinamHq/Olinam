@@ -96,14 +96,16 @@ fun HomeScreen(
     val activeMessages by viewModel.activeConversationMessages.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
     val firebaseConnected by viewModel.firebaseConnected.collectAsState()
+    val activeCallState by viewModel.activeCallState.collectAsState()
 
     var showNewChatDialog by remember { mutableStateOf(false) }
     var showSelectContactScreen by remember { mutableStateOf(false) }
+    var showSelectCallContactScreen by remember { mutableStateOf(false) }
     var showNewGroupScreen by remember { mutableStateOf(false) }
     var showNewContactScreen by remember { mutableStateOf(false) }
     var showQrScreen by remember { mutableStateOf(false) }
     var showInviteDialog by remember { mutableStateOf(false) }
-    var showCameraDialog by remember { mutableStateOf(false) }
+    var showCameraScreen by remember { mutableStateOf(false) }
     var showProfileDialog by remember { mutableStateOf(false) }
     var showSecurityDialog by remember { mutableStateOf(false) }
     var showCreateLabelSheet by remember { mutableStateOf(false) }
@@ -113,9 +115,45 @@ fun HomeScreen(
         viewModel.restoreSavedSession(context)
     }
 
+    // 0. Active Audio or Video Call Screen (real live call)
+    if (activeCallState != null) {
+        ActiveCallScreen(viewModel = viewModel)
+        return
+    }
+
     // 1. Initial Login / Signup screen check
     if (!isLoggedIn) {
         LoginScreen(viewModel = viewModel)
+        return
+    }
+
+    // 2. Fullscreen Camera Screen (matching Screenshots 6 and 3)
+    if (showCameraScreen) {
+        CameraScreen(
+            onDismiss = { showCameraScreen = false },
+            onSendStatus = { caption, mediaUri ->
+                showCameraScreen = false
+                viewModel.addStory(caption, mediaUri, isImage = true)
+                viewModel.setTab(AppTab.STORIES)
+            }
+        )
+        return
+    }
+
+    // 3. Select Call Contact Screen (matching Screenshots 1 and 2)
+    if (showSelectCallContactScreen) {
+        SelectCallContactScreen(
+            viewModel = viewModel,
+            onBackClick = { showSelectCallContactScreen = false },
+            onNewContactClick = {
+                showSelectCallContactScreen = false
+                showNewContactScreen = true
+            },
+            onKeypadClick = {
+                showSelectCallContactScreen = false
+                viewModel.setTab(AppTab.CALLS)
+            }
+        )
         return
     }
 
@@ -244,7 +282,7 @@ fun HomeScreen(
                         .background(Color.White)
                 ) {
                     OlinamTopBar(
-                        onCameraClick = { showCameraDialog = true },
+                        onCameraClick = { showCameraScreen = true },
                         onMenuNewGroup = { showNewGroupScreen = true },
                         onMenuProfile = { showProfileDialog = true },
                         onMenuSecurity = { showSecurityDialog = true },
@@ -286,11 +324,11 @@ fun HomeScreen(
         },
         floatingActionButton = {
             if (currentTab == AppTab.CHATS) {
-                // WhatsApp-style compact squircle FAB
+                // WhatsApp-style compact squircle FAB in Royal Blue (OlinamPrimary)
                 FloatingActionButton(
                     onClick = { showSelectContactScreen = true },
                     shape = RoundedCornerShape(16.dp),
-                    containerColor = Color(0xFF0F172A),
+                    containerColor = OlinamPrimary,
                     contentColor = Color.White,
                     elevation = FloatingActionButtonDefaults.elevation(3.dp),
                     modifier = Modifier
@@ -323,13 +361,19 @@ fun HomeScreen(
                     )
                 }
                 AppTab.STORIES -> {
-                    StoriesScreen(viewModel = viewModel)
+                    StoriesScreen(
+                        viewModel = viewModel,
+                        onCameraClick = { showCameraScreen = true }
+                    )
                 }
                 AppTab.OJ_AI -> {
                     OjAiScreen(viewModel = viewModel)
                 }
                 AppTab.CALLS -> {
-                    CallsScreen(viewModel = viewModel)
+                    CallsScreen(
+                        viewModel = viewModel,
+                        onOpenSelectContact = { showSelectCallContactScreen = true }
+                    )
                 }
             }
         }
@@ -363,18 +407,6 @@ fun HomeScreen(
     if (showInviteDialog) {
         InviteFriendsModal(
             onDismiss = { showInviteDialog = false }
-        )
-    }
-
-    // Camera Preview Modal
-    if (showCameraDialog) {
-        CameraPreviewModal(
-            onDismiss = { showCameraDialog = false },
-            onCapture = {
-                showCameraDialog = false
-                viewModel.addStory("Snapped from Olinam camera 📷✨")
-                viewModel.setTab(AppTab.STORIES)
-            }
         )
     }
 
