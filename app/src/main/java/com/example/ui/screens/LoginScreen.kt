@@ -115,6 +115,22 @@ fun LoginScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showOtpBanner by remember { mutableStateOf(false) }
 
+    val phoneVerified by viewModel.phoneVerified.collectAsState()
+    val authError by viewModel.authError.collectAsState()
+
+    LaunchedEffect(phoneVerified) {
+        if (phoneVerified && step == 1) {
+            step = 2
+            errorMessage = null
+        }
+    }
+
+    LaunchedEffect(authError) {
+        if (authError != null && step == 1) {
+            errorMessage = authError
+        }
+    }
+
     LaunchedEffect(generatedOtp) {
         if (generatedOtp != null) {
             showOtpBanner = true
@@ -462,11 +478,12 @@ fun LoginScreen(
                             enteredOtp = it.filter { char -> char.isDigit() }
                             errorMessage = null
                             if (enteredOtp.length == 6) {
-                                val valid = viewModel.verifyOtp(enteredOtp)
-                                if (valid) {
-                                    step = 2
-                                } else {
-                                    errorMessage = "Invalid verification code. Please check and retry."
+                                viewModel.verifyOtp(enteredOtp) { success ->
+                                    if (success) {
+                                        step = 2
+                                    } else {
+                                        errorMessage = "Invalid verification code. Please check and retry."
+                                    }
                                 }
                             }
                         }
@@ -556,11 +573,12 @@ fun LoginScreen(
                 // VERIFY Button (Royal Blue)
                 Button(
                     onClick = {
-                        val valid = viewModel.verifyOtp(enteredOtp)
-                        if (valid) {
-                            step = 2
-                        } else {
-                            errorMessage = "Invalid verification code. Please check and retry."
+                        viewModel.verifyOtp(enteredOtp) { success ->
+                            if (success) {
+                                step = 2
+                            } else {
+                                errorMessage = "Invalid verification code. Please check and retry."
+                            }
                         }
                     },
                     colors = ButtonDefaults.buttonColors(

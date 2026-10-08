@@ -318,6 +318,7 @@ class FirebaseChatRepository {
         try {
             conversationsListener = db.collection("conversations")
                 .orderBy("lastMessageTimestamp", Query.Direction.DESCENDING)
+                .limit(100)
                 .addSnapshotListener { snapshot, error ->
                     if (error != null) {
                         Log.w(tag, "Firestore conversations listen failed: ${error.message}")
@@ -358,6 +359,7 @@ class FirebaseChatRepository {
                 .document(conversationId)
                 .collection("messages")
                 .orderBy("timestamp", Query.Direction.ASCENDING)
+                .limitToLast(100)
                 .addSnapshotListener { snapshot, error ->
                     if (error != null) {
                         Log.w(tag, "Messages listen failed: ${error.message}")

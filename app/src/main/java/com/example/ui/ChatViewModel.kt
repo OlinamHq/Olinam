@@ -190,25 +190,36 @@ class ChatViewModel(
         }
     }
 
-    fun verifyOtp(entered: String): Boolean {
-        if (_phoneVerified.value) return true
+    fun verifyOtp(entered: String, onResult: ((Boolean) -> Unit)? = null): Boolean {
+        if (_phoneVerified.value) {
+            onResult?.invoke(true)
+            return true
+        }
         val cleanEntered = entered.trim()
         val currentOtp = _generatedOtp.value?.trim()
 
         // Match generated code or universal test codes
         if (cleanEntered.isNotBlank() && (cleanEntered == currentOtp || cleanEntered == "123456" || cleanEntered == "000000")) {
             _phoneVerified.value = true
+            onResult?.invoke(true)
             return true
         }
 
         try {
             com.example.auth.PhoneAuthManager.verifyOtp(
                 code = cleanEntered,
-                onSuccess = { _phoneVerified.value = true },
-                onFailed = { _authError.value = it }
+                onSuccess = {
+                    _phoneVerified.value = true
+                    onResult?.invoke(true)
+                },
+                onFailed = {
+                    _authError.value = it
+                    onResult?.invoke(false)
+                }
             )
         } catch (t: Throwable) {
             android.util.Log.w("ChatViewModel", "verifyOtp safe catch: ${t.message}")
+            onResult?.invoke(false)
         }
 
         return _phoneVerified.value
