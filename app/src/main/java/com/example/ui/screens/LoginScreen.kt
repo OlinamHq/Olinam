@@ -24,6 +24,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -67,6 +68,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -203,8 +205,17 @@ fun LoginScreen(
                     .fillMaxWidth()
                     .padding(bottom = 18.dp)
                     .clickable {
-                        enteredOtp = generatedOtp ?: ""
+                        val code = generatedOtp ?: ""
+                        enteredOtp = code
                         showOtpBanner = false
+                        if (code.length == 6) {
+                            val valid = viewModel.verifyOtp(code)
+                            if (valid) {
+                                step = 2
+                            } else {
+                                errorMessage = "Invalid verification code. Please check and retry."
+                            }
+                        }
                     }
                     .testTag("otp_notification_banner")
             ) {
@@ -336,7 +347,22 @@ fun LoginScreen(
                         },
                         placeholder = { Text("Phone number", color = Color(0xFF94A3B8)) },
                         singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Phone,
+                            imeAction = ImeAction.Next
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onNext = {
+                                if (phoneNumber.length < 8) {
+                                    errorMessage = "Please enter a valid phone number"
+                                } else {
+                                    errorMessage = null
+                                    val fullPhone = "${selectedCountry.dialCode}$phoneNumber"
+                                    viewModel.sendOtp(fullPhone, context)
+                                    step = 1
+                                }
+                            }
+                        ),
                         shape = RoundedCornerShape(12.dp),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = OlinamPrimary,
@@ -497,7 +523,7 @@ fun LoginScreen(
                 // Resend Timer or Button
                 if (secondsRemaining > 0) {
                     Text(
-                        text = "Resend SMS in 00:${String.format("%02d", secondsRemaining)}",
+                        text = "Resend SMS in 00:${String.format(java.util.Locale.US, "%02d", secondsRemaining)}",
                         fontSize = 14.sp,
                         color = Color(0xFF64748B)
                     )

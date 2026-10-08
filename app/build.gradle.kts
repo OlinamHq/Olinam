@@ -18,6 +18,8 @@ android {
     versionCode = 1
     versionName = "1.0"
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    buildConfigField("String", "R2_PRESIGN_URL", "\"\"")
+    buildConfigField("String", "R2_PUBLIC_BASE", "\"\"")
   }
 
   signingConfigs {
@@ -49,6 +51,9 @@ android {
     sourceCompatibility = JavaVersion.VERSION_11
     targetCompatibility = JavaVersion.VERSION_11
   }
+  testOptions {
+    unitTests.isIncludeAndroidResources = true
+  }
   buildFeatures {
     compose = true
     buildConfig = true
@@ -60,6 +65,8 @@ secrets {
   defaultPropertiesFileName = ".env.example"
   ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
   ignoreList.add("GEMINI_API_KEY")
+  ignoreList.add("R2_PRESIGN_URL")
+  ignoreList.add("R2_PUBLIC_BASE")
 }
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
