@@ -34,6 +34,8 @@ class ChatViewModel @JvmOverloads constructor(
 ) : AndroidViewModel(application) {
 
     init {
+        com.example.auth.PhoneAuthManager.ensureFirebaseInitialized(application)
+        repository.initFirebaseSafely(application)
         restoreSavedSession(application)
     }
 
@@ -235,6 +237,7 @@ class ChatViewModel @JvmOverloads constructor(
         try {
             com.example.auth.PhoneAuthManager.verifyOtp(
                 code = cleanEntered,
+                context = getApplication(),
                 onSuccess = {
                     _isVerifyingOtp.value = false
                     _phoneVerified.value = true

@@ -4,7 +4,9 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.util.Log
+import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseException
+import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import com.google.firebase.auth.PhoneAuthCredential
@@ -30,14 +32,64 @@ object PhoneAuthManager {
         return null
     }
 
-    private fun getFirebaseAuth(): FirebaseAuth? = try {
-        FirebaseAuth.getInstance()
-    } catch (t: Throwable) {
-        Log.w(TAG, "FirebaseAuth not initialized: ${t.message}")
-        null
+    fun ensureFirebaseInitialized(context: Context): FirebaseApp? {
+        val appContext = context.applicationContext ?: context
+        return try {
+            val apps = FirebaseApp.getApps(appContext)
+            if (apps.isEmpty()) {
+                val defaultApp = FirebaseApp.initializeApp(appContext)
+                defaultApp ?: run {
+                    val options = FirebaseOptions.Builder()
+                        .setApplicationId("1:1007973994144:android:b3d230c8ae84ddd7d6c3c5")
+                        .setApiKey("AIzaSyBXoDNyLKGJFpS6Q2T4dvC6BrpjLVdx8yY")
+                        .setProjectId("olinam-90d42")
+                        .setStorageBucket("olinam-90d42.firebasestorage.app")
+                        .build()
+                    FirebaseApp.initializeApp(appContext, options)
+                }
+            } else {
+                apps.firstOrNull() ?: FirebaseApp.getInstance()
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "ensureFirebaseInitialized error: ${t.message}", t)
+            try {
+                val options = FirebaseOptions.Builder()
+                    .setApplicationId("1:1007973994144:android:b3d230c8ae84ddd7d6c3c5")
+                    .setApiKey("AIzaSyBXoDNyLKGJFpS6Q2T4dvC6BrpjLVdx8yY")
+                    .setProjectId("olinam-90d42")
+                    .setStorageBucket("olinam-90d42.firebasestorage.app")
+                    .build()
+                FirebaseApp.initializeApp(appContext, options)
+            } catch (e: Throwable) {
+                Log.e(TAG, "Explicit fallback init error: ${e.message}", e)
+                null
+            }
+        }
     }
 
-    fun isFirebaseAvailable(): Boolean = getFirebaseAuth() != null
+    fun getFirebaseAuth(context: Context? = null): FirebaseAuth? {
+        return try {
+            if (context != null) {
+                ensureFirebaseInitialized(context)
+            }
+            FirebaseAuth.getInstance()
+        } catch (t: Throwable) {
+            Log.e(TAG, "FirebaseAuth.getInstance() threw: ${t.message}", t)
+            if (context != null) {
+                try {
+                    val app = ensureFirebaseInitialized(context)
+                    if (app != null) {
+                        return FirebaseAuth.getInstance(app)
+                    }
+                } catch (e: Throwable) {
+                    Log.e(TAG, "Fallback FirebaseAuth init error: ${e.message}", e)
+                }
+            }
+            null
+        }
+    }
+
+    fun isFirebaseAvailable(context: Context? = null): Boolean = getFirebaseAuth(context) != null
 
     fun sendOtp(
         context: Context,
@@ -54,9 +106,9 @@ object PhoneAuthManager {
                 return
             }
 
-            val auth = getFirebaseAuth()
+            val auth = getFirebaseAuth(context)
             if (auth == null) {
-                onFailed("Firebase Authentication is not available on this device")
+                onFailed("Firebase Authentication initialization error. Please check internet connection.")
                 return
             }
 
@@ -119,16 +171,21 @@ object PhoneAuthManager {
         }
     }
 
-    fun verifyOtp(code: String, onSuccess: () -> Unit, onFailed: (String) -> Unit) {
+    fun verifyOtp(
+        code: String,
+        context: Context? = null,
+        onSuccess: () -> Unit,
+        onFailed: (String) -> Unit
+    ) {
         try {
             val id = verificationId
             if (id.isNullOrBlank()) {
                 onFailed("No verification in progress. Please request an SMS code first.")
                 return
             }
-            val auth = getFirebaseAuth()
+            val auth = getFirebaseAuth(context)
             if (auth == null) {
-                onFailed("Firebase Authentication is not available")
+                onFailed("Firebase Authentication is not available. Please retry.")
                 return
             }
             val credential = PhoneAuthProvider.getCredential(id, code.trim())

@@ -1,5 +1,6 @@
 package com.example.data
 
+import android.content.Context
 import android.util.Log
 import com.example.crypto.EncryptionManager
 import com.example.model.CallDirection
@@ -136,8 +137,11 @@ class FirebaseChatRepository {
         }
     }
 
-    private fun initFirebaseSafely() {
+    fun initFirebaseSafely(context: Context? = null) {
         try {
+            if (context != null) {
+                com.example.auth.PhoneAuthManager.ensureFirebaseInitialized(context)
+            }
             auth = FirebaseAuth.getInstance()
             firestore = FirebaseFirestore.getInstance()
             _firebaseConnected.value = true
