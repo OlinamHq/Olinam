@@ -114,16 +114,45 @@ fun HomeScreen(
     var showContactProfileScreen by remember { mutableStateOf(false) }
     val labelSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
+    val webrtcCallState by viewModel.webRtcCallState.collectAsState()
+
+    // SMS & Contacts Permission handling for auto-syncing real phone messages & spam filtering
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { perms ->
+        val smsGranted = perms[Manifest.permission.READ_SMS] == true
+        if (smsGranted) {
+            viewModel.syncDeviceSms(context)
+        }
+    }
+
     LaunchedEffect(Unit) {
         viewModel.restoreSavedSession(context)
     }
 
-    val webrtcManager = remember { viewModel.getOrCreateWebRtcCallManager(context) }
-    val webrtcCallState by webrtcManager.callState.collectAsState()
+    LaunchedEffect(isLoggedIn) {
+        if (isLoggedIn) {
+            val hasSmsPermission = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.READ_SMS
+            ) == PackageManager.PERMISSION_GRANTED
 
-    // 0. WebRTC Audio & Video Call Screen
-    if (webrtcCallState != com.example.webrtc.model.WebRtcCallState.IDLE) {
-        com.example.webrtc.ui.WebRtcActiveCallScreen(callManager = webrtcManager)
+            if (hasSmsPermission) {
+                viewModel.syncDeviceSms(context)
+            } else {
+                permissionLauncher.launch(
+                    arrayOf(
+                        Manifest.permission.READ_SMS,
+                        Manifest.permission.READ_CONTACTS
+                    )
+                )
+            }
+        }
+    }
+
+    // 0. WebRTC Audio & Video Call Screen (only when active)
+    if (webrtcCallState != com.example.webrtc.model.WebRtcCallState.IDLE && viewModel.webRtcCallManager != null) {
+        com.example.webrtc.ui.WebRtcActiveCallScreen(callManager = viewModel.webRtcCallManager!!)
         return
     }
 
@@ -167,37 +196,6 @@ fun HomeScreen(
             }
         )
         return
-    }
-
-    // SMS & Contacts Permission handling for auto-syncing real phone messages & spam filtering
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { perms ->
-        val smsGranted = perms[Manifest.permission.READ_SMS] == true
-        if (smsGranted) {
-            viewModel.syncDeviceSms(context)
-        }
-    }
-
-    LaunchedEffect(isLoggedIn) {
-        if (isLoggedIn) {
-            val hasSmsPermission = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.READ_SMS
-            ) == PackageManager.PERMISSION_GRANTED
-
-            if (hasSmsPermission) {
-                viewModel.syncDeviceSms(context)
-            } else {
-                // Prompt user for SMS & Contacts to read phone text messages
-                permissionLauncher.launch(
-                    arrayOf(
-                        Manifest.permission.READ_SMS,
-                        Manifest.permission.READ_CONTACTS
-                    )
-                )
-            }
-        }
     }
 
     // Short link QR Screen (Screenshots 3 & 5)
@@ -247,6 +245,7 @@ fun HomeScreen(
             safetyNumber = viewModel.getSafetyNumber(selectedConv.id),
             onBackClick = { showContactProfileScreen = false },
             onCallClick = { type ->
+                showContactProfileScreen = false
                 viewModel.startWebRtcCall(
                     context = context,
                     contactName = selectedConv.title,
@@ -285,6 +284,7 @@ fun HomeScreen(
                 )
             },
             onVerifyAppStatus = { viewModel.verifyAndUpdateConversationAppStatus(selectedConv.id) },
+            onLoadMessages = { viewModel.loadMessagesForConversation(selectedConv.id, context) },
             onOpenProfile = { showContactProfileScreen = true }
         )
         return

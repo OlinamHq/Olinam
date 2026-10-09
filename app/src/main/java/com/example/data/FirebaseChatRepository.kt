@@ -925,7 +925,7 @@ class FirebaseChatRepository {
         }
     }
 
-    fun mergeSmsConversations(personal: List<Conversation>, spam: List<Conversation>) {
+    fun mergeSmsConversations(personal: List<Conversation>, spam: List<Conversation>, context: android.content.Context? = null) {
         // Include all text messages into SMS label (no spam folder segregation)
         val allSms = (personal + spam).map {
             it.copy(
@@ -935,13 +935,32 @@ class FirebaseChatRepository {
         }
         lastSmsConversations = allSms
         updateCombinedConversations()
+
+        if (context != null) {
+            scope.launch {
+                for (conv in allSms.take(15)) {
+                    val phone = conv.phoneNumber ?: conv.title
+                    if (phone.isNotBlank()) {
+                        val messages = SmsHelper.getMessagesForAddress(context, phone)
+                        if (messages.isNotEmpty()) {
+                            setLocalMessages(conv.id, messages)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fun loadMessagesForConversation(conversationId: String, context: android.content.Context) {
         val conv = _conversations.value.find { it.id == conversationId }
-        if (conv?.isSmsContact == true && !conv.phoneNumber.isNullOrBlank()) {
+        val isSms = conv?.isSmsContact == true || conversationId.startsWith("sms_")
+        val targetPhone = conv?.phoneNumber?.ifBlank { null }
+            ?: conv?.title?.filter { it.isDigit() || it == '+' }?.ifBlank { null }
+            ?: conversationId.removePrefix("sms_thread_").removePrefix("sms_")
+
+        if (isSms && targetPhone.isNotBlank()) {
             scope.launch {
-                val smsMessages = SmsHelper.getMessagesForAddress(context, conv.phoneNumber)
+                val smsMessages = SmsHelper.getMessagesForAddress(context, targetPhone)
                 if (smsMessages.isNotEmpty()) {
                     setLocalMessages(conversationId, smsMessages)
                 }

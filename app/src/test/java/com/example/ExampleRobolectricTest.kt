@@ -1,11 +1,13 @@
 package com.example
 
+import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
@@ -24,4 +26,11 @@ class ExampleRobolectricTest {
     }
     assertEquals("Olinam", appName)
   }
+
+  @Test
+  fun `test main activity launch`() {
+    val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+    assertNotNull(controller.get())
+  }
 }
+

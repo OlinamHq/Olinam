@@ -159,6 +159,7 @@ fun ChatDetailScreen(
     onSendDirectSms: (String) -> Boolean = { false },
     onCallClick: (CallType) -> Unit = {},
     onVerifyAppStatus: () -> Unit = {},
+    onLoadMessages: () -> Unit = {},
     onOpenProfile: () -> Unit = {}
 ) {
     BackHandler { onBackClick() }
@@ -178,9 +179,10 @@ fun ChatDetailScreen(
 
     val listState = rememberLazyListState()
 
-    // Dynamically re-verify if recipient has registered on Olinam
+    // Dynamically re-verify if recipient has registered on Olinam and load messages immediately
     LaunchedEffect(conversation.id) {
         onVerifyAppStatus()
+        onLoadMessages()
     }
 
     LaunchedEffect(conversation.isSmsContact) {

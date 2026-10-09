@@ -417,7 +417,13 @@ fun LoginScreen(
                             if (enteredOtp.length == 6) {
                                 viewModel.verifyOtp(enteredOtp) { success ->
                                     if (success) {
-                                        step = 2
+                                        val fullPhone = "${selectedCountry.dialCode}$phoneNumber"
+                                        viewModel.checkExistingUserAndLogin(fullPhone, context) { hasProfile, existingName ->
+                                            if (!hasProfile) {
+                                                if (existingName.isNotBlank()) userName = existingName
+                                                step = 2
+                                            }
+                                        }
                                     } else {
                                         errorMessage = "Invalid verification code. Please check and retry."
                                     }
@@ -517,8 +523,9 @@ fun LoginScreen(
                             viewModel.verifyOtp(code) { success ->
                                 if (success) {
                                     val fullPhone = "${selectedCountry.dialCode}$phoneNumber"
-                                    viewModel.checkExistingUserAndLogin(fullPhone, context) { hasProfile, _ ->
+                                    viewModel.checkExistingUserAndLogin(fullPhone, context) { hasProfile, existingName ->
                                         if (!hasProfile) {
+                                            if (existingName.isNotBlank()) userName = existingName
                                             step = 2
                                         }
                                     }
