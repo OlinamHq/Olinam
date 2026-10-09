@@ -41,6 +41,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -97,7 +98,9 @@ fun LoginScreen(
     viewModel: ChatViewModel
 ) {
     val context = LocalContext.current
-    val generatedOtp by viewModel.generatedOtp.collectAsState()
+    val isSendingOtp by viewModel.isSendingOtp.collectAsState()
+    val isVerifyingOtp by viewModel.isVerifyingOtp.collectAsState()
+    val otpCodeSent by viewModel.otpCodeSent.collectAsState()
     val secondsRemaining by viewModel.otpSecondsRemaining.collectAsState()
 
     // 0: Enter Phone, 1: Verify OTP, 2: Profile Setup
@@ -118,8 +121,9 @@ fun LoginScreen(
     val authError by viewModel.authError.collectAsState()
 
     LaunchedEffect(phoneVerified) {
-        if (phoneVerified && step == 1) {
-            val fullPhone = "${selectedCountry.dialCode}$phoneNumber"
+        if (phoneVerified && (step == 0 || step == 1)) {
+            val cleanDigits = phoneNumber.trim().trimStart('0')
+            val fullPhone = "${selectedCountry.dialCode}$cleanDigits"
             viewModel.checkExistingUserAndLogin(fullPhone, context) { hasProfile, _ ->
                 if (!hasProfile) {
                     step = 2
@@ -130,7 +134,7 @@ fun LoginScreen(
     }
 
     LaunchedEffect(authError) {
-        if (authError != null && step == 1) {
+        if (authError != null) {
             errorMessage = authError
         }
     }
@@ -345,15 +349,19 @@ fun LoginScreen(
                 // NEXT Button (Royal Blue)
                 Button(
                     onClick = {
-                        if (phoneNumber.length < 8) {
+                        val cleanDigits = phoneNumber.trim().trimStart('0')
+                        if (cleanDigits.length < 8) {
                             errorMessage = "Please enter a valid phone number"
                         } else {
                             errorMessage = null
-                            val fullPhone = "${selectedCountry.dialCode}$phoneNumber"
-                            viewModel.sendOtp(fullPhone, context)
+                            val fullPhone = "${selectedCountry.dialCode}$cleanDigits"
+                            viewModel.sendOtp(fullPhone, context, isResend = false) {
+                                step = 1
+                            }
                             step = 1
                         }
                     },
+                    enabled = !isSendingOtp,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = OlinamPrimary,
                         contentColor = Color.White
@@ -364,11 +372,19 @@ fun LoginScreen(
                         .height(50.dp)
                         .testTag("send_otp_button")
                 ) {
-                    Text(
-                        text = "Next",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    if (isSendingOtp) {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            modifier = Modifier.size(22.dp),
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Text(
+                            text = "Next",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
             }
         }
@@ -417,7 +433,8 @@ fun LoginScreen(
                             if (enteredOtp.length == 6) {
                                 viewModel.verifyOtp(enteredOtp) { success ->
                                     if (success) {
-                                        val fullPhone = "${selectedCountry.dialCode}$phoneNumber"
+                                        val cleanDigits = phoneNumber.trim().trimStart('0')
+                                        val fullPhone = "${selectedCountry.dialCode}$cleanDigits"
                                         viewModel.checkExistingUserAndLogin(fullPhone, context) { hasProfile, existingName ->
                                             if (!hasProfile) {
                                                 if (existingName.isNotBlank()) userName = existingName
@@ -425,12 +442,13 @@ fun LoginScreen(
                                             }
                                         }
                                     } else {
-                                        errorMessage = "Invalid verification code. Please check and retry."
+                                        errorMessage = authError ?: "Invalid verification code. Please check SMS and retry."
                                     }
                                 }
                             }
                         }
                     },
+                    enabled = !isVerifyingOtp,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                     cursorBrush = SolidColor(OlinamPrimary),
                     modifier = Modifier.testTag("otp_input_field"),
@@ -468,14 +486,23 @@ fun LoginScreen(
                     }
                 )
 
-                if (errorMessage != null) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = errorMessage ?: "",
-                        color = Color(0xFFEF4444),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                val displayErr = errorMessage ?: authError
+                if (!displayErr.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = Color(0xFFFEF2F2),
+                        border = BorderStroke(1.dp, Color(0xFFFECACA)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text(
+                            text = displayErr,
+                            color = Color(0xFFDC2626),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
@@ -490,10 +517,12 @@ fun LoginScreen(
                 } else {
                     TextButton(
                         onClick = {
-                            val fullPhone = "${selectedCountry.dialCode}$phoneNumber"
-                            viewModel.sendOtp(fullPhone, context)
+                            val cleanDigits = phoneNumber.trim().trimStart('0')
+                            val fullPhone = "${selectedCountry.dialCode}$cleanDigits"
+                            viewModel.sendOtp(fullPhone, context, isResend = true)
                             errorMessage = null
                         },
+                        enabled = !isSendingOtp,
                         modifier = Modifier.testTag("resend_otp_button")
                     ) {
                         Icon(
@@ -504,7 +533,7 @@ fun LoginScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Resend SMS",
+                            text = if (isSendingOtp) "Sending SMS..." else "Resend SMS",
                             color = OlinamPrimary,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -518,11 +547,12 @@ fun LoginScreen(
                     onClick = {
                         val code = enteredOtp.trim()
                         if (code.length < 6) {
-                            errorMessage = "Please enter the 6-digit verification code"
+                            errorMessage = "Please enter the 6-digit verification code from your SMS"
                         } else {
                             viewModel.verifyOtp(code) { success ->
                                 if (success) {
-                                    val fullPhone = "${selectedCountry.dialCode}$phoneNumber"
+                                    val cleanDigits = phoneNumber.trim().trimStart('0')
+                                    val fullPhone = "${selectedCountry.dialCode}$cleanDigits"
                                     viewModel.checkExistingUserAndLogin(fullPhone, context) { hasProfile, existingName ->
                                         if (!hasProfile) {
                                             if (existingName.isNotBlank()) userName = existingName
@@ -530,11 +560,12 @@ fun LoginScreen(
                                         }
                                     }
                                 } else {
-                                    errorMessage = "Invalid verification code. Please check and retry."
+                                    errorMessage = authError ?: "Invalid verification code. Please check SMS and retry."
                                 }
                             }
                         }
                     },
+                    enabled = !isVerifyingOtp && enteredOtp.length == 6,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = OlinamPrimary,
                         contentColor = Color.White
@@ -545,11 +576,19 @@ fun LoginScreen(
                         .height(50.dp)
                         .testTag("verify_otp_button")
                 ) {
-                    Text(
-                        text = "Verify OTP",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    if (isVerifyingOtp) {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            modifier = Modifier.size(22.dp),
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Text(
+                            text = "Verify OTP",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
             }
         }

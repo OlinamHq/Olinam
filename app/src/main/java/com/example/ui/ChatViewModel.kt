@@ -153,8 +153,12 @@ class ChatViewModel @JvmOverloads constructor(
     val activeCallState: StateFlow<com.example.model.ActiveCallState?> = _activeCallState.asStateFlow()
     private var callTimerJob: kotlinx.coroutines.Job? = null
 
-    private val _generatedOtp = MutableStateFlow<String?>(null)
-    val generatedOtp: StateFlow<String?> = _generatedOtp.asStateFlow()
+    private val _isSendingOtp = MutableStateFlow(false)
+    val isSendingOtp: StateFlow<Boolean> = _isSendingOtp.asStateFlow()
+    private val _isVerifyingOtp = MutableStateFlow(false)
+    val isVerifyingOtp: StateFlow<Boolean> = _isVerifyingOtp.asStateFlow()
+    private val _otpCodeSent = MutableStateFlow(false)
+    val otpCodeSent: StateFlow<Boolean> = _otpCodeSent.asStateFlow()
     private val _otpSecondsRemaining = MutableStateFlow(60)
     val otpSecondsRemaining: StateFlow<Int> = _otpSecondsRemaining.asStateFlow()
     private var otpTimerJob: kotlinx.coroutines.Job? = null
@@ -163,14 +167,16 @@ class ChatViewModel @JvmOverloads constructor(
     private val _phoneVerified = MutableStateFlow(false)
     val phoneVerified: StateFlow<Boolean> = _phoneVerified.asStateFlow()
 
-    fun sendOtp(phoneNumber: String, context: Context) {
+    fun sendOtp(
+        phoneNumber: String,
+        context: Context,
+        isResend: Boolean = false,
+        onSuccess: (() -> Unit)? = null
+    ) {
         _authError.value = null
         _phoneVerified.value = false
+        _isSendingOtp.value = true
         _otpSecondsRemaining.value = 60
-
-        // Generate a 6-digit verification code for seamless local preview and auto-fill
-        val generatedCode = String.format(java.util.Locale.US, "%06d", (100000..999999).random())
-        _generatedOtp.value = generatedCode
 
         otpTimerJob?.cancel()
         otpTimerJob = viewModelScope.launch {
@@ -184,14 +190,30 @@ class ChatViewModel @JvmOverloads constructor(
             com.example.auth.PhoneAuthManager.sendOtp(
                 context = context,
                 phoneNumber = phoneNumber,
-                onCodeSent = { /* Firebase phone auth dispatched */ },
-                onVerified = { _phoneVerified.value = true },
+                isResend = isResend,
+                onCodeSent = {
+                    _isSendingOtp.value = false
+                    _otpCodeSent.value = true
+                    _authError.value = null
+                    onSuccess?.invoke()
+                },
+                onVerified = {
+                    _isSendingOtp.value = false
+                    _phoneVerified.value = true
+                    _authError.value = null
+                    onSuccess?.invoke()
+                },
                 onFailed = { errorMsg ->
-                    android.util.Log.d("ChatViewModel", "Phone auth status: $errorMsg")
+                    _isSendingOtp.value = false
+                    _authError.value = errorMsg
+                    android.util.Log.e("ChatViewModel", "Phone auth status: $errorMsg")
                 }
             )
         } catch (t: Throwable) {
-            android.util.Log.w("ChatViewModel", "sendOtp safe catch: ${t.message}")
+            _isSendingOtp.value = false
+            val msg = t.message ?: "Failed to initiate phone verification"
+            _authError.value = msg
+            android.util.Log.w("ChatViewModel", "sendOtp safe catch: $msg")
         }
     }
 
@@ -201,29 +223,35 @@ class ChatViewModel @JvmOverloads constructor(
             return true
         }
         val cleanEntered = entered.trim()
-        val currentOtp = _generatedOtp.value?.trim()
-
-        // Match generated code or universal test codes
-        if (cleanEntered.isNotBlank() && (cleanEntered == currentOtp || cleanEntered == "123456" || cleanEntered == "000000")) {
-            _phoneVerified.value = true
-            onResult?.invoke(true)
-            return true
+        if (cleanEntered.length < 6) {
+            _authError.value = "Please enter the complete 6-digit code received via SMS"
+            onResult?.invoke(false)
+            return false
         }
+
+        _isVerifyingOtp.value = true
+        _authError.value = null
 
         try {
             com.example.auth.PhoneAuthManager.verifyOtp(
                 code = cleanEntered,
                 onSuccess = {
+                    _isVerifyingOtp.value = false
                     _phoneVerified.value = true
+                    _authError.value = null
                     onResult?.invoke(true)
                 },
-                onFailed = {
-                    _authError.value = it
+                onFailed = { errorMsg ->
+                    _isVerifyingOtp.value = false
+                    _authError.value = errorMsg
                     onResult?.invoke(false)
                 }
             )
         } catch (t: Throwable) {
-            android.util.Log.w("ChatViewModel", "verifyOtp safe catch: ${t.message}")
+            _isVerifyingOtp.value = false
+            val msg = t.message ?: "Verification failed"
+            _authError.value = msg
+            android.util.Log.w("ChatViewModel", "verifyOtp safe catch: $msg")
             onResult?.invoke(false)
         }
 
@@ -242,6 +270,7 @@ class ChatViewModel @JvmOverloads constructor(
         val pub = com.example.crypto.IdentityKeyManager.ensureKeyPair(context)
         val token = context.getSharedPreferences("olinam_user_prefs", Context.MODE_PRIVATE).getString("fcm_token", null)
         com.example.data.PresenceManager.publishIdentity(uid, pub, token)
+        com.example.push.OlinamMessagingService.syncTokenSafely(context)
     }
 
     fun markOffline() {

@@ -11,6 +11,26 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 
 class OlinamMessagingService : FirebaseMessagingService() {
+    companion object {
+        fun syncTokenSafely(context: android.content.Context) {
+            try {
+                com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+                    .addOnSuccessListener { token ->
+                        if (!token.isNullOrBlank()) {
+                            context.getSharedPreferences("olinam_user_prefs", MODE_PRIVATE)
+                                .edit().putString("fcm_token", token).apply()
+                        }
+                    }
+                    .addOnFailureListener {
+                        // Suppress hard failure log when FCM is not registered on the current backend/device
+                        android.util.Log.d("OlinamPush", "FCM token registration deferred: ${it.message}")
+                    }
+            } catch (t: Throwable) {
+                android.util.Log.d("OlinamPush", "FCM service unavailable: ${t.message}")
+            }
+        }
+    }
+
     override fun onNewToken(token: String) {
         getSharedPreferences("olinam_user_prefs", MODE_PRIVATE)
             .edit().putString("fcm_token", token).apply()
