@@ -16,6 +16,7 @@ import com.example.model.CallType
 import com.example.model.ChatLabel
 import com.example.model.Conversation
 import com.example.model.FilterCategory
+import com.example.model.MediaType
 import com.example.model.Message
 import com.example.model.Story
 import com.example.model.UserProfile
@@ -46,7 +47,7 @@ class ChatViewModel @JvmOverloads constructor(
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
     val labels: StateFlow<List<ChatLabel>> = repository.labels
-    private val _selectedLabelId = MutableStateFlow("all")
+    private val _selectedLabelId = MutableStateFlow("direct")
     val selectedLabelId: StateFlow<String> = _selectedLabelId.asStateFlow()
 
     private val _activeConversationId = MutableStateFlow<String?>(null)
@@ -78,10 +79,9 @@ class ChatViewModel @JvmOverloads constructor(
     ) { allConv, query, labelId, labelsList ->
         allConv.filter { conv ->
             val matchesLabel = when (labelId) {
-                "all" -> true
-                "direct" -> !conv.isSmsContact && !conv.isGroup
+                "direct" -> !conv.isGroup && (conv.labelIds.contains("direct") || !conv.id.startsWith("sms_thread_"))
                 "groups" -> conv.isGroup
-                "sms" -> conv.isSmsContact
+                "sms" -> conv.isSmsContact || conv.labelIds.contains("sms") || conv.id.startsWith("sms_")
                 else -> {
                     val target = labelsList.find { it.id == labelId }
                     target?.chatIds?.contains(conv.id) == true || conv.labelIds.contains(labelId)
@@ -109,6 +109,21 @@ class ChatViewModel @JvmOverloads constructor(
         val newId = repository.createLabel(name, colorHex, chatIds)
         selectLabel(newId)
     }
+
+    fun deleteConversation(conversationId: String) {
+        repository.deleteConversation(conversationId)
+        if (_activeConversationId.value == conversationId) {
+            _activeConversationId.value = null
+        }
+    }
+
+    fun deleteMessage(conversationId: String, messageId: String) {
+        repository.deleteMessage(conversationId, messageId)
+    }
+
+    fun clearConversation(conversationId: String) {
+        repository.clearConversationMessages(conversationId)
+    }
     fun syncDeviceSms(context: Context) {
         viewModelScope.launch(Dispatchers.IO) {
             val result = SmsHelper.getDeviceSmsConversations(context)
@@ -134,9 +149,9 @@ class ChatViewModel @JvmOverloads constructor(
         repository.loadMessagesForConversation(conversationId, ctx)
     }
     fun closeConversation() { _activeConversationId.value = null }
-    fun sendMessage(conversationId: String, text: String) {
-        if (text.isBlank()) return
-        repository.sendMessage(conversationId, text)
+    fun sendMessage(conversationId: String, text: String, mediaUrl: String? = null, mediaType: MediaType = MediaType.TEXT) {
+        if (text.isBlank() && mediaUrl.isNullOrBlank()) return
+        repository.sendMessage(conversationId, text, mediaUrl, mediaType)
     }
     fun sendDirectSms(context: Context, conversationId: String, recipientPhone: String, text: String): Boolean {
         if (text.isBlank() || recipientPhone.isBlank()) return false
@@ -438,9 +453,41 @@ class ChatViewModel @JvmOverloads constructor(
         val phone = conv?.phoneNumber ?: contactName
         startWebRtcCall(ctx, contactName, phone, null, type)
     }
-    fun updateProfile(name: String, status: String, phone: String) {
-        repository.updateProfile(name, status, phone)
-        persistUserSession(name = name, phone = phone, email = "", handle = "", status = status, uid = currentUser.value.id, context = null)
+    fun updateProfile(name: String, status: String, phone: String, avatarUrl: String? = null) {
+        val finalAvatar = avatarUrl ?: currentUser.value.avatarUrl
+        repository.updateProfile(name, status, phone, finalAvatar)
+        persistUserSession(name = name, phone = phone, email = "", handle = "", status = status, avatar = finalAvatar, uid = currentUser.value.id, context = null)
+    }
+
+    suspend fun uploadProfilePhotoToR2(context: Context, uri: android.net.Uri): Result<String> {
+        return kotlinx.coroutines.withContext(Dispatchers.IO) {
+            try {
+                val resolver = context.contentResolver
+                val bytes = resolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?: return@withContext Result.failure(Exception("Could not read image file"))
+                val contentType = resolver.getType(uri) ?: "image/jpeg"
+                val extension = if (contentType.contains("png")) "png" else if (contentType.contains("webp")) "webp" else "jpg"
+                val res = com.example.media.R2MediaUploader.upload(
+                    bytes = bytes,
+                    contentType = contentType,
+                    extension = extension,
+                    folder = "avatars"
+                )
+                Result.success(res.publicUrl)
+            } catch (e: Exception) {
+                // Graceful fallback: If R2_PRESIGN_URL isn't deployed yet, persist locally in app storage
+                android.util.Log.w("ProfilePhoto", "R2 upload notice: ${e.message}, using local cached storage")
+                try {
+                    val file = java.io.File(context.filesDir, "profile_avatar.jpg")
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        file.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    Result.success(android.net.Uri.fromFile(file).toString())
+                } catch (ex: Exception) {
+                    Result.failure(e)
+                }
+            }
+        }
     }
     fun sendOjAiPrompt(prompt: String) {
         if (prompt.isBlank()) return
@@ -559,8 +606,11 @@ class ChatViewModel @JvmOverloads constructor(
             val phone = prefs.getString("user_phone", "") ?: ""
             val email = prefs.getString("user_email", "") ?: ""
             val uid = prefs.getString("user_id", null)
+            val status = prefs.getString("user_status", "Hello! I'm using Olinam") ?: "Hello! I'm using Olinam"
+            val avatar = prefs.getString("user_avatar", null)
             if (name.isNotBlank() || phone.isNotBlank() || email.isNotBlank()) {
                 repository.loginUser(name = name, phoneNumber = phone, email = email, uid = uid)
+                repository.updateProfile(name, status, phone, avatar)
                 markOnline(context)
             }
         }

@@ -108,7 +108,7 @@ fun HomeScreen(
     var showQrScreen by remember { mutableStateOf(false) }
     var showInviteDialog by remember { mutableStateOf(false) }
     var showCameraScreen by remember { mutableStateOf(false) }
-    var showProfileDialog by remember { mutableStateOf(false) }
+    var showEditProfileScreen by remember { mutableStateOf(false) }
     var showSecurityDialog by remember { mutableStateOf(false) }
     var showCreateLabelSheet by remember { mutableStateOf(false) }
     var showContactProfileScreen by remember { mutableStateOf(false) }
@@ -198,6 +198,15 @@ fun HomeScreen(
         return
     }
 
+    // Dedicated Edit Profile Screen (matching user design and Cloudflare R2 DP upload)
+    if (showEditProfileScreen) {
+        EditProfileScreen(
+            viewModel = viewModel,
+            onBackClick = { showEditProfileScreen = false }
+        )
+        return
+    }
+
     // Short link QR Screen (Screenshots 3 & 5)
     if (showQrScreen) {
         ShortLinkQrScreen(
@@ -269,7 +278,9 @@ fun HomeScreen(
                 showContactProfileScreen = false
                 viewModel.closeConversation()
             },
-            onSendMessage = { text -> viewModel.sendMessage(selectedConv.id, text) },
+            onSendMessage = { text ->
+                viewModel.sendMessage(selectedConv.id, text)
+            },
             onSendDirectSms = { text ->
                 val destPhone = selectedConv.phoneNumber ?: selectedConv.title.filter { it.isDigit() || it == '+' }
                 viewModel.sendDirectSms(context, selectedConv.id, destPhone, text)
@@ -285,7 +296,13 @@ fun HomeScreen(
             },
             onVerifyAppStatus = { viewModel.verifyAndUpdateConversationAppStatus(selectedConv.id) },
             onLoadMessages = { viewModel.loadMessagesForConversation(selectedConv.id, context) },
-            onOpenProfile = { showContactProfileScreen = true }
+            onOpenProfile = { showContactProfileScreen = true },
+            onDeleteMessage = { msgId -> viewModel.deleteMessage(selectedConv.id, msgId) },
+            onClearChat = { viewModel.clearConversation(selectedConv.id) },
+            onDeleteChat = {
+                viewModel.deleteConversation(selectedConv.id)
+                showContactProfileScreen = false
+            }
         )
         return
     }
@@ -336,9 +353,9 @@ fun HomeScreen(
                     OlinamTopBar(
                         onCameraClick = { showCameraScreen = true },
                         onMenuNewGroup = { showNewGroupScreen = true },
-                        onMenuProfile = { showProfileDialog = true },
+                        onMenuProfile = { showEditProfileScreen = true },
                         onMenuSecurity = { showSecurityDialog = true },
-                        onMenuSettings = { showProfileDialog = true },
+                        onMenuSettings = { showEditProfileScreen = true },
                         onSyncSms = { viewModel.syncDeviceSms(context) },
                         onOpenSms = { viewModel.selectLabel("sms") },
                         onLogout = { viewModel.logout(context) }
@@ -409,6 +426,7 @@ fun HomeScreen(
                         conversations = conversations,
                         selectedLabelId = selectedLabelId,
                         onConversationClick = { conv -> viewModel.openConversation(conv.id, context) },
+                        onDeleteConversation = { conv -> viewModel.deleteConversation(conv.id) },
                         onStartChatClick = { showSelectContactScreen = true },
                         onNewGroupClick = { showNewGroupScreen = true }
                     )
@@ -464,19 +482,6 @@ fun HomeScreen(
         )
     }
 
-    // Profile Modal
-    if (showProfileDialog) {
-        ProfileModal(
-            currentUser = currentUser,
-            firebaseConnected = firebaseConnected,
-            onDismiss = { showProfileDialog = false },
-            onSave = { name, status, phone ->
-                viewModel.updateProfile(name, status, phone)
-                showProfileDialog = false
-            }
-        )
-    }
-
     // End-to-End Encryption Security Overview Modal
     if (showSecurityDialog) {
         SecurityOverviewModal(
@@ -489,11 +494,13 @@ fun HomeScreen(
 @Composable
 fun ChatsTabContent(
     conversations: List<Conversation>,
-    selectedLabelId: String = "all",
+    selectedLabelId: String = "direct",
     onConversationClick: (Conversation) -> Unit,
+    onDeleteConversation: (Conversation) -> Unit = {},
     onStartChatClick: () -> Unit,
     onNewGroupClick: () -> Unit = {}
 ) {
+    var convToDelete by remember { mutableStateOf<Conversation?>(null) }
     if (conversations.isEmpty()) {
         Box(
             modifier = Modifier
@@ -637,10 +644,47 @@ fun ChatsTabContent(
             items(conversations, key = { it.id }) { conv ->
                 ConversationListItem(
                     conversation = conv,
-                    onClick = { onConversationClick(conv) }
+                    onClick = { onConversationClick(conv) },
+                    onLongClick = { convToDelete = conv }
                 )
             }
         }
+    }
+
+    if (convToDelete != null) {
+        val target = convToDelete!!
+        AlertDialog(
+            onDismissRequest = { convToDelete = null },
+            title = {
+                Text(text = "Delete Chat?", fontWeight = FontWeight.Bold, color = Color(0xFF111827))
+            },
+            text = {
+                Text(
+                    text = "Are you sure you want to delete this chat with \"${target.title}\"? All messages will be permanently removed from this device.",
+                    fontSize = 14.sp,
+                    color = Color(0xFF4B5563)
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val toDel = convToDelete
+                        convToDelete = null
+                        if (toDel != null) {
+                            onDeleteConversation(toDel)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                ) {
+                    Text("Delete", color = Color.White, fontWeight = FontWeight.SemiBold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { convToDelete = null }) {
+                    Text("Cancel", color = Color(0xFF4B5563))
+                }
+            }
+        )
     }
 }
 

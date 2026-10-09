@@ -48,13 +48,25 @@ class FirebaseChatRepository {
     val callLogs: StateFlow<List<CallLog>> = _callLogs.asStateFlow()
 
     private val defaultLabels = listOf(
-        ChatLabel(id = "all", name = "All", colorHex = "#0160E3"),
         ChatLabel(id = "direct", name = "Chats", colorHex = "#0160E3"),
         ChatLabel(id = "groups", name = "Groups", colorHex = "#0160E3"),
         ChatLabel(id = "sms", name = "SMS", colorHex = "#00A884")
     )
     private val _labels = MutableStateFlow<List<ChatLabel>>(defaultLabels)
     val labels: StateFlow<List<ChatLabel>> = _labels.asStateFlow()
+
+    private var localDb: LocalChatDatabase? = null
+
+    fun initLocalDb(context: Context) {
+        if (localDb == null) {
+            val db = LocalChatDatabase.getInstance(context)
+            localDb = db
+            val cached = db.getAllConversations()
+            if (cached.isNotEmpty()) {
+                _conversations.value = cached
+            }
+        }
+    }
 
     private val _currentUser = MutableStateFlow(
         UserProfile(
@@ -140,6 +152,7 @@ class FirebaseChatRepository {
     fun initFirebaseSafely(context: Context? = null) {
         try {
             if (context != null) {
+                initLocalDb(context)
                 com.example.auth.PhoneAuthManager.ensureFirebaseInitialized(context)
             }
             auth = FirebaseAuth.getInstance()
@@ -275,6 +288,7 @@ class FirebaseChatRepository {
         }
         if (updated != current) {
             _conversations.value = updated
+            localDb?.saveConversations(updated)
         }
     }
 
@@ -299,9 +313,10 @@ class FirebaseChatRepository {
     }
 
     private fun bootstrapInitialData() {
-        // Zero dummy data: production-grade clean initial state
+        // Zero dummy data: load local SQLite persistence for instant startup
         _callLogs.value = emptyList()
-        _conversations.value = emptyList()
+        val cached = localDb?.getAllConversations() ?: emptyList()
+        _conversations.value = cached
         _messages.value = emptyMap()
         _stories.value = emptyList()
     }
@@ -380,8 +395,10 @@ class FirebaseChatRepository {
     private var lastSmsConversations: List<Conversation> = emptyList()
 
     private fun updateCombinedConversations() {
-        val existing = lastRemoteConversations.toMutableList()
+        val dbList = localDb?.getAllConversations() ?: emptyList()
+        val existing = (dbList + lastRemoteConversations).distinctBy { it.id }.toMutableList()
         for (smsConv in lastSmsConversations) {
+            if (localDb?.isItemDeleted(smsConv.id) == true) continue
             val idx = existing.indexOfFirst {
                 it.id == smsConv.id || (it.phoneNumber != null && it.phoneNumber == smsConv.phoneNumber)
             }
@@ -398,6 +415,7 @@ class FirebaseChatRepository {
         }
         existing.sortByDescending { it.lastMessageTimestamp }
         _conversations.value = existing
+        localDb?.saveConversations(existing)
     }
 
     private fun listenToConversations() {
@@ -526,14 +544,18 @@ class FirebaseChatRepository {
         // Update conversation last message
         val updatedConversations = _conversations.value.map { conv ->
             if (conv.id == conversationId) {
+                val newLabels = if (!conv.isGroup && !conv.labelIds.contains("direct")) conv.labelIds + "direct" else conv.labelIds
                 conv.copy(
                     lastMessageText = text,
                     lastMessageTimestamp = timestamp,
-                    unreadCount = 0
+                    unreadCount = 0,
+                    labelIds = newLabels
                 )
             } else conv
         }
         _conversations.value = updatedConversations
+        localDb?.saveMessage(newMessage)
+        localDb?.saveConversations(updatedConversations)
 
         // 2.5 Dispatch live message over AWS WebSocket for ultra-fast, zero-latency delivery
         awsChatClient.sendChatMessage(
@@ -600,6 +622,7 @@ class FirebaseChatRepository {
         val updated = _conversations.value.toMutableList()
         updated.add(0, conv)
         _conversations.value = updated
+        localDb?.saveConversation(conv)
 
         if (initialMessage.isNotEmpty()) {
             sendMessage(newId, initialMessage)
@@ -634,13 +657,25 @@ class FirebaseChatRepository {
                     it.title.contains(phoneNumber)
         }
         if (existing != null) {
+            // Ensure this conversation appears in Chats tab by adding "direct" label
+            if (!existing.labelIds.contains("direct")) {
+                val updatedLabels = existing.labelIds + "direct"
+                val updatedConv = existing.copy(labelIds = updatedLabels)
+                val list = _conversations.value.toMutableList()
+                val idx = list.indexOfFirst { it.id == existing.id }
+                if (idx >= 0) {
+                    list[idx] = updatedConv
+                    _conversations.value = list
+                    localDb?.saveConversation(updatedConv)
+                }
+            }
             // Verify if user registered since last seen
             verifyAndUpdateConversationAppStatus(existing.id)
             return existing.id
         }
 
         val hasApp = isPhoneNumberRegistered(phoneNumber)
-        val finalIsSms = if (phoneNumber.isNotBlank()) !hasApp else isSms
+        val finalIsSms = isSms && !hasApp
 
         val newId = "conv_${UUID.randomUUID().toString().take(8)}"
         val conv = Conversation(
@@ -654,12 +689,14 @@ class FirebaseChatRepository {
             isSmsContact = finalIsSms,
             isE2EE = !finalIsSms,
             onlineStatus = if (!finalIsSms) "End-to-End Encrypted 🔒" else "Cellular SMS (No Olinam app installed)",
-            phoneNumber = phoneNumber
+            phoneNumber = phoneNumber,
+            labelIds = if (finalIsSms) listOf("direct", "sms") else listOf("direct")
         )
 
         val updated = _conversations.value.toMutableList()
         updated.add(0, conv)
         _conversations.value = updated
+        localDb?.saveConversation(conv)
 
         // Verify asynchronously in case phone was just registered
         if (phoneNumber.isNotBlank()) {
@@ -726,14 +763,18 @@ class FirebaseChatRepository {
         // 2. Update conversation snippet
         val updatedConversations = _conversations.value.map { conv ->
             if (conv.id == conversationId) {
+                val newLabels = if (!conv.isGroup && !conv.labelIds.contains("direct")) conv.labelIds + "direct" else conv.labelIds
                 conv.copy(
                     lastMessageText = text,
                     lastMessageTimestamp = timestamp,
-                    unreadCount = 0
+                    unreadCount = 0,
+                    labelIds = newLabels
                 )
             } else conv
         }
         _conversations.value = updatedConversations
+        localDb?.saveMessage(newMessage)
+        localDb?.saveConversations(updatedConversations)
         return success
     }
 
@@ -844,12 +885,32 @@ class FirebaseChatRepository {
         }
     }
 
-    fun updateProfile(name: String, status: String, phone: String) {
-        _currentUser.value = _currentUser.value.copy(
+    fun updateProfile(name: String, status: String, phone: String, avatarUrl: String? = null) {
+        val updated = _currentUser.value.copy(
             name = name,
             statusMessage = status,
-            phoneNumber = phone
+            phoneNumber = phone,
+            avatarUrl = avatarUrl ?: _currentUser.value.avatarUrl
         )
+        _currentUser.value = updated
+        val db = firestore
+        if (db != null && updated.id.isNotBlank()) {
+            scope.launch {
+                try {
+                    db.collection("users").document(updated.id).set(
+                        mapOf(
+                            "name" to updated.name,
+                            "phoneNumber" to updated.phoneNumber,
+                            "statusMessage" to updated.statusMessage,
+                            "avatarUrl" to (updated.avatarUrl ?: "")
+                        ),
+                        com.google.firebase.firestore.SetOptions.merge()
+                    )
+                } catch (e: Exception) {
+                    Log.w(tag, "Firestore update profile note: ${e.message}")
+                }
+            }
+        }
     }
 
     private var incomingCallsListener: ListenerRegistration? = null
@@ -930,13 +991,16 @@ class FirebaseChatRepository {
     }
 
     fun mergeSmsConversations(personal: List<Conversation>, spam: List<Conversation>, context: android.content.Context? = null) {
+        if (context != null) initLocalDb(context)
         // Include all text messages into SMS label (no spam folder segregation)
-        val allSms = (personal + spam).map {
-            it.copy(
-                isSpam = false,
-                labelIds = if (it.labelIds.contains("sms")) it.labelIds else it.labelIds + "sms"
-            )
-        }
+        val allSms = (personal + spam)
+            .filter { localDb?.isItemDeleted(it.id) != true }
+            .map {
+                it.copy(
+                    isSpam = false,
+                    labelIds = if (it.labelIds.contains("sms")) it.labelIds else it.labelIds + "sms"
+                )
+            }
         lastSmsConversations = allSms
         updateCombinedConversations()
 
@@ -956,6 +1020,15 @@ class FirebaseChatRepository {
     }
 
     fun loadMessagesForConversation(conversationId: String, context: android.content.Context) {
+        initLocalDb(context)
+        // 1. Immediately load cached messages from local SQLite database (0ms latency)
+        val localMsgs = localDb?.getMessages(conversationId) ?: emptyList()
+        if (localMsgs.isNotEmpty()) {
+            val current = _messages.value.toMutableMap()
+            current[conversationId] = localMsgs
+            _messages.value = current
+        }
+
         val conv = _conversations.value.find { it.id == conversationId }
         val isSms = conv?.isSmsContact == true || conversationId.startsWith("sms_")
         val targetPhone = conv?.phoneNumber?.ifBlank { null }
@@ -980,5 +1053,76 @@ class FirebaseChatRepository {
         val combined = (msgList + existing).distinctBy { it.id }.sortedBy { it.timestamp }
         current[conversationId] = combined
         _messages.value = current
+        localDb?.saveMessages(conversationId, combined)
+    }
+
+    fun deleteConversation(conversationId: String) {
+        localDb?.deleteConversation(conversationId)
+        val updated = _conversations.value.filter { it.id != conversationId }
+        _conversations.value = updated
+        val msgs = _messages.value.toMutableMap()
+        msgs.remove(conversationId)
+        _messages.value = msgs
+
+        val db = firestore
+        if (db != null) {
+            scope.launch {
+                try {
+                    db.collection("conversations").document(conversationId).delete()
+                } catch (e: Exception) {
+                    Log.w(tag, "Firestore delete conv note: ${e.message}")
+                }
+            }
+        }
+    }
+
+    fun deleteMessage(conversationId: String, messageId: String) {
+        localDb?.deleteMessage(conversationId, messageId)
+        val msgs = _messages.value.toMutableMap()
+        val list = (msgs[conversationId] ?: emptyList()).filter { it.id != messageId }
+        msgs[conversationId] = list
+        _messages.value = msgs
+
+        val latestMsg = list.lastOrNull()
+        val updatedConversations = _conversations.value.map { conv ->
+            if (conv.id == conversationId) {
+                conv.copy(
+                    lastMessageText = latestMsg?.text ?: "No messages",
+                    lastMessageTimestamp = latestMsg?.timestamp ?: conv.lastMessageTimestamp
+                )
+            } else conv
+        }
+        _conversations.value = updatedConversations
+        localDb?.saveConversations(updatedConversations)
+
+        val db = firestore
+        if (db != null) {
+            scope.launch {
+                try {
+                    db.collection("conversations")
+                        .document(conversationId)
+                        .collection("messages")
+                        .document(messageId)
+                        .delete()
+                } catch (e: Exception) {
+                    Log.w(tag, "Firestore delete message note: ${e.message}")
+                }
+            }
+        }
+    }
+
+    fun clearConversationMessages(conversationId: String) {
+        localDb?.clearMessages(conversationId)
+        val msgs = _messages.value.toMutableMap()
+        msgs[conversationId] = emptyList()
+        _messages.value = msgs
+
+        val updatedConversations = _conversations.value.map { conv ->
+            if (conv.id == conversationId) {
+                conv.copy(lastMessageText = "Chat cleared")
+            } else conv
+        }
+        _conversations.value = updatedConversations
+        localDb?.saveConversations(updatedConversations)
     }
 }

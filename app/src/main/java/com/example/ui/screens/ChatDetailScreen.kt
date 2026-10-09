@@ -13,6 +13,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -160,16 +162,24 @@ fun ChatDetailScreen(
     onCallClick: (CallType) -> Unit = {},
     onVerifyAppStatus: () -> Unit = {},
     onLoadMessages: () -> Unit = {},
-    onOpenProfile: () -> Unit = {}
+    onOpenProfile: () -> Unit = {},
+    onDeleteMessage: (String) -> Unit = {},
+    onClearChat: () -> Unit = {},
+    onDeleteChat: () -> Unit = {}
 ) {
     BackHandler { onBackClick() }
 
     val context = LocalContext.current
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
     var inputText by remember { mutableStateOf("") }
     var pendingSmsText by remember { mutableStateOf("") }
     var menuExpanded by remember { mutableStateOf(false) }
     var showSafetyDialog by remember { mutableStateOf(false) }
     var selectedMessageForCrypto by remember { mutableStateOf<Message?>(null) }
+    var messageForAction by remember { mutableStateOf<Message?>(null) }
+    var showDeleteMessageConfirm by remember { mutableStateOf<Message?>(null) }
+    var showClearChatConfirm by remember { mutableStateOf(false) }
+    var showDeleteChatConfirm by remember { mutableStateOf(false) }
     var showAttachSheet by remember { mutableStateOf(false) }
 
     // Dynamic recipient status: recipient has Olinam vs cellular SMS
@@ -258,8 +268,8 @@ fun ChatDetailScreen(
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
-            .imePadding()
             .testTag("chat_detail_screen"),
+        contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
         topBar = {
             // Top App Bar matching Screenshots 3 & 4
             Row(
@@ -437,6 +447,20 @@ fun ChatDetailScreen(
                                 showSafetyDialog = true
                             }
                         )
+                        DropdownMenuItem(
+                            text = { Text("Clear chat", fontSize = 15.sp, color = Color(0xFFDC2626)) },
+                            onClick = {
+                                menuExpanded = false
+                                showClearChatConfirm = true
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Delete chat", fontSize = 15.sp, color = Color(0xFFDC2626), fontWeight = FontWeight.SemiBold) },
+                            onClick = {
+                                menuExpanded = false
+                                showDeleteChatConfirm = true
+                            }
+                        )
                     }
                 }
             }
@@ -447,6 +471,8 @@ fun ChatDetailScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .imePadding()
                     .background(Color.Transparent)
             ) {
                 // Quick Attach Panel
@@ -756,7 +782,8 @@ fun ChatDetailScreen(
                         WhatsAppMessageBubble(
                             message = msg,
                             isMe = isMe,
-                            onClick = { selectedMessageForCrypto = msg }
+                            onClick = { selectedMessageForCrypto = msg },
+                            onLongClick = { messageForAction = msg }
                         )
                     }
                 }
@@ -859,6 +886,141 @@ fun ChatDetailScreen(
         )
     }
 
+    // Context menu / action dialog for a long-pressed message
+    messageForAction?.let { msg ->
+        val isMe = msg.senderId == currentUserId || msg.senderId == "user_me" || msg.senderId == "me"
+        AlertDialog(
+            onDismissRequest = { messageForAction = null },
+            title = {
+                Text("Message Options", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "\"${msg.text.take(60)}${if (msg.text.length > 60) "..." else ""}\"",
+                        fontSize = 13.sp,
+                        color = Color(0xFF6B7280)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Button(
+                        onClick = {
+                            clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(msg.text))
+                            Toast.makeText(context, "Message copied to clipboard", Toast.LENGTH_SHORT).show()
+                            messageForAction = null
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F172A)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Copy Text")
+                    }
+                    Button(
+                        onClick = {
+                            val target = messageForAction
+                            messageForAction = null
+                            showDeleteMessageConfirm = target
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Delete Message")
+                    }
+                    TextButton(
+                        onClick = {
+                            val target = messageForAction
+                            messageForAction = null
+                            selectedMessageForCrypto = target
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("View Message Info", color = Color(0xFF0160E3))
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { messageForAction = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Confirmation dialog to delete message
+    showDeleteMessageConfirm?.let { msg ->
+        AlertDialog(
+            onDismissRequest = { showDeleteMessageConfirm = null },
+            title = { Text("Delete message?", fontWeight = FontWeight.Bold) },
+            text = { Text("Delete this message? It will be removed from your chat history.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDeleteMessage(msg.id)
+                        showDeleteMessageConfirm = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                ) {
+                    Text("Delete", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteMessageConfirm = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Confirmation dialog to clear chat
+    if (showClearChatConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearChatConfirm = false },
+            title = { Text("Clear this chat?", fontWeight = FontWeight.Bold) },
+            text = { Text("Are you sure you want to clear all messages in this conversation?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onClearChat()
+                        showClearChatConfirm = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                ) {
+                    Text("Clear", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearChatConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Confirmation dialog to delete entire chat
+    if (showDeleteChatConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteChatConfirm = false },
+            title = { Text("Delete this chat?", fontWeight = FontWeight.Bold) },
+            text = { Text("Delete the chat with ${conversation.title} and all its messages?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteChatConfirm = false
+                        onDeleteChat()
+                        onBackClick()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                ) {
+                    Text("Delete", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteChatConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     // Inspect individual message crypto details
     selectedMessageForCrypto?.let { msg ->
         AlertDialog(
@@ -907,11 +1069,13 @@ fun ChatDetailScreen(
  * Sent: Pale green `#D9FDD3` with subtle tail on right, double blue ticks.
  * Received: Pure white `#FFFFFF` with subtle tail on left.
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun WhatsAppMessageBubble(
     message: Message,
     isMe: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = {}
 ) {
     Row(
         modifier = Modifier
@@ -923,7 +1087,10 @@ fun WhatsAppMessageBubble(
             modifier = Modifier
                 .widthIn(min = 60.dp, max = 290.dp)
                 .shadow(0.5.dp, RoundedCornerShape(10.dp))
-                .clickable(onClick = onClick)
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick
+                )
                 .testTag("message_bubble_${message.id}"),
             shape = RoundedCornerShape(
                 topStart = 10.dp,
