@@ -322,12 +322,7 @@ fun ContactProfileScreen(
                             icon = Icons.Default.Call,
                             label = "Call",
                             onClick = {
-                                if (phoneNumber.isNotBlank()) {
-                                    val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phoneNumber"))
-                                    context.startActivity(intent)
-                                } else {
-                                    onCallClick(CallType.VOICE)
-                                }
+                                onCallClick(CallType.VOICE)
                             }
                         )
 

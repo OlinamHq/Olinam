@@ -105,22 +105,26 @@ fun LoginScreen(
 
     var selectedCountry by remember { mutableStateOf(COUNTRIES[0]) }
     var countryMenuExpanded by remember { mutableStateOf(false) }
-    var phoneNumber by remember { mutableStateOf("") }
+    var phoneNumber by remember { mutableStateOf(viewModel.getSavedPhone(context)) }
     var enteredOtp by remember { mutableStateOf("") }
 
-    var userName by remember { mutableStateOf("") }
-    var userHandle by remember { mutableStateOf("") }
+    var userName by remember { mutableStateOf(viewModel.getSavedName(context)) }
+    var userHandle by remember { mutableStateOf(viewModel.getSavedHandle(context)) }
     var userStatus by remember { mutableStateOf("Hey there! I am using Olinam.") }
 
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var showOtpBanner by remember { mutableStateOf(false) }
 
     val phoneVerified by viewModel.phoneVerified.collectAsState()
     val authError by viewModel.authError.collectAsState()
 
     LaunchedEffect(phoneVerified) {
         if (phoneVerified && step == 1) {
-            step = 2
+            val fullPhone = "${selectedCountry.dialCode}$phoneNumber"
+            viewModel.checkExistingUserAndLogin(fullPhone, context) { hasProfile, _ ->
+                if (!hasProfile) {
+                    step = 2
+                }
+            }
             errorMessage = null
         }
     }
@@ -128,12 +132,6 @@ fun LoginScreen(
     LaunchedEffect(authError) {
         if (authError != null && step == 1) {
             errorMessage = authError
-        }
-    }
-
-    LaunchedEffect(generatedOtp) {
-        if (generatedOtp != null) {
-            showOtpBanner = true
         }
     }
 
@@ -204,67 +202,6 @@ fun LoginScreen(
         )
 
         Spacer(modifier = Modifier.height(24.dp))
-
-        // Real OTP Banner simulation: shows incoming SMS with code & auto-fill button
-        AnimatedVisibility(
-            visible = step == 1 && generatedOtp != null && showOtpBanner,
-            enter = fadeIn(),
-            exit = fadeOut()
-        ) {
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = Color(0xFFF0FDF4)
-                ),
-                border = BorderStroke(1.dp, Color(0xFF86EFAC)),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 18.dp)
-                    .clickable {
-                        val code = generatedOtp ?: ""
-                        enteredOtp = code
-                        showOtpBanner = false
-                        if (code.length == 6) {
-                            val valid = viewModel.verifyOtp(code)
-                            if (valid) {
-                                step = 2
-                            } else {
-                                errorMessage = "Invalid verification code. Please check and retry."
-                            }
-                        }
-                    }
-                    .testTag("otp_notification_banner")
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Sms,
-                        contentDescription = "SMS",
-                        tint = Color(0xFF16A34A),
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "New Message • Olinam Verification",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF15803D)
-                        )
-                        Text(
-                            text = "Your verification code is: $generatedOtp. Tap to auto-fill.",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color(0xFF166534)
-                        )
-                    }
-                }
-            }
-        }
 
         // STEP 0: Phone Number Entry
         if (step == 0) {
@@ -573,11 +510,21 @@ fun LoginScreen(
                 // VERIFY Button (Royal Blue)
                 Button(
                     onClick = {
-                        viewModel.verifyOtp(enteredOtp) { success ->
-                            if (success) {
-                                step = 2
-                            } else {
-                                errorMessage = "Invalid verification code. Please check and retry."
+                        val code = enteredOtp.trim()
+                        if (code.length < 6) {
+                            errorMessage = "Please enter the 6-digit verification code"
+                        } else {
+                            viewModel.verifyOtp(code) { success ->
+                                if (success) {
+                                    val fullPhone = "${selectedCountry.dialCode}$phoneNumber"
+                                    viewModel.checkExistingUserAndLogin(fullPhone, context) { hasProfile, _ ->
+                                        if (!hasProfile) {
+                                            step = 2
+                                        }
+                                    }
+                                } else {
+                                    errorMessage = "Invalid verification code. Please check and retry."
+                                }
                             }
                         }
                     },

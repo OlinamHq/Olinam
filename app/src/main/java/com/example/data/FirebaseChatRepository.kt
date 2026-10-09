@@ -77,9 +77,63 @@ class FirebaseChatRepository {
     private val messageListeners = mutableMapOf<String, ListenerRegistration>()
     private var conversationsListener: ListenerRegistration? = null
 
+    val awsChatClient = AwsChatWebSocketClient()
+
     init {
         initFirebaseSafely()
         bootstrapInitialData()
+        listenToAwsWebSocketMessages()
+    }
+
+    private fun listenToAwsWebSocketMessages() {
+        scope.launch {
+            awsChatClient.incomingMessages.collect { incoming ->
+                try {
+                    val payload = EncryptedPayload(
+                        ciphertext = incoming.ciphertext,
+                        iv = incoming.iv,
+                        salt = incoming.salt,
+                        algorithm = "AES-256-GCM"
+                    )
+                    val decryptedText = if (incoming.ciphertext.isNotEmpty()) {
+                        EncryptionManager.decrypt(payload, incoming.conversationId)
+                    } else ""
+
+                    val msg = Message(
+                        id = incoming.messageId,
+                        conversationId = incoming.conversationId,
+                        senderId = incoming.senderId,
+                        senderName = incoming.senderName,
+                        text = decryptedText,
+                        encryptedPayload = payload,
+                        timestamp = incoming.timestamp,
+                        isEncrypted = true,
+                        status = MessageStatus.DELIVERED
+                    )
+
+                    val currentMap = _messages.value.toMutableMap()
+                    val list = (currentMap[incoming.conversationId] ?: emptyList()).toMutableList()
+                    if (list.none { it.id == msg.id }) {
+                        list.add(msg)
+                        currentMap[incoming.conversationId] = list
+                        _messages.value = currentMap
+
+                        val updatedConversations = _conversations.value.map { conv ->
+                            if (conv.id == incoming.conversationId) {
+                                conv.copy(
+                                    lastMessageText = decryptedText,
+                                    lastMessageTimestamp = incoming.timestamp,
+                                    unreadCount = conv.unreadCount + 1
+                                )
+                            } else conv
+                        }
+                        _conversations.value = updatedConversations
+                    }
+                } catch (e: Exception) {
+                    Log.w(tag, "Error handling incoming AWS message: ${e.message}")
+                }
+            }
+        }
     }
 
     private fun initFirebaseSafely() {
@@ -248,17 +302,22 @@ class FirebaseChatRepository {
         _stories.value = emptyList()
     }
 
-    fun loginUser(name: String, phoneNumber: String, email: String = "") {
+    fun loginUser(name: String, phoneNumber: String, email: String = "", uid: String? = null) {
+        val currentId = _currentUser.value.id
+        val finalUid = uid?.ifBlank { null }
+            ?: (if (currentId.isNotBlank() && currentId != "user_me") currentId else "user_${UUID.randomUUID().toString().take(8)}")
         _currentUser.value = _currentUser.value.copy(
-            id = "user_${UUID.randomUUID().toString().take(8)}",
+            id = finalUid,
             name = name.ifBlank { "You" },
             phoneNumber = phoneNumber,
             email = email,
             isLoggedIn = true
         )
+        awsChatClient.connect(finalUid)
     }
 
     fun logoutUser() {
+        awsChatClient.disconnect()
         try {
             auth?.signOut()
         } catch (_: Exception) {}
@@ -313,6 +372,30 @@ class FirebaseChatRepository {
         )
     }
 
+    private var lastRemoteConversations: List<Conversation> = emptyList()
+    private var lastSmsConversations: List<Conversation> = emptyList()
+
+    private fun updateCombinedConversations() {
+        val existing = lastRemoteConversations.toMutableList()
+        for (smsConv in lastSmsConversations) {
+            val idx = existing.indexOfFirst {
+                it.id == smsConv.id || (it.phoneNumber != null && it.phoneNumber == smsConv.phoneNumber)
+            }
+            if (idx >= 0) {
+                existing[idx] = existing[idx].copy(
+                    lastMessageText = smsConv.lastMessageText,
+                    lastMessageTimestamp = smsConv.lastMessageTimestamp,
+                    isSpam = false,
+                    labelIds = if (existing[idx].labelIds.contains("sms")) existing[idx].labelIds else existing[idx].labelIds + "sms"
+                )
+            } else {
+                existing.add(smsConv)
+            }
+        }
+        existing.sortByDescending { it.lastMessageTimestamp }
+        _conversations.value = existing
+    }
+
     private fun listenToConversations() {
         val db = firestore ?: return
         try {
@@ -342,7 +425,8 @@ class FirebaseChatRepository {
                                 null
                             }
                         }
-                        _conversations.value = remoteList
+                        lastRemoteConversations = remoteList
+                        updateCombinedConversations()
                     }
                 }
         } catch (e: Exception) {
@@ -446,6 +530,18 @@ class FirebaseChatRepository {
             } else conv
         }
         _conversations.value = updatedConversations
+
+        // 2.5 Dispatch live message over AWS WebSocket for ultra-fast, zero-latency delivery
+        awsChatClient.sendChatMessage(
+            conversationId = conversationId,
+            messageId = messageId,
+            senderId = currentUser.id,
+            senderName = currentUser.name,
+            ciphertext = encryptedPayload.ciphertext,
+            iv = encryptedPayload.iv,
+            salt = encryptedPayload.salt,
+            timestamp = timestamp
+        )
 
         // 3. Persist encrypted payload to Firebase Firestore
         val db = firestore
@@ -830,7 +926,6 @@ class FirebaseChatRepository {
     }
 
     fun mergeSmsConversations(personal: List<Conversation>, spam: List<Conversation>) {
-        val existing = _conversations.value.toMutableList()
         // Include all text messages into SMS label (no spam folder segregation)
         val allSms = (personal + spam).map {
             it.copy(
@@ -838,24 +933,22 @@ class FirebaseChatRepository {
                 labelIds = if (it.labelIds.contains("sms")) it.labelIds else it.labelIds + "sms"
             )
         }
+        lastSmsConversations = allSms
+        updateCombinedConversations()
+    }
 
-        for (smsConv in allSms) {
-            val idx = existing.indexOfFirst {
-                it.id == smsConv.id || (it.phoneNumber != null && it.phoneNumber == smsConv.phoneNumber)
+    fun loadMessagesForConversation(conversationId: String, context: android.content.Context) {
+        val conv = _conversations.value.find { it.id == conversationId }
+        if (conv?.isSmsContact == true && !conv.phoneNumber.isNullOrBlank()) {
+            scope.launch {
+                val smsMessages = SmsHelper.getMessagesForAddress(context, conv.phoneNumber)
+                if (smsMessages.isNotEmpty()) {
+                    setLocalMessages(conversationId, smsMessages)
+                }
             }
-            if (idx >= 0) {
-                existing[idx] = existing[idx].copy(
-                    lastMessageText = smsConv.lastMessageText,
-                    lastMessageTimestamp = smsConv.lastMessageTimestamp,
-                    isSpam = false,
-                    labelIds = if (existing[idx].labelIds.contains("sms")) existing[idx].labelIds else existing[idx].labelIds + "sms"
-                )
-            } else {
-                existing.add(smsConv)
-            }
+        } else {
+            listenToMessages(conversationId)
         }
-        existing.sortByDescending { it.lastMessageTimestamp }
-        _conversations.value = existing
     }
 
     fun setLocalMessages(conversationId: String, msgList: List<Message>) {

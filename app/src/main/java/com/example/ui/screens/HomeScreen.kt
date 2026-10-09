@@ -179,22 +179,24 @@ fun HomeScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        val hasSmsPermission = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.READ_SMS
-        ) == PackageManager.PERMISSION_GRANTED
+    LaunchedEffect(isLoggedIn) {
+        if (isLoggedIn) {
+            val hasSmsPermission = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.READ_SMS
+            ) == PackageManager.PERMISSION_GRANTED
 
-        if (hasSmsPermission) {
-            viewModel.syncDeviceSms(context)
-        } else {
-            // Prompt user for SMS & Contacts to read phone text messages
-            permissionLauncher.launch(
-                arrayOf(
-                    Manifest.permission.READ_SMS,
-                    Manifest.permission.READ_CONTACTS
+            if (hasSmsPermission) {
+                viewModel.syncDeviceSms(context)
+            } else {
+                // Prompt user for SMS & Contacts to read phone text messages
+                permissionLauncher.launch(
+                    arrayOf(
+                        Manifest.permission.READ_SMS,
+                        Manifest.permission.READ_CONTACTS
+                    )
                 )
-            )
+            }
         }
     }
 
@@ -218,7 +220,7 @@ fun HomeScreen(
             onContactSaved = { name, phone ->
                 showNewContactScreen = false
                 val convId = viewModel.getOrCreateConversationForContact(name, phone, isSms = false)
-                viewModel.openConversation(convId)
+                viewModel.openConversation(convId, context)
             }
         )
         return
@@ -244,7 +246,15 @@ fun HomeScreen(
             currentUser = currentUser,
             safetyNumber = viewModel.getSafetyNumber(selectedConv.id),
             onBackClick = { showContactProfileScreen = false },
-            onCallClick = { type -> viewModel.initiateCall(selectedConv.title, type) }
+            onCallClick = { type ->
+                viewModel.startWebRtcCall(
+                    context = context,
+                    contactName = selectedConv.title,
+                    contactPhone = selectedConv.phoneNumber ?: selectedConv.title,
+                    contactAvatar = null,
+                    callType = type
+                )
+            }
         )
         return
     }
@@ -265,7 +275,15 @@ fun HomeScreen(
                 val destPhone = selectedConv.phoneNumber ?: selectedConv.title.filter { it.isDigit() || it == '+' }
                 viewModel.sendDirectSms(context, selectedConv.id, destPhone, text)
             },
-            onCallClick = { type -> viewModel.initiateCall(selectedConv.title, type) },
+            onCallClick = { type ->
+                viewModel.startWebRtcCall(
+                    context = context,
+                    contactName = selectedConv.title,
+                    contactPhone = selectedConv.phoneNumber ?: selectedConv.title,
+                    contactAvatar = null,
+                    callType = type
+                )
+            },
             onVerifyAppStatus = { viewModel.verifyAndUpdateConversationAppStatus(selectedConv.id) },
             onOpenProfile = { showContactProfileScreen = true }
         )
@@ -293,7 +311,7 @@ fun HomeScreen(
             onContactSelected = { name, phone, hasOlinam ->
                 showSelectContactScreen = false
                 val convId = viewModel.getOrCreateConversationForContact(name, phone, isSms = !hasOlinam)
-                viewModel.openConversation(convId)
+                viewModel.openConversation(convId, context)
             },
             onInviteContactClick = {
                 showSelectContactScreen = false
@@ -390,7 +408,7 @@ fun HomeScreen(
                     ChatsTabContent(
                         conversations = conversations,
                         selectedLabelId = selectedLabelId,
-                        onConversationClick = { conv -> viewModel.openConversation(conv.id) },
+                        onConversationClick = { conv -> viewModel.openConversation(conv.id, context) },
                         onStartChatClick = { showSelectContactScreen = true },
                         onNewGroupClick = { showNewGroupScreen = true }
                     )

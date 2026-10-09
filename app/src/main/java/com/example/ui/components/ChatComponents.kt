@@ -824,15 +824,16 @@ private fun androidx.compose.foundation.layout.RowScope.BottomNavItem(
     }
 }
 
-fun formatMessageTime(timestamp: Long): String {
-    val date = Date(timestamp)
-    val now = Date()
-    val sameDay = SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(date) ==
-            SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(now)
+private val cachedTimeFormat = SimpleDateFormat("h:mm a", Locale.US)
+private val cachedDateFormat = SimpleDateFormat("MMM d", Locale.US)
 
-    return if (sameDay) {
-        SimpleDateFormat("h:mm a", Locale.getDefault()).format(date).lowercase(Locale.getDefault())
+fun formatMessageTime(timestamp: Long): String {
+    if (timestamp <= 0L) return ""
+    val isToday = android.text.format.DateUtils.isToday(timestamp)
+    val date = Date(timestamp)
+    return if (isToday) {
+        synchronized(cachedTimeFormat) { cachedTimeFormat.format(date).lowercase(Locale.US) }
     } else {
-        SimpleDateFormat("MMM d", Locale.getDefault()).format(date)
+        synchronized(cachedDateFormat) { cachedDateFormat.format(date) }
     }
 }

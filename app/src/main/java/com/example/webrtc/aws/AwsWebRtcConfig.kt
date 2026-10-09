@@ -1,33 +1,29 @@
 package com.example.webrtc.aws
 
 /**
- * Configuration structure for AWS WebRTC infrastructure.
- *
- * Developers can configure their AWS Console resources:
- * 1. AWS API Gateway WebSocket endpoint OR AWS Kinesis Video Streams WebRTC Signaling Channel.
- * 2. AWS Region (e.g. us-east-1, ap-south-1).
- * 3. AWS TURN / STUN server endpoint (coturn on EC2 / ECS or Kinesis Video Streams TURN).
+ * Configuration structure for AWS WebRTC & WebSocket messaging infrastructure.
+ * Configured with live deployed AWS API Gateway WebSocket endpoint.
  */
 data class AwsWebRtcConfig(
-    val websocketSignalingUrl: String = "wss://api.olinam.aws/signaling", // Placeholder configured in AWS Console
-    val awsRegion: String = "ap-south-1",
+    val websocketSignalingUrl: String = "wss://kvtrq0bydd.execute-api.ap-southeast-2.amazonaws.com/production",
+    val awsRegion: String = "ap-southeast-2",
     val channelArn: String = "",
     val channelName: String = "olinam-calls-channel",
     val clientId: String = "",
     val turnServerEndpoint: String = "turn.olinam.aws",
     val turnUsername: String = "",
     val turnCredential: String = "",
-    val isAwsSignalingEnabled: Boolean = false, // Set to true once AWS console endpoint is deployed
+    val isAwsSignalingEnabled: Boolean = true,
     val connectionTimeoutMs: Long = 10000L,
     val pingIntervalSeconds: Long = 20L
 ) {
     companion object {
         fun default(): AwsWebRtcConfig {
             return AwsWebRtcConfig(
-                websocketSignalingUrl = "wss://echo.websocket.org", // Testable fallback
-                awsRegion = "ap-south-1",
+                websocketSignalingUrl = "wss://kvtrq0bydd.execute-api.ap-southeast-2.amazonaws.com/production",
+                awsRegion = "ap-southeast-2",
                 channelName = "olinam-main-channel",
-                isAwsSignalingEnabled = false
+                isAwsSignalingEnabled = true
             )
         }
     }

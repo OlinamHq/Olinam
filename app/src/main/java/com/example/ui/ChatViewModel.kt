@@ -1,7 +1,8 @@
 package com.example.ui
 
+import android.app.Application
 import android.content.Context
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ai.OjAiChatMessage
 import com.example.ai.OjAiService
@@ -28,8 +29,13 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class ChatViewModel(
+    application: Application,
     private val repository: FirebaseChatRepository = FirebaseChatRepository()
-) : ViewModel() {
+) : AndroidViewModel(application) {
+
+    init {
+        restoreSavedSession(application)
+    }
 
     private val _currentTab = MutableStateFlow(AppTab.CHATS)
     val currentTab: StateFlow<AppTab> = _currentTab.asStateFlow()
@@ -114,17 +120,16 @@ class ChatViewModel(
         repository.verifyAndUpdateConversationAppStatus(conversationId)
     }
     fun openConversation(conversationId: String, context: Context? = null) {
+        val ctx = context ?: getApplication<Application>()
         _activeConversationId.value = conversationId
         repository.markConversationAsRead(conversationId)
-        repository.listenToMessages(conversationId)
+        repository.loadMessagesForConversation(conversationId, ctx)
         repository.verifyAndUpdateConversationAppStatus(conversationId)
-        val conv = repository.conversations.value.find { it.id == conversationId }
-        if (conv?.isSmsContact == true && conv.phoneNumber != null && context != null) {
-            viewModelScope.launch(Dispatchers.IO) {
-                val smsMessages = SmsHelper.getMessagesForAddress(context, conv.phoneNumber)
-                if (smsMessages.isNotEmpty()) repository.setLocalMessages(conversationId, smsMessages)
-            }
-        }
+    }
+
+    fun loadMessagesForConversation(conversationId: String, context: Context? = null) {
+        val ctx = context ?: getApplication<Application>()
+        repository.loadMessagesForConversation(conversationId, ctx)
     }
     fun closeConversation() { _activeConversationId.value = null }
     fun sendMessage(conversationId: String, text: String) {
@@ -232,6 +237,7 @@ class ChatViewModel(
             null
         } ?: currentUser.value.id
         if (uid.isBlank()) return
+        repository.awsChatClient.connect(uid)
         com.example.data.PresenceManager.setOnline(uid, true)
         val pub = com.example.crypto.IdentityKeyManager.ensureKeyPair(context)
         val token = context.getSharedPreferences("olinam_user_prefs", Context.MODE_PRIVATE).getString("fcm_token", null)
@@ -244,6 +250,7 @@ class ChatViewModel(
         } catch (_: Throwable) {
             null
         } ?: currentUser.value.id
+        repository.awsChatClient.sendPresence(uid, false)
         com.example.data.PresenceManager.setOnline(uid, false)
     }
 
@@ -253,15 +260,18 @@ class ChatViewModel(
         } catch (_: Throwable) {
             null
         } ?: currentUser.value.id
+        repository.awsChatClient.sendTyping(conversationId, uid, isTyping)
         com.example.data.PresenceManager.setTyping(conversationId, uid, isTyping)
     }
 
     fun completeProfileSetup(name: String, username: String, phone: String, avatarUrl: String?, context: Context) {
+        val prefs = context.getSharedPreferences("olinam_user_prefs", Context.MODE_PRIVATE)
+        val existingUid = prefs.getString("user_id", null)
         val uid = try {
             com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
         } catch (_: Throwable) {
             null
-        } ?: "user_${java.util.UUID.randomUUID().toString().take(8)}"
+        } ?: existingUid ?: "user_${java.util.UUID.randomUUID().toString().take(8)}"
 
         val user = com.example.model.UserProfile(
             id = uid,
@@ -271,9 +281,9 @@ class ChatViewModel(
             avatarUrl = avatarUrl,
             isLoggedIn = true
         )
-        repository.loginUser(name = user.name, phoneNumber = phone)
+        repository.loginUser(name = user.name, phoneNumber = phone, uid = uid)
         repository.saveUserToFirestore(user)
-        persistUserSession(user.name, phone, "", context)
+        persistUserSession(name = user.name, phone = phone, email = "", handle = username, status = user.statusMessage, avatar = avatarUrl, uid = uid, context = context)
         markOnline(context)
     }
 
@@ -297,19 +307,7 @@ class ChatViewModel(
         manager.startOutgoingCall(senderId = currentUser.value.id.ifBlank { "user_me" }, targetParticipant = target, type = rtcType)
     }
     fun startCall(contactName: String, contactPhone: String, contactAvatar: String? = null, callType: CallType = CallType.VOICE) {
-        val callId = "call_${java.util.UUID.randomUUID().toString().take(8)}"
-        val callObj = com.example.model.ActiveCallState(callId = callId, participantName = contactName, participantPhone = contactPhone, participantAvatar = contactAvatar, callType = callType, isIncoming = false, isConnected = false, durationSeconds = 0, isMuted = false, isSpeakerOn = callType == CallType.VIDEO, isVideoEnabled = callType == CallType.VIDEO, isFrontCamera = true)
-        _activeCallState.value = callObj
-        repository.publishOutgoingCall(callObj)
-        callTimerJob?.cancel()
-        callTimerJob = viewModelScope.launch {
-            kotlinx.coroutines.delay(1500)
-            _activeCallState.value = _activeCallState.value?.copy(isConnected = true)
-            while (_activeCallState.value != null && _activeCallState.value?.isConnected == true) {
-                kotlinx.coroutines.delay(1000)
-                _activeCallState.value = _activeCallState.value?.let { it.copy(durationSeconds = it.durationSeconds + 1) }
-            }
-        }
+        startWebRtcCall(getApplication(), contactName, contactPhone, contactAvatar, callType)
     }
     fun makeDirectPhoneCall(context: Context, phoneNumber: String) {
         try {
@@ -352,11 +350,16 @@ class ChatViewModel(
     fun toggleVideo() { _activeCallState.value = _activeCallState.value?.let { it.copy(isVideoEnabled = !it.isVideoEnabled) } }
     fun toggleCameraFacing() { _activeCallState.value = _activeCallState.value?.let { it.copy(isFrontCamera = !it.isFrontCamera) } }
     fun addStory(caption: String, mediaUrl: String? = null, isImage: Boolean = false) { repository.addStory(caption, mediaUrl, isImage) }
-    fun initiateCall(contactName: String, type: CallType) {
+    fun initiateCall(contactName: String, type: CallType, context: Context? = null) {
+        val ctx = context ?: getApplication<Application>()
         val conv = conversations.value.find { it.title.equals(contactName, ignoreCase = true) }
-        startCall(contactName, conv?.phoneNumber ?: contactName, null, type)
+        val phone = conv?.phoneNumber ?: contactName
+        startWebRtcCall(ctx, contactName, phone, null, type)
     }
-    fun updateProfile(name: String, status: String, phone: String) { repository.updateProfile(name, status, phone) }
+    fun updateProfile(name: String, status: String, phone: String) {
+        repository.updateProfile(name, status, phone)
+        persistUserSession(name = name, phone = phone, email = "", handle = "", status = status, uid = currentUser.value.id, context = null)
+    }
     fun sendOjAiPrompt(prompt: String) {
         if (prompt.isBlank()) return
         _ojAiMessages.value = _ojAiMessages.value + OjAiChatMessage(text = prompt, isUser = true)
@@ -372,23 +375,100 @@ class ChatViewModel(
     }
     val isLoggedIn: StateFlow<Boolean> = combine(currentUser, MutableStateFlow(Unit)) { user, _ -> user.isLoggedIn }
         .stateIn(viewModelScope, SharingStarted.Eagerly, repository.currentUser.value.isLoggedIn)
+
+    fun getSavedName(context: Context? = null): String {
+        val ctx = context ?: getApplication<Application>()
+        return ctx.getSharedPreferences("olinam_user_prefs", Context.MODE_PRIVATE).getString("user_name", "") ?: ""
+    }
+
+    fun getSavedHandle(context: Context? = null): String {
+        val ctx = context ?: getApplication<Application>()
+        return ctx.getSharedPreferences("olinam_user_prefs", Context.MODE_PRIVATE).getString("user_handle", "") ?: ""
+    }
+
+    fun getSavedPhone(context: Context? = null): String {
+        val ctx = context ?: getApplication<Application>()
+        return ctx.getSharedPreferences("olinam_user_prefs", Context.MODE_PRIVATE).getString("user_phone", "") ?: ""
+    }
+
+    fun checkExistingUserAndLogin(
+        phone: String,
+        context: Context,
+        onResult: (hasProfile: Boolean, name: String) -> Unit
+    ) {
+        val prefs = context.getSharedPreferences("olinam_user_prefs", Context.MODE_PRIVATE)
+        val savedPhone = prefs.getString("user_phone", "") ?: ""
+        val savedName = prefs.getString("user_name", "") ?: ""
+        val savedHandle = prefs.getString("user_handle", "") ?: ""
+
+        val digitsInput = phone.filter { it.isDigit() }.takeLast(10)
+        val digitsSaved = savedPhone.filter { it.isDigit() }.takeLast(10)
+
+        if (savedName.isNotBlank() && (digitsInput.isNotEmpty() && digitsInput == digitsSaved || savedPhone == phone)) {
+            completeProfileSetup(
+                name = savedName,
+                username = savedHandle,
+                phone = phone,
+                avatarUrl = null,
+                context = context
+            )
+            onResult(true, savedName)
+            return
+        }
+
+        viewModelScope.launch {
+            val db = try { com.google.firebase.firestore.FirebaseFirestore.getInstance() } catch (_: Throwable) { null }
+            if (db != null && digitsInput.length >= 7) {
+                db.collection("users")
+                    .whereEqualTo("cleanPhoneNumber", digitsInput)
+                    .limit(1)
+                    .get()
+                    .addOnSuccessListener { query ->
+                        if (!query.isEmpty) {
+                            val doc = query.documents[0]
+                            val remoteName = doc.getString("name") ?: ""
+                            val remoteHandle = doc.getString("username") ?: ""
+                            if (remoteName.isNotBlank()) {
+                                completeProfileSetup(
+                                    name = remoteName,
+                                    username = remoteHandle,
+                                    phone = phone,
+                                    avatarUrl = null,
+                                    context = context
+                                )
+                                onResult(true, remoteName)
+                                return@addOnSuccessListener
+                            }
+                        }
+                        onResult(false, "")
+                    }
+                    .addOnFailureListener {
+                        onResult(false, "")
+                    }
+            } else {
+                onResult(false, "")
+            }
+        }
+    }
+
     fun loginWithPhone(name: String, phoneNumber: String, context: Context? = null) {
         repository.loginUser(name = name, phoneNumber = phoneNumber)
-        persistUserSession(name, phoneNumber, "", context)
+        persistUserSession(name, phoneNumber, "", context = context)
         if (context != null) markOnline(context)
     }
     fun loginWithEmail(name: String, email: String, phoneNumber: String = "", context: Context? = null) {
         repository.loginUser(name = name, phoneNumber = phoneNumber, email = email)
-        persistUserSession(name, phoneNumber, email, context)
+        persistUserSession(name, phoneNumber, email, context = context)
     }
     fun loginWithGoogle(name: String, email: String, phoneNumber: String = "", context: Context? = null) {
         repository.loginUser(name = name, phoneNumber = phoneNumber, email = email)
-        persistUserSession(name, phoneNumber, email, context)
+        persistUserSession(name, phoneNumber, email, context = context)
     }
     fun logout(context: Context? = null) {
         markOffline()
         repository.logoutUser()
-        if (context != null) context.getSharedPreferences("olinam_user_prefs", Context.MODE_PRIVATE).edit().clear().apply()
+        val ctx = context ?: getApplication<Application>()
+        ctx.getSharedPreferences("olinam_user_prefs", Context.MODE_PRIVATE).edit().clear().apply()
     }
     fun restoreSavedSession(context: Context) {
         val prefs = context.getSharedPreferences("olinam_user_prefs", Context.MODE_PRIVATE)
@@ -396,20 +476,35 @@ class ChatViewModel(
             val name = prefs.getString("user_name", "") ?: ""
             val phone = prefs.getString("user_phone", "") ?: ""
             val email = prefs.getString("user_email", "") ?: ""
+            val uid = prefs.getString("user_id", null)
             if (name.isNotBlank() || phone.isNotBlank() || email.isNotBlank()) {
-                repository.loginUser(name = name, phoneNumber = phone, email = email)
+                repository.loginUser(name = name, phoneNumber = phone, email = email, uid = uid)
                 markOnline(context)
             }
         }
     }
-    private fun persistUserSession(name: String, phone: String, email: String, context: Context?) {
-        if (context != null) {
-            context.getSharedPreferences("olinam_user_prefs", Context.MODE_PRIVATE).edit()
-                .putBoolean("is_logged_in", true)
-                .putString("user_name", name)
-                .putString("user_phone", phone)
-                .putString("user_email", email)
-                .apply()
-        }
+    private fun persistUserSession(
+        name: String,
+        phone: String,
+        email: String,
+        handle: String = "",
+        status: String = "",
+        avatar: String? = null,
+        uid: String = "",
+        context: Context?
+    ) {
+        val ctx = context ?: getApplication<Application>()
+        ctx.getSharedPreferences("olinam_user_prefs", Context.MODE_PRIVATE).edit()
+            .putBoolean("is_logged_in", true)
+            .putString("user_name", name)
+            .putString("user_phone", phone)
+            .putString("user_email", email)
+            .putString("user_handle", handle)
+            .putString("user_status", status)
+            .apply {
+                if (uid.isNotBlank()) putString("user_id", uid)
+                if (!avatar.isNullOrBlank()) putString("user_avatar", avatar)
+            }
+            .apply()
     }
 }

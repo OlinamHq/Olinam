@@ -39,6 +39,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
@@ -50,6 +51,7 @@ import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SentimentSatisfiedAlt
 import androidx.compose.material.icons.filled.Sms
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -71,6 +73,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -97,69 +100,52 @@ import java.util.Locale
 
 /**
  * Authentic WhatsApp-style doodle wallpaper background.
- * Warm beige canvas with subtle doodles and textures.
+ * Cached efficiently with drawWithCache so zero allocations occur during scroll.
  */
 @Composable
 fun WhatsAppDoodleBackground(
     modifier: Modifier = Modifier
 ) {
-    Canvas(modifier = modifier.fillMaxSize()) {
-        // Base warm beige wallpaper color
-        drawRect(color = Color(0xFFEFEAE2))
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .drawWithCache {
+                val baseBg = Color(0xFFEFEAE2)
+                val doodleColor = Color(0xFF54656F).copy(alpha = 0.04f)
+                val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5f)
 
-        // Subtle decorative doodle outlines with ~0.04f opacity
-        val doodleColor = Color(0xFF54656F).copy(alpha = 0.05f)
-        val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5f)
-
-        // Draw repeating soft icons across the grid
-        val stepX = 90f
-        val stepY = 90f
-        var y = 30f
-        var row = 0
-        while (y < size.height) {
-            var x = if (row % 2 == 0) 40f else 85f
-            while (x < size.width) {
-                when ((row + (x / stepX).toInt()) % 4) {
-                    0 -> {
-                        // Small coffee cup / bubble
-                        drawCircle(color = doodleColor, radius = 9f, center = Offset(x, y), style = stroke)
-                    }
-                    1 -> {
-                        // Small speech bubble
-                        val path = Path().apply {
-                            moveTo(x - 8f, y - 6f)
-                            lineTo(x + 8f, y - 6f)
-                            lineTo(x + 8f, y + 4f)
-                            lineTo(x - 2f, y + 4f)
-                            lineTo(x - 6f, y + 8f)
-                            lineTo(x - 6f, y + 4f)
-                            lineTo(x - 8f, y + 4f)
-                            close()
+                val cachedPath = Path()
+                val stepX = 90f
+                val stepY = 90f
+                var y = 30f
+                var row = 0
+                while (y < size.height) {
+                    var x = if (row % 2 == 0) 40f else 85f
+                    while (x < size.width) {
+                        when ((row + (x / stepX).toInt()) % 4) {
+                            1 -> {
+                                cachedPath.moveTo(x - 8f, y - 6f)
+                                cachedPath.lineTo(x + 8f, y - 6f)
+                                cachedPath.lineTo(x + 8f, y + 4f)
+                                cachedPath.lineTo(x - 2f, y + 4f)
+                                cachedPath.lineTo(x - 6f, y + 8f)
+                                cachedPath.lineTo(x - 6f, y + 4f)
+                                cachedPath.lineTo(x - 8f, y + 4f)
+                                cachedPath.close()
+                            }
                         }
-                        drawPath(path = path, color = doodleColor, style = stroke)
+                        x += stepX
                     }
-                    2 -> {
-                        // Small note symbol / star
-                        drawLine(color = doodleColor, start = Offset(x - 6f, y), end = Offset(x + 6f, y), strokeWidth = 1.5f)
-                        drawLine(color = doodleColor, start = Offset(x, y - 6f), end = Offset(x, y + 6f), strokeWidth = 1.5f)
-                    }
-                    else -> {
-                        // Small rounded box
-                        drawRoundRect(
-                            color = doodleColor,
-                            topLeft = Offset(x - 7f, y - 7f),
-                            size = androidx.compose.ui.geometry.Size(14f, 14f),
-                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(3f, 3f),
-                            style = stroke
-                        )
-                    }
+                    y += stepY
+                    row++
                 }
-                x += stepX
+
+                onDrawBehind {
+                    drawRect(color = baseBg)
+                    drawPath(path = cachedPath, color = doodleColor, style = stroke)
+                }
             }
-            y += stepY
-            row++
-        }
-    }
+    )
 }
 
 @Composable
@@ -341,21 +327,50 @@ fun ChatDetailScreen(
                     }
                 }
 
-                // 3-dots overflow menu matching Screenshot 3
-                Box {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
-                        onClick = { menuExpanded = true },
+                        onClick = { onCallClick(CallType.VIDEO) },
                         modifier = Modifier
-                            .size(40.dp)
-                            .testTag("chat_more_menu_button")
+                            .size(38.dp)
+                            .testTag("chat_video_call_button")
                     ) {
                         Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "More options",
+                            imageVector = Icons.Default.Videocam,
+                            contentDescription = "Video Call",
                             tint = Color(0xFF54656F),
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(24.dp)
                         )
                     }
+
+                    IconButton(
+                        onClick = { onCallClick(CallType.VOICE) },
+                        modifier = Modifier
+                            .size(38.dp)
+                            .testTag("chat_voice_call_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Call,
+                            contentDescription = "Voice Call",
+                            tint = Color(0xFF54656F),
+                            modifier = Modifier.size(21.dp)
+                        )
+                    }
+
+                    // 3-dots overflow menu matching Screenshot 3
+                    Box {
+                        IconButton(
+                            onClick = { menuExpanded = true },
+                            modifier = Modifier
+                                .size(38.dp)
+                                .testTag("chat_more_menu_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "More options",
+                                tint = Color(0xFF54656F),
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
 
                     DropdownMenu(
                         expanded = menuExpanded,
@@ -423,8 +438,9 @@ fun ChatDetailScreen(
                     }
                 }
             }
-        },
-        bottomBar = {
+        }
+    },
+    bottomBar = {
             // Floating WhatsApp Input Row matching Screenshots 3 & 4
             Column(
                 modifier = Modifier
@@ -1000,7 +1016,8 @@ private fun AttachItem(
     }
 }
 
+private val chatDisplayDateFormat = SimpleDateFormat("d MMMM yyyy", Locale.US)
 private fun getChatDisplayDate(timestamp: Long): String {
-    val formatter = SimpleDateFormat("d MMMM yyyy", Locale.getDefault())
-    return formatter.format(Date(timestamp))
+    val date = Date(timestamp)
+    return synchronized(chatDisplayDateFormat) { chatDisplayDateFormat.format(date) }
 }
