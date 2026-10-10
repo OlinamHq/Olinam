@@ -740,11 +740,11 @@ fun CameraScreen(
         ) {
             // Mini Recent Media Thumbnails Strip
             val sampleThumbnails = listOf(
-                Color(0xFFE2E8F0),
-                Color(0xFFCBD5E1),
-                Color(0xFF94A3B8),
-                Color(0xFF64748B),
-                Color(0xFF475569)
+                "https://images.unsplash.com/photo-1579783902614-a3fb3927b675?w=200",
+                "https://images.unsplash.com/photo-1541701494587-cb58502866ab?w=200",
+                "https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=200",
+                "https://images.unsplash.com/photo-1518770660439-4636190af475?w=200",
+                "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=200"
             )
             LazyRow(
                 modifier = Modifier
@@ -752,21 +752,23 @@ fun CameraScreen(
                     .padding(bottom = 20.dp, start = 16.dp, end = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(sampleThumbnails) { bg ->
+                items(sampleThumbnails) { imgUrl ->
                     Box(
                         modifier = Modifier
                             .size(width = 54.dp, height = 54.dp)
                             .clip(RoundedCornerShape(6.dp))
-                            .background(bg)
-                            .border(1.dp, Color.White.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                            .border(1.dp, Color.White.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
                             .clickable {
-                                photoPickerLauncher.launch(
-                                    androidx.activity.result.PickVisualMediaRequest(
-                                        ActivityResultContracts.PickVisualMedia.ImageOnly
-                                    )
-                                )
+                                capturedImageUri = Uri.parse(imgUrl)
                             }
-                    )
+                    ) {
+                        AsyncImage(
+                            model = imgUrl,
+                            contentDescription = "Recent photo",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
             }
 

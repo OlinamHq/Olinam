@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -57,7 +58,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -99,6 +102,8 @@ fun HomeScreen(
     val firebaseConnected by viewModel.firebaseConnected.collectAsState()
     val activeCallState by viewModel.activeCallState.collectAsState()
     val registeredPhoneNumbers by viewModel.registeredPhoneNumbers.collectAsState()
+    val livePresenceStatus by viewModel.livePresenceStatus.collectAsState()
+    val scope = rememberCoroutineScope()
 
     var showNewChatDialog by remember { mutableStateOf(false) }
     var showSelectContactScreen by remember { mutableStateOf(false) }
@@ -112,6 +117,8 @@ fun HomeScreen(
     var showSecurityDialog by remember { mutableStateOf(false) }
     var showCreateLabelSheet by remember { mutableStateOf(false) }
     var showContactProfileScreen by remember { mutableStateOf(false) }
+    var pendingCapturedMedia by remember { mutableStateOf<Pair<String, String?>?>(null) }
+    var showShareRecipientDialog by remember { mutableStateOf(false) }
     val labelSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val webrtcCallState by viewModel.webRtcCallState.collectAsState()
@@ -174,11 +181,145 @@ fun HomeScreen(
             onDismiss = { showCameraScreen = false },
             onSendStatus = { caption, mediaUri ->
                 showCameraScreen = false
-                viewModel.addStory(caption, mediaUri, isImage = true)
-                viewModel.setTab(AppTab.STORIES)
+                pendingCapturedMedia = Pair(caption, mediaUri)
+                showShareRecipientDialog = true
             }
         )
         return
+    }
+
+    // Contact/Status destination chooser when photo is captured from Camera
+    if (showShareRecipientDialog && pendingCapturedMedia != null) {
+        val (caption, mediaUri) = pendingCapturedMedia!!
+        AlertDialog(
+            onDismissRequest = {
+                showShareRecipientDialog = false
+                pendingCapturedMedia = null
+            },
+            title = {
+                Text("Send photo to...", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            },
+            text = {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 350.dp)
+                ) {
+                    // Option 1: My Status
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showShareRecipientDialog = false
+                                    viewModel.addStory(caption, mediaUri, isImage = true)
+                                    viewModel.setTab(AppTab.STORIES)
+                                    pendingCapturedMedia = null
+                                    android.widget.Toast.makeText(context, "Added to status", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                                .padding(vertical = 10.dp, horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF00A884)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CameraAlt,
+                                    contentDescription = "Status",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text("My status", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                                Text("Tap to post as status update", fontSize = 12.sp, color = Color.Gray)
+                            }
+                        }
+                        androidx.compose.material3.HorizontalDivider(
+                            modifier = Modifier.padding(vertical = 4.dp),
+                            color = Color(0xFFE2E8F0)
+                        )
+                    }
+
+                    // Option 2..N: Existing chats / contacts
+                    items(conversations) { conv ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showShareRecipientDialog = false
+                                    pendingCapturedMedia = null
+                                    viewModel.openConversation(conv.id, context)
+                                    if (!mediaUri.isNullOrBlank()) {
+                                        scope.launch {
+                                            viewModel.sendMediaAttachment(
+                                                context = context,
+                                                conversationId = conv.id,
+                                                uri = android.net.Uri.parse(mediaUri),
+                                                mediaType = com.example.model.MediaType.IMAGE,
+                                                caption = caption
+                                            )
+                                        }
+                                    } else {
+                                        viewModel.sendMessage(conv.id, caption)
+                                    }
+                                    android.widget.Toast.makeText(context, "Photo sent to ${conv.title}", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                                .padding(vertical = 8.dp, horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF00A884)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = conv.title.take(1).uppercase(),
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 18.sp
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = conv.title,
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 15.sp,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = conv.lastMessageText.ifBlank { "Tap to send" },
+                                    fontSize = 12.sp,
+                                    color = Color.Gray,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showShareRecipientDialog = false
+                        pendingCapturedMedia = null
+                    }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     // 3. Select Call Contact Screen (matching Screenshots 1 and 2)
@@ -274,12 +415,18 @@ fun HomeScreen(
             messages = activeMessages,
             currentUserId = currentUser.id,
             safetyNumber = viewModel.getSafetyNumber(selectedConv.id),
+            livePresenceStatus = livePresenceStatus,
             onBackClick = {
                 showContactProfileScreen = false
                 viewModel.closeConversation()
             },
             onSendMessage = { text ->
                 viewModel.sendMessage(selectedConv.id, text)
+            },
+            onSendMediaAttachment = { uri, mediaType, caption ->
+                scope.launch {
+                    viewModel.sendMediaAttachment(context, selectedConv.id, uri, mediaType, caption)
+                }
             },
             onSendDirectSms = { text ->
                 val destPhone = selectedConv.phoneNumber ?: selectedConv.title.filter { it.isDigit() || it == '+' }
@@ -302,6 +449,9 @@ fun HomeScreen(
             onDeleteChat = {
                 viewModel.deleteConversation(selectedConv.id)
                 showContactProfileScreen = false
+            },
+            onTypingChanged = { isTyping ->
+                viewModel.setTyping(selectedConv.id, isTyping)
             }
         )
         return

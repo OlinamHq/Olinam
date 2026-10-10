@@ -30,7 +30,7 @@ data class WebRtcIceServerConfig(
             )
         }
 
-        fun awsTurnServers(
+        fun customTurnServers(
             turnEndpoint: String,
             turnUsername: String,
             turnCredential: String

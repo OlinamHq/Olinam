@@ -2,20 +2,18 @@ package com.example.webrtc.call
 
 import android.content.Context
 import android.util.Log
-import com.example.webrtc.aws.AwsSignalingClient
-import com.example.webrtc.aws.AwsSignalingMessageType
-import com.example.webrtc.aws.AwsTurnCredentialService
-import com.example.webrtc.aws.AwsWebRtcConfig
 import com.example.webrtc.media.AudioDevice
 import com.example.webrtc.media.WebRtcAudioSwitch
 import com.example.webrtc.media.WebRtcMediaManager
 import com.example.webrtc.model.WebRtcCallState
 import com.example.webrtc.model.WebRtcCallType
-import com.example.webrtc.model.WebRtcIceCandidate
 import com.example.webrtc.model.WebRtcParticipant
-import com.example.webrtc.model.WebRtcSessionDescription
 import com.example.webrtc.peer.WebRtcPeerConnectionClient
 import com.example.webrtc.peer.WebRtcPeerConnectionFactory
+import com.example.webrtc.signaling.GoogleCloudIceServerService
+import com.example.webrtc.signaling.GoogleCloudSignalingClient
+import com.example.webrtc.signaling.GoogleSignalingMessage
+import com.example.webrtc.signaling.GoogleSignalingMessageType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -31,8 +29,7 @@ import org.webrtc.VideoTrack
 import java.util.UUID
 
 class WebRtcCallManager(
-    private val context: Context,
-    private val awsConfig: AwsWebRtcConfig = AwsWebRtcConfig.default()
+    private val context: Context
 ) {
     private val tag = "WebRtcCallManager"
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -44,8 +41,8 @@ class WebRtcCallManager(
     private val mediaManager = WebRtcMediaManager(context, rtcFactory.factory, rtcFactory.eglBase)
     private val audioSwitch = WebRtcAudioSwitch(context)
     private val ringtoneManager = WebRtcRingtoneManager(context)
-    private val turnService = AwsTurnCredentialService(awsConfig)
-    private val awsSignalingClient = AwsSignalingClient(awsConfig)
+    private val iceService = GoogleCloudIceServerService()
+    private val googleSignalingClient = GoogleCloudSignalingClient()
 
     private var peerClient: WebRtcPeerConnectionClient? = null
 
@@ -85,9 +82,9 @@ class WebRtcCallManager(
     private var durationJob: Job? = null
 
     init {
-        // Observe AWS Signaling messages
+        // Observe Google Cloud Signaling messages
         scope.launch {
-            awsSignalingClient.incomingMessages.collect { msg ->
+            googleSignalingClient.incomingMessages.collect { msg ->
                 handleIncomingSignalingMessage(msg)
             }
         }
@@ -109,18 +106,19 @@ class WebRtcCallManager(
         audioSwitch.start(isSpeakerDefault = type == WebRtcCallType.VIDEO)
         _isSpeakerOn.value = type == WebRtcCallType.VIDEO
 
-        // Connect signaling
-        awsSignalingClient.connect(senderId)
+        // Connect Google Cloud signaling
+        googleSignalingClient.connect(senderId)
+        googleSignalingClient.startListeningForCall(activeCallId, senderId)
 
         scope.launch {
             setupPeerConnectionAndTracks(type)
 
-            // Create and send SDP Offer
+            // Create and send SDP Offer over Google Cloud
             peerClient?.createOffer(
                 isVideo = type == WebRtcCallType.VIDEO,
                 onSuccess = { sdp ->
                     Log.d(tag, "Local SDP Offer created successfully")
-                    awsSignalingClient.sendOffer(
+                    googleSignalingClient.sendOffer(
                         callId = activeCallId,
                         senderId = senderId,
                         recipientId = targetParticipant.userId,
@@ -147,6 +145,7 @@ class WebRtcCallManager(
         _durationSeconds.value = 0L
 
         ringtoneManager.startIncomingRinging()
+        googleSignalingClient.startListeningForCall(callId, currentUserId)
     }
 
     fun answerIncomingCall() {
@@ -165,7 +164,7 @@ class WebRtcCallManager(
                 onSuccess = { sdp ->
                     val participant = _activeParticipant.value
                     if (participant != null) {
-                        awsSignalingClient.sendAnswer(
+                        googleSignalingClient.sendAnswer(
                             callId = activeCallId,
                             senderId = currentUserId,
                             recipientId = participant.userId,
@@ -184,7 +183,7 @@ class WebRtcCallManager(
         ringtoneManager.stopAll()
         val participant = _activeParticipant.value
         if (participant != null) {
-            awsSignalingClient.sendEndCall(activeCallId, currentUserId, participant.userId)
+            googleSignalingClient.sendEndCall(activeCallId, currentUserId, participant.userId)
         }
         teardownCall()
     }
@@ -193,20 +192,20 @@ class WebRtcCallManager(
         ringtoneManager.playDisconnectTone()
         val participant = _activeParticipant.value
         if (participant != null) {
-            awsSignalingClient.sendEndCall(activeCallId, currentUserId, participant.userId)
+            googleSignalingClient.sendEndCall(activeCallId, currentUserId, participant.userId)
         }
         teardownCall()
     }
 
     private suspend fun setupPeerConnectionAndTracks(type: WebRtcCallType) {
-        val iceServers = turnService.getIceServers()
+        val iceServers = iceService.getIceServers()
 
         peerClient = WebRtcPeerConnectionClient(
             factory = rtcFactory.factory,
             onIceCandidateGenerated = { candidate ->
                 val participant = _activeParticipant.value
                 if (participant != null) {
-                    awsSignalingClient.sendIceCandidate(
+                    googleSignalingClient.sendIceCandidate(
                         callId = activeCallId,
                         senderId = currentUserId,
                         recipientId = participant.userId,
@@ -259,9 +258,9 @@ class WebRtcCallManager(
         peerClient?.addLocalTracks(audioTrack, videoTrack)
     }
 
-    private fun handleIncomingSignalingMessage(msg: com.example.webrtc.aws.AwsSignalingMessage) {
+    private fun handleIncomingSignalingMessage(msg: GoogleSignalingMessage) {
         when (msg.type) {
-            AwsSignalingMessageType.OFFER -> {
+            GoogleSignalingMessageType.OFFER -> {
                 msg.sdp?.let { sdp ->
                     val caller = WebRtcParticipant(
                         userId = msg.senderId,
@@ -272,7 +271,7 @@ class WebRtcCallManager(
                     peerClient?.setRemoteDescription(sdp)
                 }
             }
-            AwsSignalingMessageType.ANSWER -> {
+            GoogleSignalingMessageType.ANSWER -> {
                 msg.sdp?.let { sdp ->
                     peerClient?.setRemoteDescription(sdp, onSuccess = {
                         _callState.value = WebRtcCallState.CONNECTED
@@ -281,13 +280,13 @@ class WebRtcCallManager(
                     })
                 }
             }
-            AwsSignalingMessageType.ICE_CANDIDATE -> {
+            GoogleSignalingMessageType.ICE_CANDIDATE -> {
                 msg.candidate?.let { cand ->
                     peerClient?.addRemoteIceCandidate(cand)
                 }
             }
-            AwsSignalingMessageType.END_CALL,
-            AwsSignalingMessageType.DECLINE -> {
+            GoogleSignalingMessageType.END_CALL,
+            GoogleSignalingMessageType.DECLINE -> {
                 ringtoneManager.playDisconnectTone()
                 teardownCall()
             }
@@ -338,20 +337,16 @@ class WebRtcCallManager(
         peerClient = null
 
         mediaManager.dispose()
-        _remoteVideoTrack.value = null
         _localVideoTrack.value = null
+        _remoteVideoTrack.value = null
 
-        _callState.value = WebRtcCallState.TERMINATED
-        scope.launch {
-            delay(800)
-            _callState.value = WebRtcCallState.IDLE
-            _activeParticipant.value = null
-        }
-    }
+        _callState.value = WebRtcCallState.IDLE
+        _activeParticipant.value = null
+        _durationSeconds.value = 0L
+        _isMicMuted.value = false
+        _isSpeakerOn.value = false
+        _isVideoDisabled.value = false
 
-    fun release() {
-        teardownCall()
-        awsSignalingClient.disconnect()
-        rtcFactory.release()
+        googleSignalingClient.disconnect()
     }
 }

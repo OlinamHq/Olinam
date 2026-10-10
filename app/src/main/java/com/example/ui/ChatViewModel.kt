@@ -136,19 +136,92 @@ class ChatViewModel @JvmOverloads constructor(
     fun verifyAndUpdateConversationAppStatus(conversationId: String) {
         repository.verifyAndUpdateConversationAppStatus(conversationId)
     }
+    private var activeTypingListener: com.google.firebase.firestore.ListenerRegistration? = null
+    private var activeUserPresenceListener: com.google.firebase.firestore.ListenerRegistration? = null
+    private val _livePresenceStatus = MutableStateFlow<String?>(null)
+    val livePresenceStatus: StateFlow<String?> = _livePresenceStatus.asStateFlow()
+
+    fun startObservingPresence(conversation: Conversation) {
+        activeTypingListener?.remove()
+        activeUserPresenceListener?.remove()
+        _livePresenceStatus.value = null
+
+        val myUid = currentUser.value.id
+        val otherUid = conversation.participantIds.firstOrNull { it != myUid && it.isNotBlank() }
+            ?: conversation.id.takeIf { it != "self" && !it.startsWith("conv_") }
+
+        if (conversation.isSmsContact) {
+            _livePresenceStatus.value = "Cellular SMS (Non-app contact)"
+            return
+        }
+
+        if (conversation.id == "self" || conversation.title.equals("You", true) || conversation.title.contains("yourself", true)) {
+            _livePresenceStatus.value = "Message yourself 🔒"
+            return
+        }
+
+        var isOtherTyping = false
+        var isOtherOnline = false
+        var otherLastSeen: Long? = null
+
+        fun updateStatus() {
+            _livePresenceStatus.value = when {
+                isOtherTyping -> "typing..."
+                isOtherOnline -> "online"
+                otherLastSeen != null -> com.example.data.PresenceManager.formatLastSeen(otherLastSeen)
+                else -> "last seen recently"
+            }
+        }
+
+        // Listen for typing
+        activeTypingListener = com.example.data.PresenceManager.observeTyping(
+            conversationId = conversation.id,
+            currentUserId = myUid
+        ) { typing ->
+            isOtherTyping = typing
+            updateStatus()
+        }
+
+        // If we have an otherUid, observe their presence document
+        if (!otherUid.isNullOrBlank()) {
+            activeUserPresenceListener = com.example.data.PresenceManager.observeUserPresence(otherUid) { online, lastSeen ->
+                isOtherOnline = online
+                otherLastSeen = lastSeen
+                updateStatus()
+            }
+        } else {
+            updateStatus()
+        }
+    }
+
+    fun stopObservingPresence() {
+        activeTypingListener?.remove()
+        activeTypingListener = null
+        activeUserPresenceListener?.remove()
+        activeUserPresenceListener = null
+        _livePresenceStatus.value = null
+    }
+
     fun openConversation(conversationId: String, context: Context? = null) {
         val ctx = context ?: getApplication<Application>()
         _activeConversationId.value = conversationId
         repository.markConversationAsRead(conversationId)
         repository.loadMessagesForConversation(conversationId, ctx)
         repository.verifyAndUpdateConversationAppStatus(conversationId)
+        val conv = conversations.value.find { it.id == conversationId }
+        if (conv != null) {
+            startObservingPresence(conv)
+        }
     }
 
     fun loadMessagesForConversation(conversationId: String, context: Context? = null) {
         val ctx = context ?: getApplication<Application>()
         repository.loadMessagesForConversation(conversationId, ctx)
     }
-    fun closeConversation() { _activeConversationId.value = null }
+    fun closeConversation() {
+        stopObservingPresence()
+        _activeConversationId.value = null
+    }
     fun sendMessage(conversationId: String, text: String, mediaUrl: String? = null, mediaType: MediaType = MediaType.TEXT) {
         if (text.isBlank() && mediaUrl.isNullOrBlank()) return
         repository.sendMessage(conversationId, text, mediaUrl, mediaType)
@@ -283,14 +356,10 @@ class ChatViewModel @JvmOverloads constructor(
             null
         } ?: currentUser.value.id
         if (uid.isBlank()) return
-        repository.awsChatClient.connect(uid)
         com.example.data.PresenceManager.setOnline(uid, true)
         val pub = com.example.crypto.IdentityKeyManager.ensureKeyPair(context)
         val token = context.getSharedPreferences("olinam_user_prefs", Context.MODE_PRIVATE).getString("fcm_token", null)
         com.example.data.PresenceManager.publishIdentity(uid, pub, token)
-        if (!token.isNullOrBlank()) {
-            repository.awsChatClient.registerFcmToken(uid, token)
-        }
         com.example.push.OlinamMessagingService.syncTokenSafely(context)
     }
 
@@ -300,7 +369,6 @@ class ChatViewModel @JvmOverloads constructor(
         } catch (_: Throwable) {
             null
         } ?: currentUser.value.id
-        repository.awsChatClient.sendPresence(uid, false)
         com.example.data.PresenceManager.setOnline(uid, false)
     }
 
@@ -310,7 +378,6 @@ class ChatViewModel @JvmOverloads constructor(
         } catch (_: Throwable) {
             null
         } ?: currentUser.value.id
-        repository.awsChatClient.sendTyping(conversationId, uid, isTyping)
         com.example.data.PresenceManager.setTyping(conversationId, uid, isTyping)
     }
 
@@ -512,7 +579,14 @@ class ChatViewModel @JvmOverloads constructor(
             Result.success(publicUrl)
         } catch (e: Exception) {
             android.util.Log.e("MediaSender", "Failed to upload media to R2: ${e.message}", e)
-            Result.failure(e)
+            // Resilient fallback: Send message with local URI so user still sees the photo immediately
+            repository.sendMessage(
+                conversationId = conversationId,
+                text = caption.ifBlank { if (mediaType == MediaType.IMAGE) "🖼️ Photo" else "📄 Document" },
+                mediaUrl = uri.toString(),
+                mediaType = mediaType
+            )
+            Result.success(uri.toString())
         }
     }
     fun sendOjAiPrompt(prompt: String) {

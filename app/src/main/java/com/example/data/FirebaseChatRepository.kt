@@ -90,63 +90,9 @@ class FirebaseChatRepository {
     private val messageListeners = mutableMapOf<String, ListenerRegistration>()
     private var conversationsListener: ListenerRegistration? = null
 
-    val awsChatClient = AwsChatWebSocketClient()
-
     init {
         initFirebaseSafely()
         bootstrapInitialData()
-        listenToAwsWebSocketMessages()
-    }
-
-    private fun listenToAwsWebSocketMessages() {
-        scope.launch {
-            awsChatClient.incomingMessages.collect { incoming ->
-                try {
-                    val payload = EncryptedPayload(
-                        ciphertext = incoming.ciphertext,
-                        iv = incoming.iv,
-                        salt = incoming.salt,
-                        algorithm = "AES-256-GCM"
-                    )
-                    val decryptedText = if (incoming.ciphertext.isNotEmpty()) {
-                        EncryptionManager.decrypt(payload, incoming.conversationId)
-                    } else ""
-
-                    val msg = Message(
-                        id = incoming.messageId,
-                        conversationId = incoming.conversationId,
-                        senderId = incoming.senderId,
-                        senderName = incoming.senderName,
-                        text = decryptedText,
-                        encryptedPayload = payload,
-                        timestamp = incoming.timestamp,
-                        isEncrypted = true,
-                        status = MessageStatus.DELIVERED
-                    )
-
-                    val currentMap = _messages.value.toMutableMap()
-                    val list = (currentMap[incoming.conversationId] ?: emptyList()).toMutableList()
-                    if (list.none { it.id == msg.id }) {
-                        list.add(msg)
-                        currentMap[incoming.conversationId] = list
-                        _messages.value = currentMap
-
-                        val updatedConversations = _conversations.value.map { conv ->
-                            if (conv.id == incoming.conversationId) {
-                                conv.copy(
-                                    lastMessageText = decryptedText,
-                                    lastMessageTimestamp = incoming.timestamp,
-                                    unreadCount = conv.unreadCount + 1
-                                )
-                            } else conv
-                        }
-                        _conversations.value = updatedConversations
-                    }
-                } catch (e: Exception) {
-                    Log.w(tag, "Error handling incoming AWS message: ${e.message}")
-                }
-            }
-        }
     }
 
     fun initFirebaseSafely(context: Context? = null) {
@@ -332,11 +278,9 @@ class FirebaseChatRepository {
             email = email,
             isLoggedIn = true
         )
-        awsChatClient.connect(finalUid)
     }
 
     fun logoutUser() {
-        awsChatClient.disconnect()
         try {
             auth?.signOut()
         } catch (_: Exception) {}
@@ -557,19 +501,7 @@ class FirebaseChatRepository {
         localDb?.saveMessage(newMessage)
         localDb?.saveConversations(updatedConversations)
 
-        // 2.5 Dispatch live message over AWS WebSocket for ultra-fast, zero-latency delivery
-        awsChatClient.sendChatMessage(
-            conversationId = conversationId,
-            messageId = messageId,
-            senderId = currentUser.id,
-            senderName = currentUser.name,
-            ciphertext = encryptedPayload.ciphertext,
-            iv = encryptedPayload.iv,
-            salt = encryptedPayload.salt,
-            timestamp = timestamp
-        )
-
-        // 3. Persist encrypted payload to Firebase Firestore
+        // 2. Persist encrypted payload to Google Cloud Firebase Firestore
         val db = firestore
         if (db != null) {
             scope.launch {

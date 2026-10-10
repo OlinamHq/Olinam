@@ -132,7 +132,7 @@ fun WebRtcActiveCallScreen(
                 .padding(top = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // End-to-End Encrypted & AWS WebRTC Badge
+            // End-to-End Encrypted & Google Cloud WebRTC Badge
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -147,7 +147,7 @@ fun WebRtcActiveCallScreen(
                 )
                 Spacer(modifier = Modifier.width(5.dp))
                 Text(
-                    text = "AWS WebRTC • End-to-End Encrypted",
+                    text = "Google Cloud WebRTC • End-to-End Encrypted",
                     fontSize = 11.5.sp,
                     color = Color.White.copy(alpha = 0.85f),
                     fontWeight = FontWeight.Medium

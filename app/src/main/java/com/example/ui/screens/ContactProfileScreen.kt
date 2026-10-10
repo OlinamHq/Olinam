@@ -63,6 +63,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -78,9 +79,45 @@ import androidx.compose.ui.unit.sp
 import com.example.model.CallType
 import com.example.model.Conversation
 import com.example.model.UserProfile
+import coil.compose.AsyncImage
 
 /**
- * Reusable gradient ring matching modern WhatsApp/Olinam visual design.
+ * Clean, standard, professional WhatsApp-style avatar (no orange/blue gradient rings).
+ */
+@Composable
+fun ProfessionalAvatar(
+    modifier: Modifier = Modifier,
+    initialChar: String = "",
+    avatarUrl: String? = null,
+    backgroundColor: Color = Color(0xFF00A884),
+    fontSize: androidx.compose.ui.unit.TextUnit = 22.sp
+) {
+    Box(
+        modifier = modifier
+            .clip(CircleShape)
+            .background(backgroundColor),
+        contentAlignment = Alignment.Center
+    ) {
+        if (!avatarUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = avatarUrl,
+                contentDescription = "Avatar",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Text(
+                text = initialChar.take(1).uppercase(),
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = fontSize
+            )
+        }
+    }
+}
+
+/**
+ * Backward compatibility alias for OlinamGradientRing
  */
 @Composable
 fun OlinamGradientRing(
@@ -88,40 +125,11 @@ fun OlinamGradientRing(
     strokeRatio: Float = 0.22f,
     initialChar: String = ""
 ) {
-    Box(
+    ProfessionalAvatar(
         modifier = modifier,
-        contentAlignment = Alignment.Center
-    ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val sizeMin = minOf(size.width, size.height)
-            val strokePx = sizeMin * strokeRatio
-            val radius = (sizeMin - strokePx) / 2f
-
-            drawCircle(
-                brush = Brush.sweepGradient(
-                    colors = listOf(
-                        Color(0xFF0052D4),
-                        Color(0xFF0072FF),
-                        Color(0xFFFF5E00),
-                        Color(0xFFFF9900),
-                        Color(0xFF0052D4)
-                    )
-                ),
-                radius = radius,
-                center = center,
-                style = Stroke(width = strokePx)
-            )
-        }
-
-        if (initialChar.isNotBlank()) {
-            Text(
-                text = initialChar.take(1).uppercase(),
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF1F2937)
-            )
-        }
-    }
+        initialChar = initialChar,
+        fontSize = 20.sp
+    )
 }
 
 /**
@@ -313,30 +321,45 @@ fun ContactProfileScreen(
 
                     Spacer(modifier = Modifier.height(18.dp))
 
+                    val isSms = conversation.isSmsContact || (!phoneNumber.startsWith("+") && displayName.any { it.isLetter() })
+                    val hasCallableNumber = phoneNumber.any { it.isDigit() }
+
                     // Functional Quick Action Buttons (Call, Video Call, Share)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        ProfileActionButton(
-                            icon = Icons.Default.Call,
-                            label = "Call",
-                            onClick = {
-                                onCallClick(CallType.VOICE)
-                            }
-                        )
+                        // Show Call only if registered Olinam user OR if SMS with dialable digits
+                        if (!isSms || hasCallableNumber) {
+                            ProfileActionButton(
+                                icon = Icons.Default.Call,
+                                label = "Call",
+                                onClick = {
+                                    if (isSms) {
+                                        val dialIntent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phoneNumber"))
+                                        context.startActivity(dialIntent)
+                                    } else {
+                                        onCallClick(CallType.VOICE)
+                                    }
+                                }
+                            )
+                        }
 
-                        Spacer(modifier = Modifier.width(28.dp))
+                        // Video call: ONLY for registered Olinam contacts!
+                        if (!isSms) {
+                            Spacer(modifier = Modifier.width(28.dp))
+                            ProfileActionButton(
+                                icon = Icons.Default.Videocam,
+                                label = "Video",
+                                onClick = {
+                                    onCallClick(CallType.VIDEO)
+                                }
+                            )
+                        }
 
-                        ProfileActionButton(
-                            icon = Icons.Default.Videocam,
-                            label = "Video",
-                            onClick = {
-                                onCallClick(CallType.VIDEO)
-                            }
-                        )
-
-                        Spacer(modifier = Modifier.width(28.dp))
+                        if (!isSms || hasCallableNumber) {
+                            Spacer(modifier = Modifier.width(28.dp))
+                        }
 
                         ProfileActionButton(
                             icon = Icons.Default.Share,
