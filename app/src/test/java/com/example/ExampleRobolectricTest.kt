@@ -32,5 +32,19 @@ class ExampleRobolectricTest {
     val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
     assertNotNull(controller.get())
   }
+
+  @Test
+  fun `test main activity launch with saved session`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    context.getSharedPreferences("olinam_user_prefs", Context.MODE_PRIVATE)
+      .edit()
+      .putBoolean("is_logged_in", true)
+      .putString("user_name", "Test User")
+      .putString("user_phone", "+919876543210")
+      .apply()
+
+    val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+    assertNotNull(controller.get())
+  }
 }
 

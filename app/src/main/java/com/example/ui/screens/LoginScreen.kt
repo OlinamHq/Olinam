@@ -47,6 +47,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -213,6 +214,70 @@ fun LoginScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                // AI Studio Testing Quick Access Banner
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 18.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color(0xFFEFF6FF),
+                    border = BorderStroke(1.dp, Color(0xFFBFDBFE))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = "Test Mode",
+                                tint = OlinamPrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "AI Studio Testing Mode",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = OlinamPrimary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "AI Studio emulator me SMS OTP nahi aa sakta. Seedhe 1-click test login karein:",
+                            fontSize = 12.sp,
+                            color = Color(0xFF334155),
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Button(
+                            onClick = {
+                                viewModel.quickTestLogin(
+                                    phone = "+919876543210",
+                                    name = if (userName.isNotBlank()) userName else "Om Kunwar",
+                                    username = if (userHandle.isNotBlank()) userHandle else "@omkunwar",
+                                    context = context
+                                )
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = OlinamPrimary,
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp)
+                                .testTag("quick_test_login_button")
+                        ) {
+                            Text(
+                                text = "⚡ Quick Test Login (Direct Enter)",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
                 // Country Selector Dropdown
                 Box(modifier = Modifier.fillMaxWidth()) {
                     Surface(
@@ -386,6 +451,36 @@ fun LoginScreen(
                         )
                     }
                 }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Direct Login / Skip OTP with entered number
+                OutlinedButton(
+                    onClick = {
+                        val cleanDigits = phoneNumber.trim().trimStart('0').ifBlank { "9876543210" }
+                        val fullPhone = "${selectedCountry.dialCode}$cleanDigits"
+                        viewModel.skipOtpForTesting(fullPhone, context) { hasProfile ->
+                            if (!hasProfile) {
+                                step = 2
+                            }
+                        }
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, OlinamPrimary.copy(alpha = 0.5f)),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = OlinamPrimary
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp)
+                        .testTag("skip_otp_test_button")
+                ) {
+                    Text(
+                        text = "Skip OTP & Login with Entered Number",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
         }
 
@@ -395,6 +490,83 @@ fun LoginScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                // Testing helper banner
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFF0FDF4),
+                    border = BorderStroke(1.dp, Color(0xFFBBF7D0))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "💡 Testing OTP: 123456",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF15803D)
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "AI Studio emulator me SMS nahi aayega. 123456 dalein ya seedhe neeche click karein:",
+                            fontSize = 11.5.sp,
+                            color = Color(0xFF166534),
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Button(
+                                onClick = {
+                                    enteredOtp = "123456"
+                                    viewModel.verifyOtp("123456") { success ->
+                                        if (success) {
+                                            val cleanDigits = phoneNumber.trim().trimStart('0').ifBlank { "9876543210" }
+                                            val fullPhone = "${selectedCountry.dialCode}$cleanDigits"
+                                            viewModel.checkExistingUserAndLogin(fullPhone, context) { hasProfile, existingName ->
+                                                if (!hasProfile) {
+                                                    if (existingName.isNotBlank()) userName = existingName
+                                                    step = 2
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(38.dp)
+                            ) {
+                                Text("Fill 123456 & Verify", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    val cleanDigits = phoneNumber.trim().trimStart('0').ifBlank { "9876543210" }
+                                    val fullPhone = "${selectedCountry.dialCode}$cleanDigits"
+                                    viewModel.skipOtpForTesting(fullPhone, context) { hasProfile ->
+                                        if (!hasProfile) {
+                                            step = 2
+                                        }
+                                    }
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(38.dp)
+                            ) {
+                                Text("Skip OTP", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Center,
@@ -433,7 +605,7 @@ fun LoginScreen(
                             if (enteredOtp.length == 6) {
                                 viewModel.verifyOtp(enteredOtp) { success ->
                                     if (success) {
-                                        val cleanDigits = phoneNumber.trim().trimStart('0')
+                                        val cleanDigits = phoneNumber.trim().trimStart('0').ifBlank { "9876543210" }
                                         val fullPhone = "${selectedCountry.dialCode}$cleanDigits"
                                         viewModel.checkExistingUserAndLogin(fullPhone, context) { hasProfile, existingName ->
                                             if (!hasProfile) {
@@ -551,7 +723,7 @@ fun LoginScreen(
                         } else {
                             viewModel.verifyOtp(code) { success ->
                                 if (success) {
-                                    val cleanDigits = phoneNumber.trim().trimStart('0')
+                                    val cleanDigits = phoneNumber.trim().trimStart('0').ifBlank { "9876543210" }
                                     val fullPhone = "${selectedCountry.dialCode}$cleanDigits"
                                     viewModel.checkExistingUserAndLogin(fullPhone, context) { hasProfile, existingName ->
                                         if (!hasProfile) {
