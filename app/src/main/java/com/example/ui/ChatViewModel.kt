@@ -288,6 +288,9 @@ class ChatViewModel @JvmOverloads constructor(
         val pub = com.example.crypto.IdentityKeyManager.ensureKeyPair(context)
         val token = context.getSharedPreferences("olinam_user_prefs", Context.MODE_PRIVATE).getString("fcm_token", null)
         com.example.data.PresenceManager.publishIdentity(uid, pub, token)
+        if (!token.isNullOrBlank()) {
+            repository.awsChatClient.registerFcmToken(uid, token)
+        }
         com.example.push.OlinamMessagingService.syncTokenSafely(context)
     }
 
@@ -487,6 +490,29 @@ class ChatViewModel @JvmOverloads constructor(
                     Result.failure(e)
                 }
             }
+        }
+    }
+
+    suspend fun sendMediaAttachment(
+        context: Context,
+        conversationId: String,
+        uri: android.net.Uri,
+        mediaType: MediaType,
+        caption: String = ""
+    ): Result<String> = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        try {
+            val publicUrl = com.example.media.MediaSender.send(
+                context = context,
+                repository = repository,
+                conversationId = conversationId,
+                uri = uri,
+                mediaType = mediaType,
+                caption = caption
+            )
+            Result.success(publicUrl)
+        } catch (e: Exception) {
+            android.util.Log.e("MediaSender", "Failed to upload media to R2: ${e.message}", e)
+            Result.failure(e)
         }
     }
     fun sendOjAiPrompt(prompt: String) {

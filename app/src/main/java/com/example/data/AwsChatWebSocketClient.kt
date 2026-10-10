@@ -42,7 +42,7 @@ data class AwsTypingEvent(
  * Operates over AWS API Gateway WebSocket endpoint.
  */
 class AwsChatWebSocketClient(
-    val endpointUrl: String = "wss://kvtrq0bydd.execute-api.ap-southeast-2.amazonaws.com/production"
+    val endpointUrl: String = "wss://egjgcb3sb1.execute-api.ap-south-1.amazonaws.com/production"
 ) {
     private val tag = "AwsChatWebSocketClient"
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -169,6 +169,19 @@ class AwsChatWebSocketClient(
                 put("type", "PRESENCE")
                 put("userId", userId)
                 put("isOnline", isOnline)
+                put("timestamp", System.currentTimeMillis())
+            }
+            webSocket?.send(payload.toString())
+        } catch (_: Exception) {}
+    }
+
+    fun registerFcmToken(userId: String, fcmToken: String) {
+        try {
+            val payload = JSONObject().apply {
+                put("action", "register_token")
+                put("type", "REGISTER_FCM_TOKEN")
+                put("userId", userId)
+                put("fcmToken", fcmToken)
                 put("timestamp", System.currentTimeMillis())
             }
             webSocket?.send(payload.toString())

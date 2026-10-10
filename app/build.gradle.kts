@@ -18,8 +18,8 @@ android {
     versionCode = 1
     versionName = "1.0"
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-    buildConfigField("String", "R2_PRESIGN_URL", "\"\"")
-    buildConfigField("String", "R2_PUBLIC_BASE", "\"\"")
+    buildConfigField("String", "R2_PRESIGN_URL", "\"https://olinam-r2-media.olinamhq.workers.dev/\"")
+    buildConfigField("String", "R2_PUBLIC_BASE", "\"https://olinam-r2-media.olinamhq.workers.dev/file/\"")
   }
 
   signingConfigs {

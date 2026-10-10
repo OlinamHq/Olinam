@@ -30,10 +30,14 @@ object R2MediaUploader {
         extension: String,
         folder: String = "media"
     ): UploadResult = withContext(Dispatchers.IO) {
-        val presignUrl = BuildConfig.R2_PRESIGN_URL
-        val publicBase = BuildConfig.R2_PUBLIC_BASE.trimEnd('/')
-        require(presignUrl.isNotBlank()) { "R2_PRESIGN_URL is empty. Set it in .env" }
-        require(publicBase.isNotBlank()) { "R2_PUBLIC_BASE is empty. Set it in .env" }
+        val presignUrl = BuildConfig.R2_PRESIGN_URL.ifBlank {
+            "https://olinam-r2-media.olinamhq.workers.dev/"
+        }
+        val publicBase = BuildConfig.R2_PUBLIC_BASE.ifBlank {
+            "https://olinam-r2-media.olinamhq.workers.dev/file"
+        }.trimEnd('/')
+        require(presignUrl.isNotBlank()) { "R2_PRESIGN_URL is empty." }
+        require(publicBase.isNotBlank()) { "R2_PUBLIC_BASE is empty." }
 
         val objectKey = "$folder/${UUID.randomUUID()}.$extension"
         val presignRequest = Request.Builder()

@@ -18,15 +18,18 @@ class AwsTurnCredentialService(
         // 1. Always include standard public STUN servers for direct NAT traversal
         servers.addAll(WebRtcIceServerConfig.defaultServers())
 
-        // 2. If AWS TURN credentials configured, append AWS TURN relays (UDP, TCP, TLS)
-        if (config.turnServerEndpoint.isNotBlank() && config.turnUsername.isNotBlank()) {
-            servers.addAll(
-                WebRtcIceServerConfig.awsTurnServers(
-                    turnEndpoint = config.turnServerEndpoint,
-                    turnUsername = config.turnUsername,
-                    turnCredential = config.turnCredential
+        // 2. If AWS TURN/STUN server configured, append direct AWS ICE servers
+        if (config.turnServerEndpoint.isNotBlank()) {
+            servers.add(WebRtcIceServerConfig(uri = "stun:${config.turnServerEndpoint}:3478"))
+            if (config.turnUsername.isNotBlank()) {
+                servers.addAll(
+                    WebRtcIceServerConfig.awsTurnServers(
+                        turnEndpoint = config.turnServerEndpoint,
+                        turnUsername = config.turnUsername,
+                        turnCredential = config.turnCredential
+                    )
                 )
-            )
+            }
         }
 
         servers
