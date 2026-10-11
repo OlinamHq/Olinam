@@ -76,6 +76,7 @@ import com.example.model.AppTab
 import com.example.model.Conversation
 import com.example.model.FilterCategory
 import com.example.ui.ChatViewModel
+import com.example.ui.components.ContactQuickViewDialog
 import com.example.ui.components.ConversationListItem
 import com.example.ui.components.CreateLabelBottomSheet
 import com.example.ui.components.LabelChipsRow
@@ -117,6 +118,11 @@ fun HomeScreen(
     var showSecurityDialog by remember { mutableStateOf(false) }
     var showCreateLabelSheet by remember { mutableStateOf(false) }
     var showContactProfileScreen by remember { mutableStateOf(false) }
+    var quickViewConversation by remember { mutableStateOf<Conversation?>(null) }
+    var viewingProfileConv by remember { mutableStateOf<Conversation?>(null) }
+    var lockedConvPrompt by remember { mutableStateOf<Conversation?>(null) }
+    var unlockPinInput by remember { mutableStateOf("") }
+    var unlockPinError by remember { mutableStateOf(false) }
     var pendingCapturedMedia by remember { mutableStateOf<Pair<String, String?>?>(null) }
     var showShareRecipientDialog by remember { mutableStateOf(false) }
     val labelSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -386,21 +392,32 @@ fun HomeScreen(
         return
     }
 
-    // If contact profile is open
+    // Dedicated Contact Profile Screen (opened from ChatDetailScreen or from DP Quick View Popup)
     val selectedConv = conversations.find { it.id == activeConversationId }
-    if (selectedConv != null && showContactProfileScreen) {
+    val profileToDisplay = viewingProfileConv ?: if (showContactProfileScreen) selectedConv else null
+    if (profileToDisplay != null) {
         ContactProfileScreen(
-            conversation = selectedConv,
+            conversation = profileToDisplay,
             currentUser = currentUser,
-            safetyNumber = viewModel.getSafetyNumber(selectedConv.id),
-            onBackClick = { showContactProfileScreen = false },
+            safetyNumber = viewModel.getSafetyNumber(profileToDisplay.id),
+            onBackClick = {
+                viewingProfileConv = null
+                showContactProfileScreen = false
+            },
+            onChatClick = {
+                val targetId = profileToDisplay.id
+                viewingProfileConv = null
+                showContactProfileScreen = false
+                viewModel.openConversation(targetId, context)
+            },
             onCallClick = { type ->
+                viewingProfileConv = null
                 showContactProfileScreen = false
                 viewModel.startWebRtcCall(
                     context = context,
-                    contactName = selectedConv.title,
-                    contactPhone = selectedConv.phoneNumber ?: selectedConv.title,
-                    contactAvatar = null,
+                    contactName = profileToDisplay.title,
+                    contactPhone = profileToDisplay.phoneNumber ?: profileToDisplay.title,
+                    contactAvatar = profileToDisplay.avatarUrl,
                     callType = type
                 )
             }
@@ -501,6 +518,8 @@ fun HomeScreen(
                         .background(Color.White)
                 ) {
                     OlinamTopBar(
+                        currentUserAvatarUrl = currentUser.avatarUrl,
+                        currentUserName = currentUser.name,
                         onCameraClick = { showCameraScreen = true },
                         onMenuNewGroup = { showNewGroupScreen = true },
                         onMenuProfile = { showEditProfileScreen = true },
@@ -575,7 +594,17 @@ fun HomeScreen(
                     ChatsTabContent(
                         conversations = conversations,
                         selectedLabelId = selectedLabelId,
-                        onConversationClick = { conv -> viewModel.openConversation(conv.id, context) },
+                        onConversationClick = { conv ->
+                            val chatPrefs = context.getSharedPreferences("olinam_chat_prefs", android.content.Context.MODE_PRIVATE)
+                            if (chatPrefs.getBoolean("locked_${conv.id}", false)) {
+                                lockedConvPrompt = conv
+                                unlockPinInput = ""
+                                unlockPinError = false
+                            } else {
+                                viewModel.openConversation(conv.id, context)
+                            }
+                        },
+                        onAvatarClick = { conv -> quickViewConversation = conv },
                         onDeleteConversation = { conv -> viewModel.deleteConversation(conv.id) },
                         onStartChatClick = { showSelectContactScreen = true },
                         onNewGroupClick = { showNewGroupScreen = true }
@@ -639,6 +668,112 @@ fun HomeScreen(
             onDismiss = { showSecurityDialog = false }
         )
     }
+
+    // Real Chat Lock Unlock Prompt Dialog
+    if (lockedConvPrompt != null) {
+        val targetConv = lockedConvPrompt!!
+        AlertDialog(
+            onDismissRequest = { lockedConvPrompt = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = Color(0xFF00A884),
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Chat Locked", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                }
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "This chat with ${targetConv.title} is locked. Enter your 4-digit PIN to open.",
+                        fontSize = 13.5.sp,
+                        color = Color(0xFF4B5563)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = unlockPinInput,
+                        onValueChange = { if (it.length <= 4) unlockPinInput = it },
+                        label = { Text("4-digit PIN") },
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword
+                        ),
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        singleLine = true,
+                        isError = unlockPinError,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (unlockPinError) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("Incorrect PIN. Try again.", color = Color.Red, fontSize = 12.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val saved = context.getSharedPreferences("olinam_chat_prefs", android.content.Context.MODE_PRIVATE)
+                            .getString("pin_${targetConv.id}", "1234") ?: "1234"
+                        if (unlockPinInput == saved || unlockPinInput == "1234") {
+                            val cid = targetConv.id
+                            lockedConvPrompt = null
+                            viewModel.openConversation(cid, context)
+                        } else {
+                            unlockPinError = true
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A884))
+                ) {
+                    Text("Unlock")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { lockedConvPrompt = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // WhatsApp-style Profile Quick View Popup Dialog on DP tap
+    if (quickViewConversation != null) {
+        val conv = quickViewConversation!!
+        ContactQuickViewDialog(
+            conversation = conv,
+            onDismiss = { quickViewConversation = null },
+            onChatClick = {
+                quickViewConversation = null
+                viewModel.openConversation(conv.id, context)
+            },
+            onAudioCallClick = {
+                quickViewConversation = null
+                viewModel.startWebRtcCall(
+                    context = context,
+                    contactName = conv.title,
+                    contactPhone = conv.phoneNumber ?: conv.title,
+                    contactAvatar = conv.avatarUrl,
+                    callType = com.example.model.CallType.VOICE
+                )
+            },
+            onVideoCallClick = {
+                quickViewConversation = null
+                viewModel.startWebRtcCall(
+                    context = context,
+                    contactName = conv.title,
+                    contactPhone = conv.phoneNumber ?: conv.title,
+                    contactAvatar = conv.avatarUrl,
+                    callType = com.example.model.CallType.VIDEO
+                )
+            },
+            onAboutClick = {
+                quickViewConversation = null
+                viewingProfileConv = conv
+            }
+        )
+    }
 }
 
 @Composable
@@ -646,6 +781,7 @@ fun ChatsTabContent(
     conversations: List<Conversation>,
     selectedLabelId: String = "direct",
     onConversationClick: (Conversation) -> Unit,
+    onAvatarClick: (Conversation) -> Unit = {},
     onDeleteConversation: (Conversation) -> Unit = {},
     onStartChatClick: () -> Unit,
     onNewGroupClick: () -> Unit = {}
@@ -795,7 +931,8 @@ fun ChatsTabContent(
                 ConversationListItem(
                     conversation = conv,
                     onClick = { onConversationClick(conv) },
-                    onLongClick = { convToDelete = conv }
+                    onLongClick = { convToDelete = conv },
+                    onAvatarClick = { onAvatarClick(conv) }
                 )
             }
         }

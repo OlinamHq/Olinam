@@ -79,6 +79,7 @@ class WebRtcCallManager(
 
     private var activeCallId: String = ""
     private var currentUserId: String = ""
+    private var isRelayOnly: Boolean = false
     private var durationJob: Job? = null
 
     init {
@@ -93,9 +94,11 @@ class WebRtcCallManager(
     fun startOutgoingCall(
         senderId: String,
         targetParticipant: WebRtcParticipant,
-        type: WebRtcCallType
+        type: WebRtcCallType,
+        relayOnly: Boolean = false
     ) {
         currentUserId = senderId
+        this.isRelayOnly = relayOnly
         activeCallId = "call_${UUID.randomUUID().toString().take(8)}"
         _activeParticipant.value = targetParticipant
         _callType.value = type
@@ -245,7 +248,7 @@ class WebRtcCallManager(
             }
         )
 
-        peerClient?.initialize(iceServers)
+        peerClient?.initialize(iceServers, isRelayOnly)
 
         // Local media
         val audioTrack = mediaManager.initAudioTrack()

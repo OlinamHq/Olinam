@@ -372,4 +372,17 @@ class LocalChatDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_N
             return it.moveToFirst()
         }
     }
+
+    /**
+     * Purges expired disappearing messages from local SQLite storage.
+     * Enforces real WhatsApp-level ephemeral data cleanup on device disk.
+     */
+    fun purgeExpiredMessages(conversationId: String, cutoffTimestamp: Long): Int {
+        val db = writableDatabase
+        return db.delete(
+            TABLE_MESSAGES,
+            "conversationId = ? AND timestamp < ?",
+            arrayOf(conversationId, cutoffTimestamp.toString())
+        )
+    }
 }

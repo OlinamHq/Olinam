@@ -215,6 +215,18 @@ class ChatViewModel @JvmOverloads constructor(
 
     fun loadMessagesForConversation(conversationId: String, context: Context? = null) {
         val ctx = context ?: getApplication<Application>()
+        val prefs = ctx.getSharedPreferences("olinam_chat_prefs", Context.MODE_PRIVATE)
+        val dur = prefs.getString("disappearing_$conversationId", "Off") ?: "Off"
+        if (dur != "Off") {
+            val durationMillis = when (dur) {
+                "24 hours" -> 24L * 60 * 60 * 1000
+                "7 days" -> 7L * 24 * 60 * 60 * 1000
+                "90 days" -> 90L * 24 * 60 * 60 * 1000
+                else -> Long.MAX_VALUE
+            }
+            val cutoff = System.currentTimeMillis() - durationMillis
+            com.example.data.LocalChatDatabase.getInstance(ctx).purgeExpiredMessages(conversationId, cutoff)
+        }
         repository.loadMessagesForConversation(conversationId, ctx)
     }
     fun closeConversation() {
@@ -223,6 +235,11 @@ class ChatViewModel @JvmOverloads constructor(
     }
     fun sendMessage(conversationId: String, text: String, mediaUrl: String? = null, mediaType: MediaType = MediaType.TEXT) {
         if (text.isBlank() && mediaUrl.isNullOrBlank()) return
+        val prefs = getApplication<Application>().getSharedPreferences("olinam_chat_prefs", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("blocked_$conversationId", false)) {
+            android.widget.Toast.makeText(getApplication(), "Cannot send message to blocked contact", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
         repository.sendMessage(conversationId, text, mediaUrl, mediaType)
     }
     fun sendDirectSms(context: Context, conversationId: String, recipientPhone: String, text: String): Boolean {
@@ -483,6 +500,19 @@ class ChatViewModel @JvmOverloads constructor(
     }
 
     fun startWebRtcCall(context: Context, contactName: String, contactPhone: String, contactAvatar: String? = null, callType: CallType = CallType.VOICE) {
+        val prefs = context.getSharedPreferences("olinam_chat_prefs", Context.MODE_PRIVATE)
+        val convId = activeConversationId.value
+        val isBlocked = (convId != null && prefs.getBoolean("blocked_$convId", false)) ||
+                prefs.getBoolean("blocked_$contactPhone", false) ||
+                prefs.getBoolean("blocked_$contactName", false)
+        if (isBlocked) {
+            android.widget.Toast.makeText(context, "Cannot call blocked contact. Unblock first.", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        val isRelayOnly = (convId != null && prefs.getBoolean("adv_privacy_$convId", false)) ||
+                prefs.getBoolean("adv_privacy_$contactPhone", false) ||
+                prefs.getBoolean("adv_privacy_$contactName", false)
+
         val manager = getOrCreateWebRtcCallManager(context)
         if (manager != null) {
             val target = com.example.webrtc.model.WebRtcParticipant(
@@ -492,7 +522,12 @@ class ChatViewModel @JvmOverloads constructor(
                 avatarUrl = contactAvatar
             )
             val rtcType = if (callType == CallType.VIDEO) com.example.webrtc.model.WebRtcCallType.VIDEO else com.example.webrtc.model.WebRtcCallType.AUDIO
-            manager.startOutgoingCall(senderId = currentUser.value.id.ifBlank { "user_me" }, targetParticipant = target, type = rtcType)
+            manager.startOutgoingCall(
+                senderId = currentUser.value.id.ifBlank { "user_me" },
+                targetParticipant = target,
+                type = rtcType,
+                relayOnly = isRelayOnly
+            )
         } else {
             // High-reliability live call fallback with CameraX and live audio
             val newCallId = "call_${java.util.UUID.randomUUID().toString().take(8)}"

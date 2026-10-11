@@ -23,6 +23,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -93,6 +95,8 @@ import java.util.Locale
 
 @Composable
 fun OlinamTopBar(
+    currentUserAvatarUrl: String? = null,
+    currentUserName: String = "",
     onCameraClick: () -> Unit,
     onMenuNewGroup: () -> Unit,
     onMenuProfile: () -> Unit,
@@ -137,7 +141,7 @@ fun OlinamTopBar(
             IconButton(
                 onClick = onCameraClick,
                 modifier = Modifier
-                    .size(42.dp)
+                    .size(40.dp)
                     .testTag("camera_button")
             ) {
                 Icon(
@@ -148,11 +152,39 @@ fun OlinamTopBar(
                 )
             }
 
+            // WhatsApp-style top-right profile DP button
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 4.dp)
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF00A884))
+                    .clickable { onMenuProfile() }
+                    .testTag("top_bar_user_dp"),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!currentUserAvatarUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = currentUserAvatarUrl,
+                        contentDescription = "Profile Photo",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Text(
+                        text = if (currentUserName.isNotBlank()) currentUserName.take(1).uppercase(Locale.getDefault()) else "Y",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
             Box {
                 IconButton(
                     onClick = { menuExpanded = true },
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(40.dp)
                         .testTag("more_menu_button")
                 ) {
                     Icon(
@@ -512,8 +544,15 @@ fun InviteFriendsItem(
 fun ConversationListItem(
     conversation: Conversation,
     onClick: () -> Unit,
-    onLongClick: () -> Unit = {}
+    onLongClick: () -> Unit = {},
+    onAvatarClick: () -> Unit = onClick
 ) {
+    val itemContext = androidx.compose.ui.platform.LocalContext.current
+    val isItemLocked = remember(conversation.id) {
+        itemContext.getSharedPreferences("olinam_chat_prefs", android.content.Context.MODE_PRIVATE)
+            .getBoolean("locked_${conversation.id}", false)
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -526,7 +565,12 @@ fun ConversationListItem(
         verticalAlignment = Alignment.CenterVertically
     ) {
         // WhatsApp compact circular avatar (48dp)
-        Box(contentAlignment = Alignment.BottomEnd) {
+        Box(
+            contentAlignment = Alignment.BottomEnd,
+            modifier = Modifier
+                .clickable { onAvatarClick() }
+                .testTag("avatar_${conversation.id}")
+        ) {
             val avatarColor = remember(conversation.id) {
                 val colors = listOf(
                     Color(0xFF00A884), // WhatsApp Emerald
@@ -546,7 +590,14 @@ fun ConversationListItem(
                     .background(avatarColor),
                 contentAlignment = Alignment.Center
             ) {
-                if (conversation.isGroup) {
+                if (!conversation.avatarUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = conversation.avatarUrl,
+                        contentDescription = conversation.title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else if (conversation.isGroup) {
                     Icon(
                         imageVector = Icons.Default.Groups,
                         contentDescription = "Group",
@@ -605,6 +656,16 @@ fun ConversationListItem(
                             modifier = Modifier.size(15.dp)
                         )
                     }
+
+                    if (isItemLocked) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = "Locked chat",
+                            tint = Color(0xFF00A884),
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.width(8.dp))
@@ -655,9 +716,10 @@ fun ConversationListItem(
                     }
 
                     Text(
-                        text = conversation.lastMessageText,
+                        text = if (isItemLocked) "🔒 Locked chat" else conversation.lastMessageText,
                         fontSize = 13.5.sp,
-                        color = Color(0xFF64748B),
+                        color = if (isItemLocked) Color(0xFF00A884) else Color(0xFF64748B),
+                        fontStyle = if (isItemLocked) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )

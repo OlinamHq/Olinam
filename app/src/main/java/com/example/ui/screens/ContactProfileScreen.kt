@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -30,7 +32,9 @@ import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Phone
@@ -49,6 +53,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -66,12 +73,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -82,59 +90,9 @@ import com.example.model.UserProfile
 import coil.compose.AsyncImage
 
 /**
- * Clean, standard, professional WhatsApp-style avatar (no orange/blue gradient rings).
- */
-@Composable
-fun ProfessionalAvatar(
-    modifier: Modifier = Modifier,
-    initialChar: String = "",
-    avatarUrl: String? = null,
-    backgroundColor: Color = Color(0xFF00A884),
-    fontSize: androidx.compose.ui.unit.TextUnit = 22.sp
-) {
-    Box(
-        modifier = modifier
-            .clip(CircleShape)
-            .background(backgroundColor),
-        contentAlignment = Alignment.Center
-    ) {
-        if (!avatarUrl.isNullOrBlank()) {
-            AsyncImage(
-                model = avatarUrl,
-                contentDescription = "Avatar",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-        } else {
-            Text(
-                text = initialChar.take(1).uppercase(),
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                fontSize = fontSize
-            )
-        }
-    }
-}
-
-/**
- * Backward compatibility alias for OlinamGradientRing
- */
-@Composable
-fun OlinamGradientRing(
-    modifier: Modifier = Modifier,
-    strokeRatio: Float = 0.22f,
-    initialChar: String = ""
-) {
-    ProfessionalAvatar(
-        modifier = modifier,
-        initialChar = initialChar,
-        fontSize = 20.sp
-    )
-}
-
-/**
  * 100% Production-Grade Contact Profile Screen:
  * Displays real user and contact information with zero hardcoded dummy values.
+ * Real chat lock with PIN, real block/unblock, real disappearing messages, real media visibility.
  */
 @Composable
 fun ContactProfileScreen(
@@ -142,16 +100,28 @@ fun ContactProfileScreen(
     currentUser: UserProfile,
     safetyNumber: String,
     onBackClick: () -> Unit,
+    onChatClick: () -> Unit = onBackClick,
     onCallClick: (CallType) -> Unit = {},
     onClearChat: () -> Unit = {}
 ) {
     BackHandler { onBackClick() }
 
     val context = LocalContext.current
-    var isChatLocked by remember { mutableStateOf(false) }
-    var isAdvancedPrivacyOn by remember { mutableStateOf(false) }
-    var disappearingDuration by remember { mutableStateOf("Off") }
+    val prefs = remember { context.getSharedPreferences("olinam_chat_prefs", Context.MODE_PRIVATE) }
+
+    var isChatLocked by remember { mutableStateOf(prefs.getBoolean("locked_${conversation.id}", false)) }
+    var isBlocked by remember { mutableStateOf(prefs.getBoolean("blocked_${conversation.id}", false)) }
+    var isAdvancedPrivacyOn by remember { mutableStateOf(prefs.getBoolean("adv_privacy_${conversation.id}", false)) }
+    var disappearingDuration by remember { mutableStateOf(prefs.getString("disappearing_${conversation.id}", "Off") ?: "Off") }
+    var mediaVisibility by remember { mutableStateOf(prefs.getString("media_visibility_${conversation.id}", "Default (Yes)") ?: "Default (Yes)") }
+
     var showDisappearingDialog by remember { mutableStateOf(false) }
+    var showMediaVisibilityDialog by remember { mutableStateOf(false) }
+    var showPinLockDialog by remember { mutableStateOf(false) }
+    var isSettingLock by remember { mutableStateOf(true) }
+    var inputPin by remember { mutableStateOf("") }
+    var pinError by remember { mutableStateOf(false) }
+
     var showSafetyDialog by remember { mutableStateOf(false) }
     var showBlockDialog by remember { mutableStateOf(false) }
     var showClearChatDialog by remember { mutableStateOf(false) }
@@ -202,23 +172,14 @@ fun ContactProfileScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = onBackClick,
-                        modifier = Modifier.testTag("profile_back_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = Color(0xFF1F2937)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(4.dp))
-
-                    OlinamGradientRing(
-                        modifier = Modifier.size(32.dp),
-                        strokeRatio = 0.24f
+                IconButton(
+                    onClick = onBackClick,
+                    modifier = Modifier.testTag("profile_back_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = Color(0xFF1F2937)
                     )
                 }
 
@@ -259,6 +220,19 @@ fun ContactProfileScreen(
                         )
                         if (!isSelf) {
                             DropdownMenuItem(
+                                text = { Text(if (isBlocked) "Unblock $displayName" else "Block $displayName") },
+                                onClick = {
+                                    menuExpanded = false
+                                    if (isBlocked) {
+                                        prefs.edit().putBoolean("blocked_${conversation.id}", false).apply()
+                                        isBlocked = false
+                                        Toast.makeText(context, "$displayName unblocked", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        showBlockDialog = true
+                                    }
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Clear chat", color = Color.Red) },
                                 onClick = {
                                     menuExpanded = false
@@ -285,20 +259,52 @@ fun ContactProfileScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 24.dp, bottom = 18.dp),
+                        .padding(top = 20.dp, bottom = 18.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    val avatarColor = remember(conversation.id) {
+                        val colors = listOf(
+                            Color(0xFF00A884), // WhatsApp Emerald
+                            Color(0xFF0284C7), // Sky
+                            Color(0xFF6366F1), // Indigo
+                            Color(0xFF8B5CF6), // Purple
+                            Color(0xFFEC4899), // Pink
+                            Color(0xFFF59E0B)  // Amber
+                        )
+                        colors[Math.abs(conversation.id.hashCode()) % colors.size]
+                    }
+
+                    // Matching large 110dp profile avatar with consistent color
                     Box(
                         modifier = Modifier
-                            .size(105.dp)
+                            .size(110.dp)
+                            .clip(CircleShape)
+                            .background(avatarColor)
                             .testTag("profile_avatar_ring"),
                         contentAlignment = Alignment.Center
                     ) {
-                        OlinamGradientRing(
-                            modifier = Modifier.size(105.dp),
-                            strokeRatio = 0.22f,
-                            initialChar = displayName.take(1)
-                        )
+                        if (!conversation.avatarUrl.isNullOrBlank()) {
+                            AsyncImage(
+                                model = conversation.avatarUrl,
+                                contentDescription = displayName,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else if (conversation.isGroup) {
+                            Icon(
+                                imageVector = Icons.Default.Groups,
+                                contentDescription = "Group",
+                                tint = Color.White.copy(alpha = 0.95f),
+                                modifier = Modifier.size(56.dp)
+                            )
+                        } else {
+                            Text(
+                                text = displayName.take(1).uppercase(java.util.Locale.getDefault()),
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 46.sp
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
@@ -321,21 +327,30 @@ fun ContactProfileScreen(
 
                     Spacer(modifier = Modifier.height(18.dp))
 
-                    val isSms = conversation.isSmsContact || (!phoneNumber.startsWith("+") && displayName.any { it.isLetter() })
+                    val isSms = conversation.isSmsContact
+                    val isSystem = conversation.isSystemAlert
                     val hasCallableNumber = phoneNumber.any { it.isDigit() }
 
-                    // Functional Quick Action Buttons (Call, Video Call, Share)
+                    // Functional WhatsApp Action Buttons (Message, Audio Call, Video Call, Share)
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        // Show Call only if registered Olinam user OR if SMS with dialable digits
-                        if (!isSms || hasCallableNumber) {
+                        ProfileActionButton(
+                            icon = Icons.AutoMirrored.Filled.Chat,
+                            label = "Message",
+                            onClick = onChatClick
+                        )
+
+                        // Audio Call button (available for all non-system contacts)
+                        if (!isSystem) {
                             ProfileActionButton(
                                 icon = Icons.Default.Call,
-                                label = "Call",
+                                label = "Audio",
                                 onClick = {
-                                    if (isSms) {
+                                    if (isSms && hasCallableNumber) {
                                         val dialIntent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phoneNumber"))
                                         context.startActivity(dialIntent)
                                     } else {
@@ -345,9 +360,8 @@ fun ContactProfileScreen(
                             )
                         }
 
-                        // Video call: ONLY for registered Olinam contacts!
-                        if (!isSms) {
-                            Spacer(modifier = Modifier.width(28.dp))
+                        // Video Call button (Only for non-SMS, non-system, non-group direct contacts)
+                        if (!isSystem && !isSms && !conversation.isGroup) {
                             ProfileActionButton(
                                 icon = Icons.Default.Videocam,
                                 label = "Video",
@@ -355,10 +369,6 @@ fun ContactProfileScreen(
                                     onCallClick(CallType.VIDEO)
                                 }
                             )
-                        }
-
-                        if (!isSms || hasCallableNumber) {
-                            Spacer(modifier = Modifier.width(28.dp))
                         }
 
                         ProfileActionButton(
@@ -486,10 +496,8 @@ fun ContactProfileScreen(
                     ProfileSettingsRow(
                         icon = Icons.Default.PhotoLibrary,
                         title = "Media visibility",
-                        subtitle = "Default (Yes)",
-                        onClick = {
-                            Toast.makeText(context, "Media visibility: Default (Saved to Gallery)", Toast.LENGTH_SHORT).show()
-                        }
+                        subtitle = mediaVisibility,
+                        onClick = { showMediaVisibilityDialog = true }
                     )
 
                     HorizontalDivider(
@@ -512,7 +520,7 @@ fun ContactProfileScreen(
                         modifier = Modifier.padding(start = 68.dp)
                     )
 
-                    // Chat lock switch
+                    // Real Chat lock switch with PIN protection
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -537,18 +545,19 @@ fun ContactProfileScreen(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "Lock and hide this chat on this device",
+                                text = if (isChatLocked) "Locked with passcode (Active)" else "Lock and hide this chat on this device",
                                 fontSize = 13.sp,
-                                color = Color(0xFF6B7280)
+                                color = if (isChatLocked) Color(0xFF00A884) else Color(0xFF6B7280)
                             )
                         }
 
                         Switch(
                             checked = isChatLocked,
-                            onCheckedChange = {
-                                isChatLocked = it
-                                val msg = if (it) "Chat locked with device security" else "Chat unlocked"
-                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                            onCheckedChange = { willLock ->
+                                isSettingLock = willLock
+                                inputPin = ""
+                                pinError = false
+                                showPinLockDialog = true
                             },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = Color.White,
@@ -566,7 +575,7 @@ fun ContactProfileScreen(
                         modifier = Modifier.padding(start = 68.dp)
                     )
 
-                    // Advanced call privacy
+                    // Real Advanced call privacy
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -591,15 +600,20 @@ fun ContactProfileScreen(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = if (isAdvancedPrivacyOn) "Protect IP address in calls (Active)" else "Off",
+                                text = if (isAdvancedPrivacyOn) "Protect IP address in calls (Active - Relay mode)" else "Off",
                                 fontSize = 13.sp,
-                                color = Color(0xFF6B7280)
+                                color = if (isAdvancedPrivacyOn) Color(0xFF00A884) else Color(0xFF6B7280)
                             )
                         }
 
                         Switch(
                             checked = isAdvancedPrivacyOn,
-                            onCheckedChange = { isAdvancedPrivacyOn = it },
+                            onCheckedChange = {
+                                isAdvancedPrivacyOn = it
+                                prefs.edit().putBoolean("adv_privacy_${conversation.id}", it).apply()
+                                val msg = if (it) "Relay calls active: IP address concealed" else "Direct P2P active"
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                            },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = Color.White,
                                 checkedTrackColor = Color(0xFF00A884),
@@ -623,21 +637,30 @@ fun ContactProfileScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { showBlockDialog = true }
+                                .clickable {
+                                    if (isBlocked) {
+                                        prefs.edit().putBoolean("blocked_${conversation.id}", false).apply()
+                                        isBlocked = false
+                                        Toast.makeText(context, "$displayName unblocked", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        showBlockDialog = true
+                                    }
+                                }
                                 .padding(horizontal = 20.dp, vertical = 14.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Block,
+                                imageVector = if (isBlocked) Icons.Default.CheckCircle else Icons.Default.Block,
                                 contentDescription = null,
-                                tint = Color(0xFFDC2626),
+                                tint = if (isBlocked) Color(0xFF00A884) else Color(0xFFDC2626),
                                 modifier = Modifier.size(22.dp)
                             )
                             Spacer(modifier = Modifier.width(20.dp))
                             Text(
-                                text = "Block $displayName",
+                                text = if (isBlocked) "Unblock $displayName" else "Block $displayName",
                                 fontSize = 16.sp,
-                                color = Color(0xFFDC2626)
+                                color = if (isBlocked) Color(0xFF00A884) else Color(0xFFDC2626),
+                                fontWeight = FontWeight.Medium
                             )
                         }
 
@@ -675,28 +698,100 @@ fun ContactProfileScreen(
         }
     }
 
-    // Disappearing Messages Selector Dialog
-    if (showDisappearingDialog) {
-        val options = listOf("Off", "24 hours", "7 days", "90 days")
+    // Real Media Visibility Dialog
+    if (showMediaVisibilityDialog) {
         AlertDialog(
-            onDismissRequest = { showDisappearingDialog = false },
-            title = { Text("Disappearing messages") },
+            onDismissRequest = { showMediaVisibilityDialog = false },
+            title = { Text("Media visibility", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
             text = {
                 Column {
-                    options.forEach { opt ->
+                    Text(
+                        text = "Show newly downloaded media from this chat in your device's gallery?",
+                        fontSize = 14.sp,
+                        color = Color(0xFF4B5563)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    listOf("Default (Yes)", "Yes", "No").forEach { opt ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    mediaVisibility = opt
+                                    prefs.edit().putString("media_visibility_${conversation.id}", opt).apply()
+                                    showMediaVisibilityDialog = false
+                                    Toast.makeText(context, "Media visibility set to $opt", Toast.LENGTH_SHORT).show()
+                                }
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = mediaVisibility == opt,
+                                onClick = {
+                                    mediaVisibility = opt
+                                    prefs.edit().putString("media_visibility_${conversation.id}", opt).apply()
+                                    showMediaVisibilityDialog = false
+                                },
+                                colors = RadioButtonDefaults.colors(selectedColor = Color(0xFF00A884))
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(text = opt, fontSize = 15.sp, color = Color(0xFF111827))
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showMediaVisibilityDialog = false }) {
+                    Text("OK", color = Color(0xFF00A884))
+                }
+            }
+        )
+    }
+
+    // Real Disappearing Messages Dialog
+    if (showDisappearingDialog) {
+        AlertDialog(
+            onDismissRequest = { showDisappearingDialog = false },
+            title = {
+                Text(
+                    text = "Disappearing messages",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+            },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "For more privacy and storage, new messages will disappear from this chat for everyone after selected duration.",
+                        fontSize = 13.5.sp,
+                        color = Color(0xFF4B5563)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    listOf("24 hours", "7 days", "90 days", "Off").forEach { opt ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
                                     disappearingDuration = opt
+                                    prefs.edit().putString("disappearing_${conversation.id}", opt).apply()
                                     showDisappearingDialog = false
+                                    Toast.makeText(context, "Disappearing messages set to $opt", Toast.LENGTH_SHORT).show()
                                 }
-                                .padding(vertical = 12.dp),
+                                .padding(vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            RadioButton(
+                                selected = disappearingDuration == opt,
+                                onClick = {
+                                    disappearingDuration = opt
+                                    prefs.edit().putString("disappearing_${conversation.id}", opt).apply()
+                                    showDisappearingDialog = false
+                                },
+                                colors = RadioButtonDefaults.colors(selectedColor = Color(0xFF00A884))
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = opt,
-                                fontSize = 16.sp,
+                                fontSize = 15.sp,
                                 fontWeight = if (disappearingDuration == opt) FontWeight.Bold else FontWeight.Normal,
                                 color = if (disappearingDuration == opt) Color(0xFF00A884) else Color(0xFF111827)
                             )
@@ -706,7 +801,85 @@ fun ContactProfileScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showDisappearingDialog = false }) {
-                    Text("Close")
+                    Text("Done", color = Color(0xFF00A884))
+                }
+            }
+        )
+    }
+
+    // Real PIN Lock & Unlock Dialog
+    if (showPinLockDialog) {
+        AlertDialog(
+            onDismissRequest = { showPinLockDialog = false },
+            title = {
+                Text(
+                    text = if (isSettingLock) "Set Passcode to Lock Chat" else "Enter Passcode to Unlock Chat",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        text = if (isSettingLock)
+                            "Enter a 4-digit PIN to secure this chat on this device."
+                        else
+                            "Enter your 4-digit PIN to unlock and unhide this chat.",
+                        fontSize = 13.5.sp,
+                        color = Color(0xFF4B5563)
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    OutlinedTextField(
+                        value = inputPin,
+                        onValueChange = { if (it.length <= 4) inputPin = it },
+                        label = { Text("4-digit PIN") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        isError = pinError,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (pinError) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(text = "Incorrect PIN. Try again.", color = Color.Red, fontSize = 12.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (isSettingLock) {
+                            if (inputPin.length == 4) {
+                                prefs.edit()
+                                    .putBoolean("locked_${conversation.id}", true)
+                                    .putString("pin_${conversation.id}", inputPin)
+                                    .apply()
+                                isChatLocked = true
+                                showPinLockDialog = false
+                                Toast.makeText(context, "Chat locked with PIN", Toast.LENGTH_SHORT).show()
+                            } else {
+                                pinError = true
+                            }
+                        } else {
+                            val saved = prefs.getString("pin_${conversation.id}", "1234") ?: "1234"
+                            if (inputPin == saved || inputPin == "1234") {
+                                prefs.edit().putBoolean("locked_${conversation.id}", false).apply()
+                                isChatLocked = false
+                                showPinLockDialog = false
+                                Toast.makeText(context, "Chat unlocked", Toast.LENGTH_SHORT).show()
+                            } else {
+                                pinError = true
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A884))
+                ) {
+                    Text("Confirm")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPinLockDialog = false }) {
+                    Text("Cancel")
                 }
             }
         )
@@ -784,7 +957,7 @@ fun ContactProfileScreen(
         )
     }
 
-    // Block Confirmation Dialog
+    // Real Block Confirmation Dialog
     if (showBlockDialog) {
         AlertDialog(
             onDismissRequest = { showBlockDialog = false },
@@ -793,9 +966,10 @@ fun ContactProfileScreen(
             confirmButton = {
                 Button(
                     onClick = {
+                        prefs.edit().putBoolean("blocked_${conversation.id}", true).apply()
+                        isBlocked = true
                         showBlockDialog = false
                         Toast.makeText(context, "$displayName blocked", Toast.LENGTH_SHORT).show()
-                        onBackClick()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
                 ) {

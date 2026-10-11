@@ -738,36 +738,57 @@ fun CameraScreen(
                 .padding(bottom = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Mini Recent Media Thumbnails Strip
-            val sampleThumbnails = listOf(
-                "https://images.unsplash.com/photo-1579783902614-a3fb3927b675?w=200",
-                "https://images.unsplash.com/photo-1541701494587-cb58502866ab?w=200",
-                "https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=200",
-                "https://images.unsplash.com/photo-1518770660439-4636190af475?w=200",
-                "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=200"
-            )
-            LazyRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 20.dp, start = 16.dp, end = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(sampleThumbnails) { imgUrl ->
-                    Box(
-                        modifier = Modifier
-                            .size(width = 54.dp, height = 54.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .border(1.dp, Color.White.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
-                            .clickable {
-                                capturedImageUri = Uri.parse(imgUrl)
-                            }
-                    ) {
-                        AsyncImage(
-                            model = imgUrl,
-                            contentDescription = "Recent photo",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
+            // Real Recent Media Thumbnails Strip from device MediaStore
+            val recentDevicePhotos = remember(context) {
+                val uris = mutableListOf<Uri>()
+                try {
+                    val projection = arrayOf(android.provider.MediaStore.Images.Media._ID)
+                    val sortOrder = "${android.provider.MediaStore.Images.Media.DATE_ADDED} DESC"
+                    context.contentResolver.query(
+                        android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                        projection,
+                        null,
+                        null,
+                        sortOrder
+                    )?.use { cursor ->
+                        val idCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Images.Media._ID)
+                        while (cursor.moveToNext() && uris.size < 6) {
+                            val id = cursor.getLong(idCol)
+                            uris.add(
+                                android.content.ContentUris.withAppendedId(
+                                    android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                                    id
+                                )
+                            )
+                        }
+                    }
+                } catch (_: Exception) {}
+                uris
+            }
+            if (recentDevicePhotos.isNotEmpty()) {
+                LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 20.dp, start = 16.dp, end = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(recentDevicePhotos) { photoUri ->
+                        Box(
+                            modifier = Modifier
+                                .size(width = 54.dp, height = 54.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .border(1.dp, Color.White.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+                                .clickable {
+                                    capturedImageUri = photoUri
+                                }
+                        ) {
+                            AsyncImage(
+                                model = photoUri,
+                                contentDescription = "Recent photo",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
                     }
                 }
             }

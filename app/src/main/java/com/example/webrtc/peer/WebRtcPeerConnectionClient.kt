@@ -24,10 +24,14 @@ class WebRtcPeerConnectionClient(
     var peerConnection: PeerConnection? = null
         private set
 
-    fun initialize(iceServers: List<WebRtcIceServerConfig>) {
+    fun initialize(iceServers: List<WebRtcIceServerConfig>, isRelayOnly: Boolean = false) {
         val nativeIceServers = iceServers.map { it.toPeerConnectionIceServer() }
 
         val rtcConfig = PeerConnection.RTCConfiguration(nativeIceServers).apply {
+            if (isRelayOnly) {
+                // Enforce TURN relay only: hides real IP address from peer
+                iceTransportsType = PeerConnection.IceTransportsType.RELAY
+            }
             tcpCandidatePolicy = PeerConnection.TcpCandidatePolicy.ENABLED
             bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
             rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE
