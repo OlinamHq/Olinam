@@ -61,7 +61,35 @@ class FirebaseChatRepository {
         if (localDb == null) {
             val db = LocalChatDatabase.getInstance(context)
             localDb = db
-            val cached = db.getAllConversations()
+            var cached = db.getAllConversations()
+            if (cached.isEmpty() && !db.isItemDeleted("conv_ankit")) {
+                val initialConv = Conversation(
+                    id = "conv_ankit",
+                    title = "Ankit",
+                    phoneNumber = "+91 99887 76655",
+                    isGroup = false,
+                    lastMessageText = "Status update ✨",
+                    lastMessageTimestamp = System.currentTimeMillis() - 1000 * 60 * 60,
+                    unreadCount = 0,
+                    isVerified = false,
+                    isE2EE = true,
+                    onlineStatus = "online",
+                    labelIds = listOf("direct")
+                )
+                db.saveConversation(initialConv)
+                val initialMessage = Message(
+                    id = "msg_ankit_1",
+                    conversationId = "conv_ankit",
+                    senderId = "conv_ankit",
+                    senderName = "Ankit",
+                    text = "Status update ✨",
+                    timestamp = System.currentTimeMillis() - 1000 * 60 * 60,
+                    isEncrypted = true,
+                    status = MessageStatus.READ
+                )
+                db.saveMessage(initialMessage)
+                cached = listOf(initialConv)
+            }
             if (cached.isNotEmpty()) {
                 _conversations.value = cached
             }

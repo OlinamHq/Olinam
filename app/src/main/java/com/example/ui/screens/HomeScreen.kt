@@ -70,8 +70,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.R
 import com.example.model.AppTab
 import com.example.model.Conversation
 import com.example.model.FilterCategory
@@ -555,29 +557,33 @@ fun HomeScreen(
             }
         },
         bottomBar = {
+            val totalUnread = remember(conversations) {
+                conversations.sumOf { it.unreadCount }
+            }
             OlinamBottomNavBar(
                 currentTab = currentTab,
+                unreadChatsCount = totalUnread,
                 onTabSelected = { viewModel.setTab(it) }
             )
         },
         floatingActionButton = {
             if (currentTab == AppTab.CHATS) {
-                // Large '+' FAB in Royal Blue (OlinamPrimary) requested by user
+                // Vibrant Blue squircle FAB matching Screenshot
                 FloatingActionButton(
                     onClick = { showSelectContactScreen = true },
                     shape = RoundedCornerShape(18.dp),
-                    containerColor = OlinamPrimary,
+                    containerColor = Color(0xFF007AFF),
                     contentColor = Color.White,
-                    elevation = FloatingActionButtonDefaults.elevation(4.dp),
+                    elevation = FloatingActionButtonDefaults.elevation(3.dp),
                     modifier = Modifier
                         .size(56.dp)
                         .testTag("new_chat_fab")
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Add,
+                        painter = painterResource(id = R.drawable.ic_chat_plus),
                         contentDescription = "New Chat",
                         tint = Color.White,
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(26.dp)
                     )
                 }
             }

@@ -43,45 +43,37 @@ fun LabelChipsRow(
     LazyRow(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+            .padding(horizontal = 14.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         items(labels, key = { it.id }) { label ->
             val isSelected = selectedLabelId == label.id
-            val labelColor = try {
-                Color(android.graphics.Color.parseColor(label.colorHex))
-            } catch (_: Exception) {
-                Color(0xFF0160E3)
-            }
 
             Surface(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(16.dp))
                     .clickable { onLabelClick(label) }
                     .testTag("label_chip_${label.id}"),
-                shape = RoundedCornerShape(12.dp),
-                color = if (isSelected) Color(0xFFE2EDFC) else Color.White,
-                border = if (isSelected) BorderStroke(1.dp, Color(0xFFBFDBFE)) else BorderStroke(1.dp, Color(0xFFE2E8F0))
+                shape = RoundedCornerShape(16.dp),
+                color = if (isSelected) Color(0xFFDCE8FE) else Color.White,
+                border = if (isSelected) null else BorderStroke(1.dp, Color(0xFFE2E8F0))
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 2.5.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (label.id != "all" && label.id != "direct" && label.id != "groups" && label.id != "sms") {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(labelColor)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
+                    val displayName = when (label.id) {
+                        "all", "direct" -> "Chats"
+                        "groups" -> "Groups"
+                        "sms" -> "SMS"
+                        else -> label.name
                     }
                     Text(
-                        text = if (label.id == "all") "All" else label.name,
-                        fontSize = 12.5.sp,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-                        color = if (isSelected) Color(0xFF0160E3) else Color(0xFF4B5563)
+                        text = displayName,
+                        fontSize = 13.5.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isSelected) Color(0xFF007AFF) else Color(0xFF54656F)
                     )
                 }
             }
@@ -91,20 +83,20 @@ fun LabelChipsRow(
         item {
             Surface(
                 modifier = Modifier
-                    .size(25.dp)
+                    .size(32.dp)
                     .clip(CircleShape)
                     .clickable(onClick = onAddLabelClick)
                     .testTag("add_custom_label_button"),
                 shape = CircleShape,
                 color = Color.White,
-                border = BorderStroke(1.dp, Color(0xFFD1D5DB))
+                border = BorderStroke(1.dp, Color(0xFFE2E8F0))
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Default.Add,
                         contentDescription = "New Label / Folder",
-                        tint = Color(0xFF4B5563),
-                        modifier = Modifier.size(14.dp)
+                        tint = Color(0xFF54656F),
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }

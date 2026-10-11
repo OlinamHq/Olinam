@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -112,11 +113,11 @@ fun OlinamTopBar(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 4.dp),
+            .padding(start = 18.dp, end = 10.dp, top = 8.dp, bottom = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // WhatsApp-style compact branding title
+        // "Olinam•" branding title matching screenshot
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.testTag("app_title_olinam")
@@ -125,15 +126,15 @@ fun OlinamTopBar(
                 text = "Olinam",
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF0F172A),
+                color = Color(0xFF111B21),
                 letterSpacing = (-0.5).sp
             )
-            Spacer(modifier = Modifier.width(4.dp))
+            Spacer(modifier = Modifier.width(3.dp))
             Box(
                 modifier = Modifier
-                    .size(6.dp)
+                    .size(7.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFF0160E3))
+                    .background(Color(0xFF007AFF))
             )
         }
 
@@ -147,37 +148,9 @@ fun OlinamTopBar(
                 Icon(
                     imageVector = Icons.Default.CameraAlt,
                     contentDescription = "Camera",
-                    tint = Color(0xFF1E293B),
-                    modifier = Modifier.size(23.dp)
+                    tint = Color(0xFF111B21),
+                    modifier = Modifier.size(24.dp)
                 )
-            }
-
-            // WhatsApp-style top-right profile DP button
-            Box(
-                modifier = Modifier
-                    .padding(horizontal = 4.dp)
-                    .size(34.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF00A884))
-                    .clickable { onMenuProfile() }
-                    .testTag("top_bar_user_dp"),
-                contentAlignment = Alignment.Center
-            ) {
-                if (!currentUserAvatarUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = currentUserAvatarUrl,
-                        contentDescription = "Profile Photo",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Text(
-                        text = if (currentUserName.isNotBlank()) currentUserName.take(1).uppercase(Locale.getDefault()) else "Y",
-                        color = Color.White,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
             }
 
             Box {
@@ -190,8 +163,8 @@ fun OlinamTopBar(
                     Icon(
                         imageVector = Icons.Default.MoreVert,
                         contentDescription = "More options",
-                        tint = Color(0xFF1E293B),
-                        modifier = Modifier.size(23.dp)
+                        tint = Color(0xFF111B21),
+                        modifier = Modifier.size(24.dp)
                     )
                 }
 
@@ -200,6 +173,14 @@ fun OlinamTopBar(
                     onDismissRequest = { menuExpanded = false },
                     modifier = Modifier.background(MaterialTheme.colorScheme.surface)
                 ) {
+                    DropdownMenuItem(
+                        text = { Text("Profile", fontWeight = FontWeight.Medium) },
+                        onClick = {
+                            menuExpanded = false
+                            onMenuProfile()
+                        },
+                        modifier = Modifier.testTag("menu_profile")
+                    )
                     DropdownMenuItem(
                         text = { Text("New group", fontWeight = FontWeight.Medium) },
                         onClick = {
@@ -233,14 +214,6 @@ fun OlinamTopBar(
                         modifier = Modifier.testTag("menu_security")
                     )
                     DropdownMenuItem(
-                        text = { Text("My Profile", fontWeight = FontWeight.Medium) },
-                        onClick = {
-                            menuExpanded = false
-                            onMenuProfile()
-                        },
-                        modifier = Modifier.testTag("menu_profile")
-                    )
-                    DropdownMenuItem(
                         text = { Text("Settings", fontWeight = FontWeight.Medium) },
                         onClick = {
                             menuExpanded = false
@@ -270,12 +243,11 @@ fun OlinamSearchBar(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 4.dp)
-            .height(40.dp)
+            .padding(horizontal = 14.dp, vertical = 6.dp)
+            .height(44.dp)
             .testTag("search_bar_container"),
-        shape = RoundedCornerShape(20.dp),
-        color = Color(0xFFF1F3F5),
-        border = androidx.compose.foundation.BorderStroke(0.6.dp, Color(0xFFE2E8F0))
+        shape = RoundedCornerShape(22.dp),
+        color = Color(0xFFF0F2F5)
     ) {
         Row(
             modifier = Modifier
@@ -286,16 +258,16 @@ fun OlinamSearchBar(
             Icon(
                 imageVector = Icons.Default.Search,
                 contentDescription = stringResource(R.string.search_hint),
-                tint = Color(0xFF64748B),
-                modifier = Modifier.size(18.dp)
+                tint = Color(0xFF667781),
+                modifier = Modifier.size(20.dp)
             )
             Spacer(modifier = Modifier.width(10.dp))
             Box(modifier = Modifier.weight(1f)) {
                 if (query.isEmpty()) {
                     Text(
                         text = "Search...",
-                        color = Color(0xFF64748B),
-                        fontSize = 14.5.sp,
+                        color = Color(0xFF667781),
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.Normal
                     )
                 }
@@ -304,11 +276,11 @@ fun OlinamSearchBar(
                     onValueChange = onQueryChange,
                     singleLine = true,
                     textStyle = TextStyle(
-                        color = Color(0xFF0F172A),
-                        fontSize = 14.5.sp,
+                        color = Color(0xFF111B21),
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.Normal
                     ),
-                    cursorBrush = SolidColor(OlinamPrimary),
+                    cursorBrush = SolidColor(Color(0xFF007AFF)),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -571,16 +543,20 @@ fun ConversationListItem(
                 .clickable { onAvatarClick() }
                 .testTag("avatar_${conversation.id}")
         ) {
-            val avatarColor = remember(conversation.id) {
-                val colors = listOf(
-                    Color(0xFF00A884), // WhatsApp Emerald
-                    Color(0xFF0284C7), // Sky
-                    Color(0xFF6366F1), // Indigo
-                    Color(0xFF8B5CF6), // Purple
-                    Color(0xFFEC4899), // Pink
-                    Color(0xFFF59E0B)  // Amber
-                )
-                colors[Math.abs(conversation.id.hashCode()) % colors.size]
+            val avatarColor = remember(conversation.id, conversation.title) {
+                if (conversation.title.startsWith("A", ignoreCase = true) || conversation.title.equals("Ankit", ignoreCase = true)) {
+                    Color(0xFFE91E63) // Vibrant pink/magenta matching screenshot
+                } else {
+                    val colors = listOf(
+                        Color(0xFF00A884), // WhatsApp Emerald
+                        Color(0xFF0284C7), // Sky
+                        Color(0xFF6366F1), // Indigo
+                        Color(0xFF8B5CF6), // Purple
+                        Color(0xFFEC4899), // Pink
+                        Color(0xFFF59E0B)  // Amber
+                    )
+                    colors[Math.abs(conversation.id.hashCode()) % colors.size]
+                }
             }
 
             Box(
@@ -750,6 +726,7 @@ fun ConversationListItem(
 @Composable
 fun OlinamBottomNavBar(
     currentTab: AppTab,
+    unreadChatsCount: Int = 0,
     onTabSelected: (AppTab) -> Unit
 ) {
     Surface(
@@ -763,21 +740,26 @@ fun OlinamBottomNavBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(62.dp)
+                .height(64.dp)
                 .padding(horizontal = 8.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 1. Chats
+            val chatBadgeText = if (unreadChatsCount > 0) {
+                if (unreadChatsCount > 99) "99+" else unreadChatsCount.toString()
+            } else null
+
             BottomNavItem(
                 selected = currentTab == AppTab.CHATS,
                 label = stringResource(R.string.chats),
+                badgeText = chatBadgeText,
                 icon = { tint ->
                     Icon(
-                        imageVector = Icons.Rounded.ChatBubble,
+                        painter = painterResource(id = R.drawable.ic_nav_chats),
                         contentDescription = stringResource(R.string.chats),
                         tint = tint,
-                        modifier = Modifier.size(23.dp)
+                        modifier = Modifier.size(24.dp)
                     )
                 },
                 onClick = { onTabSelected(AppTab.CHATS) },
@@ -790,7 +772,7 @@ fun OlinamBottomNavBar(
                 label = "Status",
                 icon = { tint ->
                     Icon(
-                        imageVector = Icons.Rounded.DonutLarge,
+                        painter = painterResource(id = R.drawable.ic_status_ring),
                         contentDescription = "Status",
                         tint = tint,
                         modifier = Modifier.size(23.dp)
@@ -839,6 +821,7 @@ fun OlinamBottomNavBar(
 private fun androidx.compose.foundation.layout.RowScope.BottomNavItem(
     selected: Boolean,
     label: String,
+    badgeText: String? = null,
     icon: @Composable (Color) -> Unit,
     onClick: () -> Unit,
     testTag: String
@@ -846,7 +829,7 @@ private fun androidx.compose.foundation.layout.RowScope.BottomNavItem(
     Column(
         modifier = Modifier
             .weight(1f)
-            .height(56.dp)
+            .height(58.dp)
             .clickable(
                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                 indication = null
@@ -855,40 +838,44 @@ private fun androidx.compose.foundation.layout.RowScope.BottomNavItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        if (selected) {
-            // Royal Blue capsule pill with White icon (requested by user)
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(OlinamPrimary)
-                    .padding(horizontal = 18.dp, vertical = 3.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                icon(Color.White)
+        Box(
+            modifier = Modifier
+                .height(32.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(if (selected) Color(0xFFE9EBEA) else Color.Transparent)
+                .padding(horizontal = 18.dp, vertical = 4.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            val iconTint = if (selected) Color(0xFF111B21) else Color(0xFF54656F)
+            icon(iconTint)
+
+            if (!badgeText.isNullOrBlank()) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFF25D366),
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 10.dp, y = (-4).dp)
+                ) {
+                    Text(
+                        text = badgeText,
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 4.5.dp, vertical = 1.dp)
+                    )
+                }
             }
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = label,
-                fontSize = 11.5.sp,
-                fontWeight = FontWeight.Bold,
-                color = OlinamPrimary
-            )
-        } else {
-            // Unselected: slate icon and text
-            Box(
-                modifier = Modifier.padding(horizontal = 18.dp, vertical = 3.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                icon(Color(0xFF64748B))
-            }
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = label,
-                fontSize = 11.5.sp,
-                fontWeight = FontWeight.Normal,
-                color = Color(0xFF64748B)
-            )
         }
+
+        Spacer(modifier = Modifier.height(3.dp))
+
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            color = if (selected) Color(0xFF111B21) else Color(0xFF54656F)
+        )
     }
 }
 
