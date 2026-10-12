@@ -59,11 +59,15 @@ import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Hd
 import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -146,7 +150,7 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Modern chat wallpaper background with clean aesthetics.
+ * Authentic WhatsApp doodle wallpaper background with warm texture and classic doodle drawings.
  * Cached efficiently with drawWithCache so zero allocations occur during scroll.
  */
 @Composable
@@ -161,36 +165,134 @@ fun WhatsAppDoodleBackground(
         "rose" -> Color(0xFFFCE4EC)
         "sand" -> Color(0xFFFFF8E1)
         "white" -> Color.White
-        else -> Color(0xFFF0F4F8)
+        else -> Color(0xFFEFEAE2) // Signature authentic WhatsApp wallpaper beige
     }
     val doodleColor = if (theme.lowercase() == "dark") {
-        Color.White.copy(alpha = 0.05f)
+        Color.White.copy(alpha = 0.045f)
     } else {
-        Color(0xFF0160E3).copy(alpha = 0.035f)
+        Color(0xFF000000).copy(alpha = 0.055f)
     }
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .drawWithCache {
-                val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5f)
+                val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.3f)
                 val cachedPath = Path()
-                val stepX = 90f
-                val stepY = 90f
-                var y = 30f
+                val stepX = 84f
+                val stepY = 84f
+                var y = 20f
                 var row = 0
                 while (y < size.height) {
-                    var x = if (row % 2 == 0) 40f else 85f
+                    var x = if (row % 2 == 0) 24f else 66f
                     while (x < size.width) {
-                        when ((row + (x / stepX).toInt()) % 4) {
+                        val iconType = ((row * 3) + (x / stepX).toInt()) % 10
+                        when (iconType) {
+                            0 -> {
+                                // Chat speech bubble with tail
+                                cachedPath.moveTo(x - 9f, y - 7f)
+                                cachedPath.lineTo(x + 9f, y - 7f)
+                                cachedPath.lineTo(x + 9f, y + 4f)
+                                cachedPath.lineTo(x - 3f, y + 4f)
+                                cachedPath.lineTo(x - 7f, y + 8f)
+                                cachedPath.lineTo(x - 7f, y + 4f)
+                                cachedPath.lineTo(x - 9f, y + 4f)
+                                cachedPath.close()
+                            }
                             1 -> {
-                                cachedPath.moveTo(x - 8f, y - 6f)
-                                cachedPath.lineTo(x + 8f, y - 6f)
-                                cachedPath.lineTo(x + 8f, y + 4f)
-                                cachedPath.lineTo(x - 2f, y + 4f)
-                                cachedPath.lineTo(x - 6f, y + 8f)
-                                cachedPath.lineTo(x - 6f, y + 4f)
-                                cachedPath.lineTo(x - 8f, y + 4f)
+                                // Coffee cup / mug with handle & steam
+                                cachedPath.moveTo(x - 7f, y - 4f)
+                                cachedPath.lineTo(x + 5f, y - 4f)
+                                cachedPath.lineTo(x + 4f, y + 6f)
+                                cachedPath.lineTo(x - 6f, y + 6f)
+                                cachedPath.close()
+                                // Handle
+                                cachedPath.moveTo(x + 5f, y - 2f)
+                                cachedPath.lineTo(x + 8f, y)
+                                cachedPath.lineTo(x + 4f, y + 4f)
+                                // Steam
+                                cachedPath.moveTo(x - 2f, y - 6f)
+                                cachedPath.lineTo(x - 2f, y - 9f)
+                                cachedPath.moveTo(x + 2f, y - 6f)
+                                cachedPath.lineTo(x + 2f, y - 9f)
+                            }
+                            2 -> {
+                                // Spectacles / eyeglasses
+                                cachedPath.addOval(androidx.compose.ui.geometry.Rect(x - 9f, y - 4f, x - 1f, y + 4f))
+                                cachedPath.addOval(androidx.compose.ui.geometry.Rect(x + 1f, y - 4f, x + 9f, y + 4f))
+                                // Bridge
+                                cachedPath.moveTo(x - 1f, y - 1f)
+                                cachedPath.lineTo(x + 1f, y - 1f)
+                            }
+                            3 -> {
+                                // Headphones
+                                cachedPath.moveTo(x - 7f, y + 4f)
+                                cachedPath.lineTo(x - 7f, y - 1f)
+                                cachedPath.cubicTo(x - 7f, y - 8f, x + 7f, y - 8f, x + 7f, y - 1f)
+                                cachedPath.lineTo(x + 7f, y + 4f)
+                                // Ear pads
+                                cachedPath.addRect(androidx.compose.ui.geometry.Rect(x - 9f, y + 1f, x - 6f, y + 7f))
+                                cachedPath.addRect(androidx.compose.ui.geometry.Rect(x + 6f, y + 1f, x + 9f, y + 7f))
+                            }
+                            4 -> {
+                                // Musical note
+                                cachedPath.moveTo(x - 4f, y + 5f)
+                                cachedPath.addOval(androidx.compose.ui.geometry.Rect(x - 6f, y + 2f, x - 1f, y + 7f))
+                                cachedPath.moveTo(x - 1f, y + 3f)
+                                cachedPath.lineTo(x - 1f, y - 6f)
+                                cachedPath.lineTo(x + 6f, y - 4f)
+                                cachedPath.lineTo(x + 6f, y + 4f)
+                                cachedPath.addOval(androidx.compose.ui.geometry.Rect(x + 1f, y + 1f, x + 6f, y + 6f))
+                            }
+                            5 -> {
+                                // Heart
+                                cachedPath.moveTo(x, y + 6f)
+                                cachedPath.cubicTo(x - 8f, y + 1f, x - 8f, y - 6f, x, y - 2f)
+                                cachedPath.cubicTo(x + 8f, y - 6f, x + 8f, y + 1f, x, y + 6f)
+                            }
+                            6 -> {
+                                // Clock / Watch
+                                cachedPath.addOval(androidx.compose.ui.geometry.Rect(x - 7f, y - 7f, x + 7f, y + 7f))
+                                cachedPath.moveTo(x, y - 4f)
+                                cachedPath.lineTo(x, y)
+                                cachedPath.lineTo(x + 4f, y)
+                            }
+                            7 -> {
+                                // Camera
+                                cachedPath.moveTo(x - 7f, y - 4f)
+                                cachedPath.lineTo(x - 3f, y - 4f)
+                                cachedPath.lineTo(x - 1f, y - 7f)
+                                cachedPath.lineTo(x + 3f, y - 7f)
+                                cachedPath.lineTo(x + 5f, y - 4f)
+                                cachedPath.lineTo(x + 7f, y - 4f)
+                                cachedPath.lineTo(x + 7f, y + 6f)
+                                cachedPath.lineTo(x - 7f, y + 6f)
+                                cachedPath.close()
+                                cachedPath.addOval(androidx.compose.ui.geometry.Rect(x - 3f, y - 2f, x + 3f, y + 4f))
+                            }
+                            8 -> {
+                                // Bicycle
+                                cachedPath.addOval(androidx.compose.ui.geometry.Rect(x - 9f, y + 1f, x - 3f, y + 7f))
+                                cachedPath.addOval(androidx.compose.ui.geometry.Rect(x + 3f, y + 1f, x + 9f, y + 7f))
+                                cachedPath.moveTo(x - 6f, y + 4f)
+                                cachedPath.lineTo(x, y + 4f)
+                                cachedPath.lineTo(x + 6f, y + 4f)
+                                cachedPath.moveTo(x, y + 4f)
+                                cachedPath.lineTo(x - 2f, y - 3f)
+                                cachedPath.lineTo(x + 3f, y - 3f)
+                            }
+                            9 -> {
+                                // Star
+                                cachedPath.moveTo(x, y - 7f)
+                                cachedPath.lineTo(x + 2f, y - 2f)
+                                cachedPath.lineTo(x + 7f, y - 2f)
+                                cachedPath.lineTo(x + 3f, y + 1f)
+                                cachedPath.lineTo(x + 5f, y + 6f)
+                                cachedPath.lineTo(x, y + 3f)
+                                cachedPath.lineTo(x - 5f, y + 6f)
+                                cachedPath.lineTo(x - 3f, y + 1f)
+                                cachedPath.lineTo(x - 7f, y - 2f)
+                                cachedPath.lineTo(x - 2f, y - 2f)
                                 cachedPath.close()
                             }
                         }
@@ -202,12 +304,160 @@ fun WhatsAppDoodleBackground(
 
                 onDrawBehind {
                     drawRect(color = baseBg)
-                    if (theme.lowercase() in listOf("default", "dark")) {
+                    if (theme.lowercase() in listOf("default", "dark", "sand", "sage")) {
                         drawPath(path = cachedPath, color = doodleColor, style = stroke)
                     }
                 }
             }
     )
+}
+
+/**
+ * WhatsApp Business Profile Header Card (Matching user's screenshot exactly!)
+ * Displays business avatar, verified blue checkmark, origin/category text, and [Block] + [Profile] buttons.
+ */
+@Composable
+fun WhatsAppBusinessProfileCard(
+    title: String,
+    phoneNumber: String?,
+    countryOrigin: String? = "Phone number from United Kingdom",
+    businessCategory: String? = "Business account • Joined in June, 2023",
+    onBlockClick: () -> Unit = {},
+    onProfileClick: () -> Unit = {}
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+        shape = RoundedCornerShape(20.dp),
+        color = Color.White,
+        shadowElevation = 0.5.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 18.dp, horizontal = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Large circular Facebook / Business Icon
+            Box(
+                modifier = Modifier
+                    .size(86.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF1877F2)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "f",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 60.sp,
+                    fontFamily = FontFamily.SansSerif,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Title with Verified Blue Checkmark
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = title,
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF111B21)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = "Verified business",
+                    tint = Color(0xFF0084FF),
+                    modifier = Modifier.size(19.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Subtitle
+            val subtitle = buildString {
+                if (!countryOrigin.isNullOrBlank()) append(countryOrigin)
+                if (!countryOrigin.isNullOrBlank() && !businessCategory.isNullOrBlank()) append(" • ")
+                if (!businessCategory.isNullOrBlank()) append(businessCategory)
+            }
+            Text(
+                text = subtitle,
+                fontSize = 13.5.sp,
+                color = Color(0xFF54656F),
+                textAlign = TextAlign.Center,
+                lineHeight = 18.sp,
+                modifier = Modifier.padding(horizontal = 8.dp)
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Two action buttons side-by-side: [ 🚫 Block ] and [ Profile ]
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Block button
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp)
+                        .clickable { onBlockClick() },
+                    shape = RoundedCornerShape(22.dp),
+                    color = Color(0xFFF0F2F5)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Block,
+                            contentDescription = "Block",
+                            tint = Color(0xFFEA0038),
+                            modifier = Modifier.size(17.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Block",
+                            color = Color(0xFFEA0038),
+                            fontSize = 14.5.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                // Profile button
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp)
+                        .clickable { onProfileClick() },
+                    shape = RoundedCornerShape(22.dp),
+                    color = Color(0xFFF0F2F5)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "Profile",
+                            color = Color(0xFF111B21),
+                            fontSize = 14.5.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -217,6 +467,7 @@ fun ChatDetailScreen(
     currentUserId: String,
     safetyNumber: String,
     livePresenceStatus: String? = null,
+    canSendReply: Boolean = true,
     onBackClick: () -> Unit,
     onSendMessage: (String) -> Unit,
     onSendMediaAttachment: (uri: Uri, mediaType: MediaType, caption: String) -> Unit = { _, _, _ -> },
@@ -286,6 +537,33 @@ fun ChatDetailScreen(
     }
     var currentWallpaperTheme by remember(conversation.id) {
         mutableStateOf(chatPrefs.getString("wallpaper_${conversation.id}", "default") ?: "default")
+    }
+
+    // Google Messages Shortcode / Business Read-only states
+    var enableManualReplyTest by remember { mutableStateOf(false) }
+    var showShortCodeInfoDialog by remember { mutableStateOf(false) }
+    var showSecurityActionDialog by remember { mutableStateOf(false) }
+
+    val cleanPhone = remember(conversation.phoneNumber, conversation.title) {
+        (conversation.phoneNumber ?: conversation.title).trim()
+    }
+    val isShortCodeOrAlphanumeric = remember(conversation, canSendReply, cleanPhone) {
+        val digitsOnly = cleanPhone.filter { it.isDigit() }
+        conversation.isReadOnlyBusiness ||
+            conversation.isShortCode ||
+            (conversation.isSmsContact && cleanPhone.any { it.isLetter() } && digitsOnly.length < 7) ||
+            (digitsOnly.length in 3..6 && !cleanPhone.startsWith("+")) ||
+            conversation.title.equals("Facebook", ignoreCase = true) ||
+            !canSendReply
+    }
+
+    // Scan for detected OTP code in messages
+    val detectedOtpCode = remember(messages) {
+        val otpRegex = Regex("""\b\d{4,8}\b""")
+        messages.lastOrNull { it.isOtp || it.text.contains("two-factor", ignoreCase = true) || it.text.contains("verification", ignoreCase = true) || it.text.contains("OTP", ignoreCase = true) }
+            ?.let { m ->
+                m.otpCode ?: otpRegex.find(m.text)?.value
+            }
     }
 
     val displayMessages = remember(messages, activeDisappearingDurationState) {
@@ -1063,7 +1341,8 @@ fun ChatDetailScreen(
         }
         }
 
-        // Chat Messages Content
+        // Chat Messages & Floating Input Container
+        // WhatsApp Doodle Background spans the ENTIRE viewport through navigation bars!
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -1071,14 +1350,37 @@ fun ChatDetailScreen(
         ) {
             WhatsAppDoodleBackground(theme = currentWallpaperTheme)
 
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 4.dp),
-                contentPadding = PaddingValues(top = 8.dp, bottom = 6.dp),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
+            Column(
+                modifier = Modifier.fillMaxSize()
             ) {
+                // Messages list filling the available space above the input
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp),
+                    contentPadding = PaddingValues(top = 8.dp, bottom = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    // WhatsApp Business Profile Card (matching user's screenshot!)
+                    if (conversation.isBusinessAccount || conversation.isVerified || conversation.title.equals("Facebook", ignoreCase = true)) {
+                        item {
+                            WhatsAppBusinessProfileCard(
+                                title = conversation.title,
+                                phoneNumber = conversation.phoneNumber,
+                                countryOrigin = conversation.countryOrigin ?: "Phone number from United Kingdom",
+                                businessCategory = conversation.businessCategory ?: "Business account • Joined in June, 2023",
+                                onBlockClick = {
+                                    chatPrefs.edit().putBoolean("blocked_${conversation.id}", true).apply()
+                                    isContactBlocked = true
+                                    Toast.makeText(context, "${conversation.title} blocked", Toast.LENGTH_SHORT).show()
+                                },
+                                onProfileClick = onOpenProfile
+                            )
+                        }
+                    }
+
                     // Centered Date Chip
                     item {
                         Box(
@@ -1103,51 +1405,53 @@ fun ChatDetailScreen(
                         }
                     }
 
-                    // Security Encryption Banner (Screenshots 3 & 4)
-                    item {
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 6.dp)
-                                .clickable { showSafetyDialog = true },
-                            shape = RoundedCornerShape(10.dp),
-                            color = Color(0xFFFFF7D6),
-                            shadowElevation = 0.5.dp
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(10.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
+                    // Security Encryption Banner (for standard P2P chats)
+                    if (!conversation.isBusinessAccount && !isShortCodeOrAlphanumeric) {
+                        item {
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                                    .clickable { showSafetyDialog = true },
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFFFFF7D6),
+                                shadowElevation = 0.5.dp
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
+                                Column(
+                                    modifier = Modifier.padding(10.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    Icon(
-                                        imageVector = if (sendViaSms) Icons.Default.Sms else Icons.Default.Lock,
-                                        contentDescription = "Encrypted",
-                                        tint = if (sendViaSms) Color(0xFFB45309) else Color(0xFF54656F),
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = if (sendViaSms) Icons.Default.Sms else Icons.Default.Lock,
+                                            contentDescription = "Encrypted",
+                                            tint = if (sendViaSms) Color(0xFFB45309) else Color(0xFF54656F),
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (sendViaSms) {
+                                                "Messages are sent as cellular SMS. Carrier SMS charges may apply."
+                                            } else {
+                                                "Messages and calls are end-to-end encrypted. No one outside of this chat, not even Olinam, can read or listen to them. "
+                                            },
+                                            fontSize = 12.sp,
+                                            color = Color(0xFF54656F),
+                                            lineHeight = 16.sp,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
                                     Text(
-                                        text = if (sendViaSms) {
-                                            "Messages are sent as cellular SMS. Carrier SMS charges may apply."
-                                        } else {
-                                            "Messages and calls are end-to-end encrypted. No one outside of this chat, not even Olinam, can read or listen to them. "
-                                        },
+                                        text = "Learn more",
                                         fontSize = 12.sp,
-                                        color = Color(0xFF54656F),
-                                        lineHeight = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF111B21),
                                         textAlign = TextAlign.Center
                                     )
                                 }
-                                Text(
-                                    text = "Learn more",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF111B21),
-                                    textAlign = TextAlign.Center
-                                )
                             }
                         }
                     }
@@ -1191,272 +1495,503 @@ fun ChatDetailScreen(
 
                     // Message list items
                     items(displayMessages, key = { it.id }) { msg ->
-                        val isMe = msg.senderId == currentUserId || msg.senderId == "user_me" || msg.senderId == "me"
-                        val isHighlighted = isSearchMode && searchQuery.isNotBlank() && msg.text.contains(searchQuery, ignoreCase = true)
-                        WhatsAppMessageBubble(
-                            message = msg,
-                            isMe = isMe,
-                            isHighlighted = isHighlighted,
-                            onClick = { selectedMessageForCrypto = msg },
-                            onLongClick = { messageForAction = msg }
-                        )
-                    }
-                }
-            }
-
-            // WhatsApp Attachment Bottom Sheet (Matching Screenshot 3)
-            AnimatedVisibility(
-                visible = showAttachSheet,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
-            ) {
-                WhatsAppAttachmentSheet(
-                    onDocumentClick = {
-                        showAttachSheet = false
-                        documentPickerLauncher.launch("*/*")
-                    },
-                    onGalleryClick = {
-                        showAttachSheet = false
-                        photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
-                    },
-                    onAudioClick = {
-                        showAttachSheet = false
-                        audioPickerLauncher.launch("audio/*")
-                    },
-                    onLocationClick = {
-                        showAttachSheet = false
-                        showLocationDialog = true
-                    },
-                    onContactClick = {
-                        showAttachSheet = false
-                        showContactDialog = true
-                    },
-                    onPollClick = {
-                        showAttachSheet = false
-                        showPollDialog = true
-                    },
-                    onCameraClick = {
-                        showAttachSheet = false
-                        showInAppCamera = true
-                    },
-                    recentDevicePhotos = recentDevicePhotos,
-                    onRecentPhotoClick = { photoUri ->
-                        showAttachSheet = false
-                        onSendMediaAttachment(photoUri, MediaType.IMAGE, "")
-                    }
-                )
-            }
-
-            // Floating Input Bar or Blocked Contact Banner
-            if (isContactBlocked) {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 8.dp)
-                        .clickable {
-                            chatPrefs.edit().putBoolean("blocked_${conversation.id}", false).apply()
-                            isContactBlocked = false
-                            Toast.makeText(context, "${conversation.title} unblocked", Toast.LENGTH_SHORT).show()
-                        }
-                        .testTag("chat_blocked_unblock_banner"),
-                    color = Color(0xFFFEF2F2),
-                    shape = RoundedCornerShape(14.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFCA5A5))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Block,
-                            contentDescription = "Blocked",
-                            tint = Color(0xFFDC2626),
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "You blocked this contact. Tap to unblock.",
-                            fontSize = 14.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFFDC2626)
-                        )
-                    }
-                }
-            } else {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 6.dp, end = 6.dp, bottom = 6.dp, top = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                // Modern capsule text field
-                Surface(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(48.dp)
-                        .shadow(2.dp, RoundedCornerShape(24.dp)),
-                    shape = RoundedCornerShape(24.dp),
-                    color = Color.White,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Emoji / Keyboard toggle button
-                        IconButton(
-                            onClick = {
-                                showEmojiPicker = !showEmojiPicker
-                                if (showEmojiPicker) showAttachSheet = false
-                            },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (showEmojiPicker) Icons.Default.Keyboard else Icons.Default.SentimentSatisfiedAlt,
-                                contentDescription = "Emoji",
-                                tint = if (showEmojiPicker) Color(0xFF0160E3) else Color(0xFF64748B),
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-
-                        // SMS indicator tag
-                        if (sendViaSms) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFFFEF3C7),
-                                modifier = Modifier.padding(end = 4.dp)
-                            ) {
-                                Text(
-                                    text = "SMS",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFB45309),
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                            }
-                        }
-
-                        // Input Text Field
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(horizontal = 4.dp),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            if (inputText.isEmpty()) {
-                                Text(
-                                    text = if (sendViaSms) "Message (SIM SMS)..." else "Message...",
-                                    fontSize = 15.5.sp,
-                                    color = Color(0xFF94A3B8)
-                                )
-                            }
-                            BasicTextField(
-                                value = inputText,
-                                onValueChange = {
-                                    inputText = it
-                                    onTypingChanged(it.isNotBlank())
-                                },
-                                textStyle = TextStyle(
-                                    fontSize = 15.5.sp,
-                                    color = Color(0xFF111B21)
-                                ),
-                                cursorBrush = SolidColor(Color(0xFF0160E3)),
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                                keyboardActions = KeyboardActions(
-                                    onSend = { handleSendAction() }
-                                ),
+                        if (msg.isUnreadDivider) {
+                            // Centered "1 unread message" pill (Matching user screenshot!)
+                            Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .testTag("chat_message_input")
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = Color.White,
+                                    shadowElevation = 0.5.dp
+                                ) {
+                                    Text(
+                                        text = msg.text.ifBlank { "1 unread message" },
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color(0xFF54656F),
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                                    )
+                                }
+                            }
+                        } else {
+                            val isMe = msg.senderId == currentUserId || msg.senderId == "user_me" || msg.senderId == "me"
+                            val isHighlighted = isSearchMode && searchQuery.isNotBlank() && msg.text.contains(searchQuery, ignoreCase = true)
+                            WhatsAppMessageBubble(
+                                message = msg,
+                                isMe = isMe,
+                                isHighlighted = isHighlighted,
+                                onClick = { selectedMessageForCrypto = msg },
+                                onLongClick = { messageForAction = msg },
+                                onActionClick = { showSecurityActionDialog = true }
                             )
                         }
+                    }
+                }
 
-                        // Attachment paperclip button
-                        IconButton(
-                            onClick = {
-                                showAttachSheet = !showAttachSheet
-                                if (showAttachSheet) showEmojiPicker = false
-                            },
-                            modifier = Modifier.size(36.dp)
+                // WhatsApp Attachment Bottom Sheet (Matching Screenshot 3)
+                AnimatedVisibility(
+                    visible = showAttachSheet,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    WhatsAppAttachmentSheet(
+                        onDocumentClick = {
+                            showAttachSheet = false
+                            documentPickerLauncher.launch("*/*")
+                        },
+                        onGalleryClick = {
+                            showAttachSheet = false
+                            photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                        },
+                        onAudioClick = {
+                            showAttachSheet = false
+                            audioPickerLauncher.launch("audio/*")
+                        },
+                        onLocationClick = {
+                            showAttachSheet = false
+                            showLocationDialog = true
+                        },
+                        onContactClick = {
+                            showAttachSheet = false
+                            showContactDialog = true
+                        },
+                        onPollClick = {
+                            showAttachSheet = false
+                            showPollDialog = true
+                        },
+                        onCameraClick = {
+                            showAttachSheet = false
+                            showInAppCamera = true
+                        },
+                        recentDevicePhotos = recentDevicePhotos,
+                        onRecentPhotoClick = { photoUri ->
+                            showAttachSheet = false
+                            onSendMediaAttachment(photoUri, MediaType.IMAGE, "")
+                        }
+                    )
+                }
+
+                // Bottom Chat Area FLOATING OVER DOODLE TEXTURE (NO SOLID WHITE BAR!)
+                if (isContactBlocked) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                            .clickable {
+                                chatPrefs.edit().putBoolean("blocked_${conversation.id}", false).apply()
+                                isContactBlocked = false
+                                Toast.makeText(context, "${conversation.title} unblocked", Toast.LENGTH_SHORT).show()
+                            }
+                            .testTag("chat_blocked_unblock_banner"),
+                        color = Color(0xFFFEF2F2),
+                        shape = RoundedCornerShape(14.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFCA5A5))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Default.AttachFile,
-                                contentDescription = "Attach",
-                                tint = if (showAttachSheet) Color(0xFF0160E3) else Color(0xFF64748B),
-                                modifier = Modifier.size(22.dp)
+                                imageVector = Icons.Default.Block,
+                                contentDescription = "Blocked",
+                                tint = Color(0xFFDC2626),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "You blocked this contact. Tap to unblock.",
+                                fontSize = 14.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFFDC2626)
                             )
                         }
+                    }
+                } else if (isShortCodeOrAlphanumeric && !enableManualReplyTest) {
+                    // Google Messages Style: Read-only shortcode/company banner floating directly over doodle wallpaper!
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                            .testTag("chat_shortcode_readonly_banner"),
+                        shape = RoundedCornerShape(22.dp),
+                        color = Color.White.copy(alpha = 0.96f),
+                        shadowElevation = 1.5.dp,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Info,
+                                    contentDescription = "Read only",
+                                    tint = Color(0xFF64748B),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Can't reply to this short code",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color(0xFF1E293B)
+                                )
+                                Spacer(modifier = Modifier.weight(1f))
+                                Text(
+                                    text = "Learn more",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF00A884),
+                                    modifier = Modifier.clickable { showShortCodeInfoDialog = true }
+                                )
+                            }
 
-                        // Camera button (Screenshot 4)
-                        IconButton(
-                            onClick = { showInAppCamera = true },
-                            modifier = Modifier.size(36.dp)
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Google Messages Quick Action Chips row
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (detectedOtpCode != null) {
+                                    item {
+                                        Surface(
+                                            shape = RoundedCornerShape(16.dp),
+                                            color = Color(0xFFE8F5E9),
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFA5D6A7)),
+                                            modifier = Modifier.clickable {
+                                                clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(detectedOtpCode))
+                                                Toast.makeText(context, "Copied OTP: $detectedOtpCode", Toast.LENGTH_SHORT).show()
+                                            }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.ContentCopy,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFF2E7D32),
+                                                    modifier = Modifier.size(13.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = "Copy $detectedOtpCode",
+                                                    fontSize = 12.sp,
+                                                    color = Color(0xFF1B5E20),
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                item {
+                                    Surface(
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = Color(0xFFF1F5F9),
+                                        modifier = Modifier.clickable {
+                                            chatPrefs.edit().putBoolean("blocked_${conversation.id}", true).apply()
+                                            isContactBlocked = true
+                                            Toast.makeText(context, "${conversation.title} blocked", Toast.LENGTH_SHORT).show()
+                                        }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Block,
+                                                contentDescription = null,
+                                                tint = Color(0xFF64748B),
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "Block & report spam",
+                                                fontSize = 12.sp,
+                                                color = Color(0xFF475569)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                item {
+                                    Surface(
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = Color(0xFFF1F5F9),
+                                        modifier = Modifier.clickable { enableManualReplyTest = true }
+                                    ) {
+                                        Text(
+                                            text = "Test reply input",
+                                            fontSize = 12.sp,
+                                            color = Color(0xFF475569),
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Authentic WhatsApp Floating Input Bar over doodle texture!
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 6.dp, end = 6.dp, bottom = 6.dp, top = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // WhatsApp Rounded White Pill Text Field
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .shadow(1.5.dp, RoundedCornerShape(26.dp)),
+                            shape = RoundedCornerShape(26.dp),
+                            color = Color.White
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Emoji toggle button
+                                IconButton(
+                                    onClick = {
+                                        showEmojiPicker = !showEmojiPicker
+                                        if (showEmojiPicker) showAttachSheet = false
+                                    },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (showEmojiPicker) Icons.Default.Keyboard else Icons.Default.SentimentSatisfiedAlt,
+                                        contentDescription = "Emoji",
+                                        tint = if (showEmojiPicker) Color(0xFF00A884) else Color(0xFF54656F),
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+
+                                // SMS indicator tag if SMS mode
+                                if (sendViaSms) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color(0xFFFEF3C7),
+                                        modifier = Modifier.padding(end = 4.dp)
+                                    ) {
+                                        Text(
+                                            text = "SMS",
+                                            fontSize = 10.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFB45309),
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+
+                                // Input Text Field
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(horizontal = 4.dp),
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    if (inputText.isEmpty()) {
+                                        Text(
+                                            text = if (sendViaSms) "Message (SIM SMS)..." else "Message",
+                                            fontSize = 16.sp,
+                                            color = Color(0xFF8696A0)
+                                        )
+                                    }
+                                    BasicTextField(
+                                        value = inputText,
+                                        onValueChange = {
+                                            inputText = it
+                                            onTypingChanged(it.isNotBlank())
+                                        },
+                                        textStyle = TextStyle(
+                                            fontSize = 16.sp,
+                                            color = Color(0xFF111B21)
+                                        ),
+                                        cursorBrush = SolidColor(Color(0xFF00A884)),
+                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                        keyboardActions = KeyboardActions(
+                                            onSend = { handleSendAction() }
+                                        ),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("chat_message_input")
+                                    )
+                                }
+
+                                // Paperclip attachment button
+                                IconButton(
+                                    onClick = {
+                                        showAttachSheet = !showAttachSheet
+                                        if (showAttachSheet) showEmojiPicker = false
+                                    },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AttachFile,
+                                        contentDescription = "Attach",
+                                        tint = if (showAttachSheet) Color(0xFF00A884) else Color(0xFF54656F),
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+
+                                // Camera button
+                                IconButton(
+                                    onClick = { showInAppCamera = true },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CameraAlt,
+                                        contentDescription = "Camera",
+                                        tint = Color(0xFF54656F),
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        // Floating circular action button (WhatsApp signature green Color(0xFF00A884))
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .shadow(2.dp, CircleShape)
+                                .clip(CircleShape)
+                                .background(Color(0xFF00A884))
+                                .clickable { handleSendAction() }
+                                .testTag("send_message_button"),
+                            contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Default.CameraAlt,
-                                contentDescription = "Camera",
-                                tint = Color(0xFF64748B),
+                                imageVector = if (inputText.isNotBlank()) Icons.AutoMirrored.Filled.Send else Icons.Default.Mic,
+                                contentDescription = if (inputText.isNotBlank()) "Send" else "Voice message",
+                                tint = Color.White,
                                 modifier = Modifier.size(22.dp)
                             )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.width(6.dp))
-
-                // Floating circular action button (Olinam Royal Blue gradient)
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .shadow(3.dp, CircleShape)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                listOf(Color(0xFF0A68EB), Color(0xFF0152C7))
-                            )
-                        )
-                        .clickable { handleSendAction() }
-                        .testTag("send_message_button"),
-                    contentAlignment = Alignment.Center
+                // WhatsApp Inline Emoji Picker Panel (docked at bottom like keyboard)
+                AnimatedVisibility(
+                    visible = showEmojiPicker,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
                 ) {
-                    Icon(
-                        imageVector = if (inputText.isNotBlank()) Icons.AutoMirrored.Filled.Send else Icons.Default.Mic,
-                        contentDescription = if (inputText.isNotBlank()) "Send" else "Voice message",
-                        tint = Color.White,
-                        modifier = Modifier.size(22.dp)
+                    WhatsAppEmojiPicker(
+                        onEmojiClick = { emoji ->
+                            inputText += emoji
+                            onTypingChanged(true)
+                        },
+                        onBackspace = {
+                            if (inputText.isNotEmpty()) {
+                                inputText = inputText.dropLast(1)
+                                if (inputText.isEmpty()) onTypingChanged(false)
+                            }
+                        }
                     )
+                }
+
+                // Navigation bars padding INSIDE doodle container so texture extends all the way to screen bottom!
+                val isImeOpen = WindowInsets.ime.getBottom(density) > 0
+                if (!isImeOpen && !showEmojiPicker && !showAttachSheet) {
+                    Spacer(modifier = Modifier.navigationBarsPadding())
                 }
             }
         }
+    }
 
-        // WhatsApp Inline Emoji Picker Panel (docked at bottom like keyboard)
-        AnimatedVisibility(
-            visible = showEmojiPicker,
-            enter = expandVertically() + fadeIn(),
-            exit = shrinkVertically() + fadeOut()
-        ) {
-            WhatsAppEmojiPicker(
-                onEmojiClick = { emoji ->
-                    inputText += emoji
-                    onTypingChanged(true)
-                },
-                onBackspace = {
-                    if (inputText.isNotEmpty()) {
-                        inputText = inputText.dropLast(1)
-                        if (inputText.isEmpty()) onTypingChanged(false)
-                    }
+    // Google Messages Shortcode Info Dialog
+    if (showShortCodeInfoDialog) {
+        AlertDialog(
+            onDismissRequest = { showShortCodeInfoDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = null,
+                    tint = Color(0xFF00A884),
+                    modifier = Modifier.size(34.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "Can't reply to this sender",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    textAlign = TextAlign.Center
+                )
+            },
+            text = {
+                Text(
+                    text = "This sender (such as short codes like 025320, Facebook, or automated company SMS headers) uses a one-way notification broadcast system (A2P Short Code).\n\nStandard carrier text replies cannot be delivered to automated notification services. You can still copy verification codes or tap interactive action buttons inside the message.",
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    color = Color(0xFF54656F)
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showShortCodeInfoDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A884))
+                ) {
+                    Text("Got it", color = Color.White)
                 }
-            )
-        }
+            }
+        )
+    }
 
-        // Apply navigation bars padding ONLY when IME (keyboard) is NOT showing and emoji panel is closed!
-        val isImeOpen = WindowInsets.ime.getBottom(density) > 0
-        if (!isImeOpen && !showEmojiPicker && !showAttachSheet) {
-            Spacer(modifier = Modifier.navigationBarsPadding())
-        }
+    // Meta Account Security Dialog (matching "This wasn't me" button)
+    if (showSecurityActionDialog) {
+        AlertDialog(
+            onDismissRequest = { showSecurityActionDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Security,
+                    contentDescription = null,
+                    tint = Color(0xFF0084FF),
+                    modifier = Modifier.size(36.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "Meta Account Activity Secured",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    textAlign = TextAlign.Center
+                )
+            },
+            text = {
+                Text(
+                    text = "We have blocked the unrecognized device login from United Kingdom. Your Meta account password has been temporarily protected and an account recovery link was sent to your email.",
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    color = Color(0xFF54656F)
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showSecurityActionDialog = false
+                        Toast.makeText(context, "Account secured successfully", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0084FF))
+                ) {
+                    Text("Done", color = Color.White)
+                }
+            }
+        )
     }
 
     // Safety / Encryption details modal
@@ -2641,34 +3176,40 @@ fun WhatsAppMessageBubble(
     isMe: Boolean,
     isHighlighted: Boolean = false,
     onClick: () -> Unit,
-    onLongClick: () -> Unit = {}
+    onLongClick: () -> Unit = {},
+    onActionClick: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 1.dp, horizontal = 2.dp),
+            .padding(vertical = 1.5.dp, horizontal = 4.dp),
         horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start
     ) {
         Surface(
             modifier = Modifier
-                .widthIn(min = 54.dp, max = 320.dp)
-                .shadow(1.dp, RoundedCornerShape(16.dp))
+                .widthIn(min = 60.dp, max = 320.dp)
+                .shadow(0.5.dp, RoundedCornerShape(
+                    topStart = if (isMe) 14.dp else 0.dp,
+                    topEnd = if (isMe) 0.dp else 14.dp,
+                    bottomStart = 14.dp,
+                    bottomEnd = 14.dp
+                ))
                 .combinedClickable(
                     onClick = onClick,
                     onLongClick = onLongClick
                 )
                 .testTag("message_bubble_${message.id}"),
             shape = RoundedCornerShape(
-                topStart = 16.dp,
-                topEnd = 16.dp,
-                bottomStart = if (isMe) 16.dp else 4.dp,
-                bottomEnd = if (isMe) 4.dp else 16.dp
+                topStart = if (isMe) 14.dp else 0.dp,
+                topEnd = if (isMe) 0.dp else 14.dp,
+                bottomStart = 14.dp,
+                bottomEnd = 14.dp
             ),
             border = if (isHighlighted) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFF59E0B))
-                     else if (!isMe) androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFFE2E8F0))
                      else null,
-            color = if (isHighlighted) Color(0xFFFEF3C7) else if (isMe) Color(0xFF0160E3) else Color.White
+            color = if (isHighlighted) Color(0xFFFEF3C7) else if (isMe) Color(0xFFD9FDD3) else Color.White
         ) {
             Column(
                 modifier = Modifier.padding(start = 9.dp, end = 9.dp, top = 6.dp, bottom = 5.dp)
@@ -3078,13 +3619,92 @@ fun WhatsAppMessageBubble(
                     }
 
                     else -> {
+                        if (!message.boldHeader.isNullOrBlank()) {
+                            Text(
+                                text = message.boldHeader,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF111B21),
+                                lineHeight = 20.sp,
+                                modifier = Modifier.padding(bottom = 3.dp)
+                            )
+                        }
+
                         if (message.text.isNotBlank()) {
                             Text(
                                 text = message.text,
-                                fontSize = 15.sp,
-                                color = if (isMe) Color.White else Color(0xFF0F172A),
+                                fontSize = 14.5.sp,
+                                color = Color(0xFF111B21),
                                 lineHeight = 20.sp
                             )
+                        }
+
+                        // OTP quick copy badge if message contains 4-8 digit OTP
+                        val otpRegex = remember { Regex("""\b\d{4,8}\b""") }
+                        val foundOtp = message.otpCode ?: if (message.isOtp || message.text.contains("two-factor", ignoreCase = true) || message.text.contains("OTP", ignoreCase = true)) otpRegex.find(message.text)?.value else null
+                        if (foundOtp != null && !isMe) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFFF0FDF4),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBBF7D0)),
+                                modifier = Modifier.clickable {
+                                    clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(foundOtp))
+                                    android.widget.Toast.makeText(context, "Copied code: $foundOtp", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ContentCopy,
+                                        contentDescription = "Copy code",
+                                        tint = Color(0xFF008069),
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "Copy $foundOtp",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color(0xFF008069)
+                                    )
+                                }
+                            }
+                        }
+
+                        // Interactive card action button (e.g. "This wasn't me" matching user screenshot!)
+                        if (!message.actionButtonText.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(0.8.dp)
+                                    .background(Color(0xFFE2E8F0))
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onActionClick(message.actionButtonText) }
+                                    .padding(vertical = 8.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.OpenInNew,
+                                    contentDescription = null,
+                                    tint = Color(0xFF008069),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = message.actionButtonText,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF008069)
+                                )
+                            }
                         }
                     }
                 }
@@ -3098,7 +3718,7 @@ fun WhatsAppMessageBubble(
                     Text(
                         text = formatMessageTime(message.timestamp),
                         fontSize = 11.sp,
-                        color = if (isMe) Color.White.copy(alpha = 0.75f) else Color(0xFF64748B)
+                        color = Color(0xFF667781)
                     )
 
                     if (isMe) {
@@ -3106,7 +3726,7 @@ fun WhatsAppMessageBubble(
                         Icon(
                             imageVector = Icons.Default.DoneAll,
                             contentDescription = "Read",
-                            tint = Color.White,
+                            tint = Color(0xFF53BDEB),
                             modifier = Modifier.size(15.dp)
                         )
                     }

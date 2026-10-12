@@ -538,7 +538,9 @@ fun ConversationListItem(
                 .testTag("avatar_${conversation.id}")
         ) {
             val avatarColor = remember(conversation.id, conversation.title) {
-                if (conversation.title.startsWith("A", ignoreCase = true) || conversation.title.equals("Ankit", ignoreCase = true)) {
+                if (conversation.title.equals("Facebook", ignoreCase = true) || conversation.iconType == "FACEBOOK") {
+                    Color(0xFF1877F2)
+                } else if (conversation.title.startsWith("A", ignoreCase = true) || conversation.title.equals("Ankit", ignoreCase = true)) {
                     Color(0xFFE91E63) // Vibrant pink/magenta matching screenshot
                 } else {
                     AVATAR_PALETTE[Math.abs(conversation.id.hashCode()) % AVATAR_PALETTE.size]
@@ -558,6 +560,15 @@ fun ConversationListItem(
                         contentDescription = conversation.title,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
+                    )
+                } else if (conversation.title.equals("Facebook", ignoreCase = true) || conversation.iconType == "FACEBOOK") {
+                    Text(
+                        text = "f",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 32.sp,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
+                        modifier = Modifier.padding(bottom = 2.dp)
                     )
                 } else if (conversation.isGroup) {
                     Icon(

@@ -90,10 +90,94 @@ class FirebaseChatRepository {
                 db.saveMessage(initialMessage)
                 cached = listOf(initialConv)
             }
+            if (!db.isItemDeleted("conv_facebook") && db.getMessages("conv_facebook").isEmpty()) {
+                val fbConv = Conversation(
+                    id = "conv_facebook",
+                    title = "Facebook",
+                    phoneNumber = "025320",
+                    isGroup = false,
+                    lastMessageText = "Did you just log in on a new device? Hi Ankit, we noticed an unusual login to your Meta Account...",
+                    lastMessageTimestamp = System.currentTimeMillis() - 1000 * 60 * 14,
+                    unreadCount = 1,
+                    isVerified = true,
+                    isBusinessAccount = true,
+                    isShortCode = true,
+                    isReadOnlyBusiness = true,
+                    businessCategory = "Business account • Joined in June, 2023",
+                    countryOrigin = "Phone number from United Kingdom",
+                    isE2EE = false,
+                    isSmsContact = true,
+                    iconType = "FACEBOOK",
+                    labelIds = listOf("direct", "sms")
+                )
+                db.saveConversation(fbConv)
+
+                val msg1 = Message(
+                    id = "msg_fb_1",
+                    conversationId = "conv_facebook",
+                    senderId = "conv_facebook",
+                    senderName = "Facebook",
+                    text = "Use 025320 for two-factor authentication on Facebook.",
+                    timestamp = System.currentTimeMillis() - 1000 * 60 * 40,
+                    isEncrypted = false,
+                    isSms = true,
+                    status = MessageStatus.READ,
+                    isOtp = true,
+                    otpCode = "025320"
+                )
+                val msgDivider = Message(
+                    id = "msg_fb_divider",
+                    conversationId = "conv_facebook",
+                    senderId = "system",
+                    senderName = "System",
+                    text = "1 unread message",
+                    timestamp = System.currentTimeMillis() - 1000 * 60 * 20,
+                    isEncrypted = false,
+                    isUnreadDivider = true
+                )
+                val msg2 = Message(
+                    id = "msg_fb_2",
+                    conversationId = "conv_facebook",
+                    senderId = "conv_facebook",
+                    senderName = "Facebook",
+                    boldHeader = "Did you just log in on a new device?",
+                    text = "Hi Ankit, we noticed an unusual login to your Meta Account. If this wasn't you, we're here to help you take some simple steps to secure your account.",
+                    actionButtonText = "This wasn't me",
+                    timestamp = System.currentTimeMillis() - 1000 * 60 * 14,
+                    isEncrypted = false,
+                    isSms = true,
+                    status = MessageStatus.DELIVERED
+                )
+                db.saveMessage(msg1)
+                db.saveMessage(msgDivider)
+                db.saveMessage(msg2)
+                cached = db.getAllConversations()
+            }
             if (cached.isNotEmpty()) {
                 _conversations.value = cached
             }
         }
+    }
+
+    /**
+     * Google Messages / Carrier SMS reply rule:
+     * Returns false if recipient is a company short code (e.g. 025320, 567678),
+     * an alphanumeric header (e.g. "VK-HDFCBK", "Facebook"), or a one-way notification broadcast.
+     */
+    fun canSendReplyTo(conversation: Conversation): Boolean {
+        if (conversation.isReadOnlyBusiness) return false
+        if (conversation.isShortCode) return false
+        val cleanPhone = (conversation.phoneNumber ?: conversation.title).trim()
+        val digitsOnly = cleanPhone.filter { it.isDigit() }
+        // Alphanumeric sender ID (has letters and does not have a 10+ digit mobile number)
+        if (cleanPhone.any { it.isLetter() } && digitsOnly.length < 7) {
+            return false
+        }
+        // Short code (3 to 6 digits, without international + prefix)
+        if (digitsOnly.length in 3..6 && !cleanPhone.startsWith("+")) {
+            return false
+        }
+        return true
     }
 
     private val _currentUser = MutableStateFlow(

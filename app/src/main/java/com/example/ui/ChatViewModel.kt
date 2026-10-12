@@ -213,6 +213,10 @@ class ChatViewModel @JvmOverloads constructor(
         _livePresenceStatus.value = null
     }
 
+    fun canSendReplyTo(conversation: Conversation): Boolean {
+        return repository.canSendReplyTo(conversation)
+    }
+
     fun openConversation(conversationId: String, context: Context? = null) {
         val ctx = context ?: getApplication<Application>()
         _activeConversationId.value = conversationId

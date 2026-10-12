@@ -38,7 +38,13 @@ data class Message(
     val isSms: Boolean = false,
     val status: MessageStatus = MessageStatus.SENT,
     val mediaUrl: String? = null,
-    val mediaType: MediaType = MediaType.TEXT
+    val mediaType: MediaType = MediaType.TEXT,
+    val boldHeader: String? = null,
+    val actionButtonText: String? = null,
+    val actionButtonUrl: String? = null,
+    val isUnreadDivider: Boolean = false,
+    val isOtp: Boolean = false,
+    val otpCode: String? = null
 )
 
 @Immutable
@@ -68,7 +74,13 @@ data class Conversation(
     val labelIds: List<String> = emptyList(),
     val isSmsContact: Boolean = false,
     val phoneNumber: String? = null,
-    val isSpam: Boolean = false
+    val isSpam: Boolean = false,
+    val isBusinessAccount: Boolean = false,
+    val isShortCode: Boolean = false,
+    val isReadOnlyBusiness: Boolean = false,
+    val businessCategory: String? = null,
+    val businessJoinedDate: String? = null,
+    val countryOrigin: String? = null
 )
 
 enum class CallType {

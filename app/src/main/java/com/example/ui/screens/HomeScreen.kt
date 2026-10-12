@@ -457,6 +457,7 @@ fun HomeScreen(
             currentUserId = currentUser.id,
             safetyNumber = viewModel.getSafetyNumber(selectedConv.id),
             livePresenceStatus = livePresenceStatus,
+            canSendReply = viewModel.canSendReplyTo(selectedConv),
             onBackClick = {
                 showContactProfileScreen = false
                 viewModel.closeConversation()
