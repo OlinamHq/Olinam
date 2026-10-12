@@ -85,7 +85,16 @@ object SmsHelper {
                     if (address.isBlank()) continue
 
                     val cleanAddr = address.trim()
-                    if (seenAddresses.containsKey(cleanAddr)) continue
+                    if (seenAddresses.containsKey(cleanAddr)) {
+                        if (!isRead) {
+                            val existing = seenAddresses[cleanAddr]!!
+                            val updated = existing.copy(unreadCount = existing.unreadCount + 1)
+                            seenAddresses[cleanAddr] = updated
+                            val pIdx = personalList.indexOfFirst { p -> p.id == existing.id }
+                            if (pIdx >= 0) personalList[pIdx] = updated
+                        }
+                        continue
+                    }
 
                     val resolvedContactName = resolveContactName(context, cleanAddr)
                     val isKnownContact = resolvedContactName != null && resolvedContactName.isNotBlank() && resolvedContactName != cleanAddr

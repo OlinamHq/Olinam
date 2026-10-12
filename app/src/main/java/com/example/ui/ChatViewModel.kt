@@ -79,6 +79,36 @@ class ChatViewModel @JvmOverloads constructor(
             .sumOf { it.unreadCount }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
+    val totalUnreadCount: StateFlow<Int> = repository.conversations.map { all ->
+        all.sumOf { it.unreadCount }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val unreadCountsByLabel: StateFlow<Map<String, Int>> = combine(
+        repository.conversations,
+        repository.labels
+    ) { all, labelsList ->
+        val directCount = all.filter { !it.isSmsContact && !it.id.startsWith("sms_") && !it.labelIds.contains("sms") && !it.isGroup }
+            .sumOf { it.unreadCount }
+        val groupsCount = all.filter { (it.isGroup || it.labelIds.contains("groups")) && !it.isSmsContact }
+            .sumOf { it.unreadCount }
+        val smsCount = all.filter { it.isSmsContact || it.labelIds.contains("sms") || it.id.startsWith("sms_") }
+            .sumOf { it.unreadCount }
+
+        val map = mutableMapOf(
+            "all" to all.sumOf { it.unreadCount },
+            "direct" to directCount,
+            "groups" to groupsCount,
+            "sms" to smsCount
+        )
+        for (label in labelsList) {
+            if (!map.containsKey(label.id)) {
+                map[label.id] = all.filter { it.labelIds.contains(label.id) || label.chatIds.contains(it.id) }
+                    .sumOf { it.unreadCount }
+            }
+        }
+        map
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
     val conversations: StateFlow<List<Conversation>> = combine(
         repository.conversations,
         _searchQuery,

@@ -538,10 +538,8 @@ fun ConversationListItem(
                 .testTag("avatar_${conversation.id}")
         ) {
             val avatarColor = remember(conversation.id, conversation.title) {
-                if (conversation.title.equals("Facebook", ignoreCase = true) || conversation.iconType == "FACEBOOK") {
-                    Color(0xFF1877F2)
-                } else if (conversation.title.startsWith("A", ignoreCase = true) || conversation.title.equals("Ankit", ignoreCase = true)) {
-                    Color(0xFFE91E63) // Vibrant pink/magenta matching screenshot
+                if (conversation.title.startsWith("A", ignoreCase = true)) {
+                    Color(0xFFE91E63) // Vibrant pink/magenta
                 } else {
                     AVATAR_PALETTE[Math.abs(conversation.id.hashCode()) % AVATAR_PALETTE.size]
                 }
@@ -560,15 +558,6 @@ fun ConversationListItem(
                         contentDescription = conversation.title,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
-                    )
-                } else if (conversation.title.equals("Facebook", ignoreCase = true) || conversation.iconType == "FACEBOOK") {
-                    Text(
-                        text = "f",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 32.sp,
-                        fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
-                        modifier = Modifier.padding(bottom = 2.dp)
                     )
                 } else if (conversation.isGroup) {
                     Icon(
@@ -699,19 +688,23 @@ fun ConversationListItem(
                 }
 
                 if (conversation.unreadCount > 0) {
+                    val badgeText = if (conversation.unreadCount > 99) "99+" else conversation.unreadCount.toString()
                     Box(
                         modifier = Modifier
                             .padding(start = 6.dp)
-                            .size(20.dp)
+                            .defaultMinSize(minWidth = 20.dp, minHeight = 20.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF0160E3)),
+                            .background(Color(0xFF0160E3))
+                            .padding(horizontal = if (conversation.unreadCount > 9) 6.dp else 2.dp, vertical = 2.dp)
+                            .testTag("unread_badge_${conversation.id}"),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = conversation.unreadCount.toString(),
+                            text = badgeText,
                             color = Color.White,
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            lineHeight = 13.sp
                         )
                     }
                 }
@@ -835,39 +828,40 @@ private fun androidx.compose.foundation.layout.RowScope.BottomNavItem(
         verticalArrangement = Arrangement.Center
     ) {
         Box(
-            modifier = Modifier
-                .height(32.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(if (selected) Color(0xFFE9EBEA) else Color.Transparent)
-                .padding(horizontal = 16.dp, vertical = 4.dp),
             contentAlignment = Alignment.Center
         ) {
             Box(
+                modifier = Modifier
+                    .height(32.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(if (selected) Color(0xFFE9EBEA) else Color.Transparent)
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
                 contentAlignment = Alignment.Center
             ) {
                 val iconTint = if (selected) Color(0xFF111B21) else Color(0xFF54656F)
                 icon(iconTint)
+            }
 
-                if (!badgeText.isNullOrBlank()) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .offset(x = 10.dp, y = (-6).dp)
-                            .defaultMinSize(minWidth = 14.dp, minHeight = 14.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF007AFF))
-                            .padding(horizontal = 3.dp, vertical = 0.5.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = badgeText,
-                            color = Color.White,
-                            fontSize = 8.sp,
-                            fontWeight = FontWeight.Bold,
-                            lineHeight = 10.sp,
-                            maxLines = 1
-                        )
-                    }
+            if (!badgeText.isNullOrBlank()) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 6.dp, y = (-3).dp)
+                        .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF007AFF))
+                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                        .testTag("bottom_nav_badge_$label"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = badgeText,
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = 12.sp,
+                        maxLines = 1
+                    )
                 }
             }
         }

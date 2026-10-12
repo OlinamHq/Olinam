@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -37,6 +38,7 @@ import com.example.model.ChatLabel
 fun LabelChipsRow(
     labels: List<ChatLabel>,
     selectedLabelId: String,
+    unreadCounts: Map<String, Int> = emptyMap(),
     onLabelClick: (ChatLabel) -> Unit,
     onAddLabelClick: () -> Unit
 ) {
@@ -49,6 +51,7 @@ fun LabelChipsRow(
     ) {
         items(labels, key = { it.id }) { label ->
             val isSelected = selectedLabelId == label.id
+            val unreadCount = unreadCounts[label.id] ?: 0
 
             Surface(
                 modifier = Modifier
@@ -60,7 +63,7 @@ fun LabelChipsRow(
                 border = if (isSelected) null else BorderStroke(1.dp, Color(0xFFE2E8F0))
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     val displayName = when (label.id) {
@@ -75,6 +78,28 @@ fun LabelChipsRow(
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                         color = if (isSelected) Color(0xFF007AFF) else Color(0xFF54656F)
                     )
+
+                    if (unreadCount > 0) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        val badgeText = if (unreadCount > 99) "99+" else unreadCount.toString()
+                        Box(
+                            modifier = Modifier
+                                .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp)
+                                .clip(CircleShape)
+                                .background(if (isSelected) Color(0xFF007AFF) else Color(0xFF007AFF).copy(alpha = 0.15f))
+                                .padding(horizontal = if (unreadCount > 9) 5.dp else 2.dp, vertical = 1.dp)
+                                .testTag("label_chip_badge_${label.id}"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = badgeText,
+                                color = if (isSelected) Color.White else Color(0xFF007AFF),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                lineHeight = 12.sp
+                            )
+                        }
+                    }
                 }
             }
         }

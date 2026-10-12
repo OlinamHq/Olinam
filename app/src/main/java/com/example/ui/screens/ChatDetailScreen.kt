@@ -339,21 +339,34 @@ fun WhatsAppBusinessProfileCard(
                 .padding(vertical = 18.dp, horizontal = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Large circular Facebook / Business Icon
+            // Circular Business / Sender Avatar
+            val senderInitial = remember(title) {
+                title.trim().take(1).uppercase(Locale.getDefault()).ifBlank { "B" }
+            }
+            val businessColor = remember(title) {
+                val palette = listOf(
+                    Color(0xFF0160E3), // Royal Blue
+                    Color(0xFF059669), // Emerald
+                    Color(0xFF7C3AED), // Violet
+                    Color(0xFFD97706), // Amber
+                    Color(0xFFDC2626), // Crimson
+                    Color(0xFF0284C7)  // Ocean Blue
+                )
+                palette[Math.abs(title.hashCode()) % palette.size]
+            }
+
             Box(
                 modifier = Modifier
                     .size(86.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFF1877F2)),
+                    .background(businessColor),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "f",
+                    text = senderInitial,
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 60.sp,
-                    fontFamily = FontFamily.SansSerif,
-                    modifier = Modifier.padding(bottom = 6.dp)
+                    fontSize = 38.sp
                 )
             }
 
@@ -548,13 +561,15 @@ fun ChatDetailScreen(
         (conversation.phoneNumber ?: conversation.title).trim()
     }
     val isShortCodeOrAlphanumeric = remember(conversation, canSendReply, cleanPhone) {
-        val digitsOnly = cleanPhone.filter { it.isDigit() }
-        conversation.isReadOnlyBusiness ||
-            conversation.isShortCode ||
-            (conversation.isSmsContact && cleanPhone.any { it.isLetter() } && digitsOnly.length < 7) ||
-            (digitsOnly.length in 3..6 && !cleanPhone.startsWith("+")) ||
-            conversation.title.equals("Facebook", ignoreCase = true) ||
-            !canSendReply
+        if (!conversation.isSmsContact && !conversation.id.startsWith("sms_")) {
+            false
+        } else if (conversation.title.contains("Message yourself", ignoreCase = true)) {
+            false
+        } else {
+            conversation.isReadOnlyBusiness ||
+                conversation.isShortCode ||
+                !canSendReply
+        }
     }
 
     // Scan for detected OTP code in messages
@@ -1363,8 +1378,8 @@ fun ChatDetailScreen(
                     contentPadding = PaddingValues(top = 8.dp, bottom = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
-                    // WhatsApp Business Profile Card (matching user's screenshot!)
-                    if (conversation.isBusinessAccount || conversation.isVerified || conversation.title.equals("Facebook", ignoreCase = true)) {
+                    // WhatsApp Business Profile Card
+                    if (conversation.isBusinessAccount || conversation.isVerified) {
                         item {
                             WhatsAppBusinessProfileCard(
                                 title = conversation.title,
@@ -1935,7 +1950,7 @@ fun ChatDetailScreen(
             },
             text = {
                 Text(
-                    text = "This sender (such as short codes like 025320, Facebook, or automated company SMS headers) uses a one-way notification broadcast system (A2P Short Code).\n\nStandard carrier text replies cannot be delivered to automated notification services. You can still copy verification codes or tap interactive action buttons inside the message.",
+                    text = "This sender is an automated notification service or short code (A2P message).\n\nStandard carrier replies cannot be delivered to automated notification services. You can copy OTP codes or tap links directly inside the message.",
                     fontSize = 14.sp,
                     lineHeight = 20.sp,
                     color = Color(0xFF54656F)

@@ -111,6 +111,8 @@ fun HomeScreen(
     val activeCallState by viewModel.activeCallState.collectAsState()
     val registeredPhoneNumbers by viewModel.registeredPhoneNumbers.collectAsState()
     val livePresenceStatus by viewModel.livePresenceStatus.collectAsState()
+    val unreadCountsByLabel by viewModel.unreadCountsByLabel.collectAsState()
+    val totalUnreadCount by viewModel.totalUnreadCount.collectAsState()
     val scope = rememberCoroutineScope()
 
     var showNewChatDialog by remember { mutableStateOf(false) }
@@ -560,6 +562,7 @@ fun HomeScreen(
                     LabelChipsRow(
                         labels = labels,
                         selectedLabelId = selectedLabelId,
+                        unreadCounts = unreadCountsByLabel,
                         onLabelClick = { label ->
                             if (label.id == "groups") {
                                 val hasGroups = conversations.any { it.isGroup }
@@ -578,10 +581,9 @@ fun HomeScreen(
             }
         },
         bottomBar = {
-            val unreadChatsCount by viewModel.unreadAppChatsCount.collectAsState()
             OlinamBottomNavBar(
                 currentTab = currentTab,
-                unreadChatsCount = unreadChatsCount,
+                unreadChatsCount = totalUnreadCount,
                 onTabSelected = { viewModel.setTab(it) }
             )
         },
