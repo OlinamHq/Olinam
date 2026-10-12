@@ -264,7 +264,7 @@ fun ContactProfileScreen(
                 ) {
                     val avatarColor = remember(conversation.id) {
                         val colors = listOf(
-                            Color(0xFF00A884), // WhatsApp Emerald
+                            Color(0xFF0160E3), // Olinam Royal Blue
                             Color(0xFF0284C7), // Sky
                             Color(0xFF6366F1), // Indigo
                             Color(0xFF8B5CF6), // Purple
@@ -460,7 +460,7 @@ fun ContactProfileScreen(
                         Icon(
                             imageVector = Icons.Default.Lock,
                             contentDescription = null,
-                            tint = Color(0xFF00A884),
+                            tint = Color(0xFF0160E3),
                             modifier = Modifier.size(24.dp)
                         )
 
@@ -547,7 +547,7 @@ fun ContactProfileScreen(
                             Text(
                                 text = if (isChatLocked) "Locked with passcode (Active)" else "Lock and hide this chat on this device",
                                 fontSize = 13.sp,
-                                color = if (isChatLocked) Color(0xFF00A884) else Color(0xFF6B7280)
+                                color = if (isChatLocked) Color(0xFF0160E3) else Color(0xFF6B7280)
                             )
                         }
 
@@ -561,7 +561,7 @@ fun ContactProfileScreen(
                             },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = Color.White,
-                                checkedTrackColor = Color(0xFF00A884),
+                                checkedTrackColor = Color(0xFF0160E3),
                                 uncheckedThumbColor = Color.White,
                                 uncheckedTrackColor = Color(0xFFD1D5DB)
                             ),
@@ -602,7 +602,7 @@ fun ContactProfileScreen(
                             Text(
                                 text = if (isAdvancedPrivacyOn) "Protect IP address in calls (Active - Relay mode)" else "Off",
                                 fontSize = 13.sp,
-                                color = if (isAdvancedPrivacyOn) Color(0xFF00A884) else Color(0xFF6B7280)
+                                color = if (isAdvancedPrivacyOn) Color(0xFF0160E3) else Color(0xFF6B7280)
                             )
                         }
 
@@ -616,7 +616,7 @@ fun ContactProfileScreen(
                             },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = Color.White,
-                                checkedTrackColor = Color(0xFF00A884),
+                                checkedTrackColor = Color(0xFF0160E3),
                                 uncheckedThumbColor = Color.White,
                                 uncheckedTrackColor = Color(0xFFD1D5DB)
                             )
@@ -652,14 +652,14 @@ fun ContactProfileScreen(
                             Icon(
                                 imageVector = if (isBlocked) Icons.Default.CheckCircle else Icons.Default.Block,
                                 contentDescription = null,
-                                tint = if (isBlocked) Color(0xFF00A884) else Color(0xFFDC2626),
+                                tint = if (isBlocked) Color(0xFF0160E3) else Color(0xFFDC2626),
                                 modifier = Modifier.size(22.dp)
                             )
                             Spacer(modifier = Modifier.width(20.dp))
                             Text(
                                 text = if (isBlocked) "Unblock $displayName" else "Block $displayName",
                                 fontSize = 16.sp,
-                                color = if (isBlocked) Color(0xFF00A884) else Color(0xFFDC2626),
+                                color = if (isBlocked) Color(0xFF0160E3) else Color(0xFFDC2626),
                                 fontWeight = FontWeight.Medium
                             )
                         }
@@ -731,7 +731,7 @@ fun ContactProfileScreen(
                                     prefs.edit().putString("media_visibility_${conversation.id}", opt).apply()
                                     showMediaVisibilityDialog = false
                                 },
-                                colors = RadioButtonDefaults.colors(selectedColor = Color(0xFF00A884))
+                                colors = RadioButtonDefaults.colors(selectedColor = Color(0xFF0160E3))
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(text = opt, fontSize = 15.sp, color = Color(0xFF111827))
@@ -741,7 +741,7 @@ fun ContactProfileScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showMediaVisibilityDialog = false }) {
-                    Text("OK", color = Color(0xFF00A884))
+                    Text("OK", color = Color(0xFF0160E3))
                 }
             }
         )
@@ -786,14 +786,14 @@ fun ContactProfileScreen(
                                     prefs.edit().putString("disappearing_${conversation.id}", opt).apply()
                                     showDisappearingDialog = false
                                 },
-                                colors = RadioButtonDefaults.colors(selectedColor = Color(0xFF00A884))
+                                colors = RadioButtonDefaults.colors(selectedColor = Color(0xFF0160E3))
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = opt,
                                 fontSize = 15.sp,
                                 fontWeight = if (disappearingDuration == opt) FontWeight.Bold else FontWeight.Normal,
-                                color = if (disappearingDuration == opt) Color(0xFF00A884) else Color(0xFF111827)
+                                color = if (disappearingDuration == opt) Color(0xFF0160E3) else Color(0xFF111827)
                             )
                         }
                     }
@@ -801,7 +801,7 @@ fun ContactProfileScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showDisappearingDialog = false }) {
-                    Text("Done", color = Color(0xFF00A884))
+                    Text("Done", color = Color(0xFF0160E3))
                 }
             }
         )
@@ -872,7 +872,7 @@ fun ContactProfileScreen(
                             }
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A884))
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3))
                 ) {
                     Text("Confirm")
                 }
@@ -893,7 +893,7 @@ fun ContactProfileScreen(
                 Icon(
                     imageVector = Icons.Default.Security,
                     contentDescription = null,
-                    tint = Color(0xFF00A884),
+                    tint = Color(0xFF0160E3),
                     modifier = Modifier.size(36.dp)
                 )
             },
@@ -949,7 +949,7 @@ fun ContactProfileScreen(
             confirmButton = {
                 Button(
                     onClick = { showSafetyDialog = false },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A884))
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3))
                 ) {
                     Text("Verified")
                 }

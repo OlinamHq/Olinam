@@ -300,7 +300,7 @@ fun NewContactScreen(
                         onCheckedChange = { syncToPhone = it },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF00A884)
+                            checkedTrackColor = Color(0xFF0160E3)
                         )
                     )
                 }
@@ -350,7 +350,7 @@ fun NewContactScreen(
                         .testTag("save_contact_button"),
                     shape = RoundedCornerShape(24.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isFormValid) Color(0xFF00A884) else Color(0xFFE5E7EB),
+                        containerColor = if (isFormValid) Color(0xFF0160E3) else Color(0xFFE5E7EB),
                         contentColor = if (isFormValid) Color.White else Color(0xFF9CA3AF),
                         disabledContainerColor = Color(0xFFE5E7EB),
                         disabledContentColor = Color(0xFF9CA3AF)

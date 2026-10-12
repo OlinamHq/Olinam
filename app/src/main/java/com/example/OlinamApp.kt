@@ -24,5 +24,6 @@ class OlinamApp : Application() {
         } catch (t: Throwable) {
             Log.e("OlinamApp", "FirebaseApp initialization exception: ${t.message}", t)
         }
+        com.example.receiver.SmsNotificationHelper.createNotificationChannel(this)
     }
 }

@@ -114,6 +114,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
@@ -145,7 +146,7 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Authentic WhatsApp-style doodle wallpaper background.
+ * Modern chat wallpaper background with clean aesthetics.
  * Cached efficiently with drawWithCache so zero allocations occur during scroll.
  */
 @Composable
@@ -160,12 +161,12 @@ fun WhatsAppDoodleBackground(
         "rose" -> Color(0xFFFCE4EC)
         "sand" -> Color(0xFFFFF8E1)
         "white" -> Color.White
-        else -> Color(0xFFEFEAE2)
+        else -> Color(0xFFF0F4F8)
     }
     val doodleColor = if (theme.lowercase() == "dark") {
         Color.White.copy(alpha = 0.05f)
     } else {
-        Color(0xFF54656F).copy(alpha = 0.04f)
+        Color(0xFF0160E3).copy(alpha = 0.035f)
     }
 
     Box(
@@ -239,6 +240,7 @@ fun ChatDetailScreen(
     var inputText by remember { mutableStateOf("") }
     var pendingSmsText by remember { mutableStateOf("") }
     var menuExpanded by remember { mutableStateOf(false) }
+    var callMenuExpanded by remember { mutableStateOf(false) }
     var showSafetyDialog by remember { mutableStateOf(false) }
     var selectedMessageForCrypto by remember { mutableStateOf<Message?>(null) }
     var messageForAction by remember { mutableStateOf<Message?>(null) }
@@ -768,7 +770,7 @@ fun ChatDetailScreen(
                         ) {
                             val avatarBgColor = remember(conversation.id) {
                                 val colors = listOf(
-                                    Color(0xFF00A884), // WhatsApp Emerald
+                                    Color(0xFF0160E3), // Olinam Royal Blue
                                     Color(0xFF0284C7), // Sky
                                     Color(0xFF6366F1), // Indigo
                                     Color(0xFF8B5CF6), // Purple
@@ -819,7 +821,7 @@ fun ChatDetailScreen(
                                     Icon(
                                         imageVector = Icons.Default.Timer,
                                         contentDescription = "Disappearing messages on",
-                                        tint = Color(0xFF00A884),
+                                        tint = Color(0xFF0160E3),
                                         modifier = Modifier.size(14.dp)
                                     )
                                 }
@@ -830,8 +832,8 @@ fun ChatDetailScreen(
                                 fontSize = 12.5.sp,
                                 fontWeight = if (isOtherTyping) FontWeight.Bold else FontWeight.Normal,
                                 color = when {
-                                    isOtherTyping -> Color(0xFF00A884) // Vibrant green typing indicator
-                                    isOtherOnline -> Color(0xFF00A884) // Real online
+                                    isOtherTyping -> Color(0xFF0160E3) // Royal Blue typing indicator
+                                    isOtherOnline -> Color(0xFF0160E3) // Real online
                                     sendViaSms -> Color(0xFFB45309)
                                     else -> Color(0xFF667781)
                                 },
@@ -845,31 +847,8 @@ fun ChatDetailScreen(
                     val isAlphanumericSms = sendViaSms && !hasCallablePhone
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        // Only show Video Call if registered Olinam user (NOT SMS)
-                        if (!sendViaSms) {
-                            IconButton(
-                                onClick = {
-                                    if (isContactBlocked) {
-                                        Toast.makeText(context, "Unblock ${conversation.title} to place a video call.", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        onCallClick(CallType.VIDEO)
-                                    }
-                                },
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .testTag("chat_video_call_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Videocam,
-                                    contentDescription = "Video Call",
-                                    tint = if (isContactBlocked) Color(0xFF94A3B8) else Color(0xFF54656F),
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-                        }
-
-                        // Only show Voice Call if registered Olinam user OR SMS with dialable digits
-                        if (!isAlphanumericSms) {
+                        // Unified Audio & Video Calling in ONE button (with dropdown for Voice / Video Call)
+                        Box {
                             IconButton(
                                 onClick = {
                                     if (isContactBlocked) {
@@ -879,25 +858,74 @@ fun ChatDetailScreen(
                                         if (phone.isNotBlank()) {
                                             val dialIntent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone"))
                                             context.startActivity(dialIntent)
+                                        } else {
+                                            Toast.makeText(context, "No valid phone number for SMS contact.", Toast.LENGTH_SHORT).show()
                                         }
                                     } else {
-                                        onCallClick(CallType.VOICE)
+                                        callMenuExpanded = true
                                     }
                                 },
                                 modifier = Modifier
                                     .size(38.dp)
-                                    .testTag("chat_voice_call_button")
+                                    .testTag("chat_unified_call_button")
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Call,
-                                    contentDescription = "Voice Call",
-                                    tint = if (isContactBlocked) Color(0xFF94A3B8) else Color(0xFF54656F),
-                                    modifier = Modifier.size(21.dp)
+                                    contentDescription = "Call",
+                                    tint = if (isContactBlocked) Color(0xFF94A3B8) else Color(0xFF0160E3),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = callMenuExpanded,
+                                onDismissRequest = { callMenuExpanded = false },
+                                modifier = Modifier.widthIn(min = 190.dp)
+                            ) {
+                                DropdownMenuItem(
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Call,
+                                            contentDescription = null,
+                                            tint = Color(0xFF0160E3),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    },
+                                    text = {
+                                        Column {
+                                            Text("Audio Call", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF111B21))
+                                            Text("Voice calling", fontSize = 11.5.sp, color = Color(0xFF64748B))
+                                        }
+                                    },
+                                    onClick = {
+                                        callMenuExpanded = false
+                                        onCallClick(CallType.VOICE)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Videocam,
+                                            contentDescription = null,
+                                            tint = Color(0xFF0160E3),
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    },
+                                    text = {
+                                        Column {
+                                            Text("Video Call", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF111B21))
+                                            Text("HD video calling", fontSize = 11.5.sp, color = Color(0xFF64748B))
+                                        }
+                                    },
+                                    onClick = {
+                                        callMenuExpanded = false
+                                        onCallClick(CallType.VIDEO)
+                                    }
                                 )
                             }
                         }
 
-                        // 3-dots overflow menu
+                        // Beside it: 3-dots list / options button
                         Box {
                             IconButton(
                                 onClick = { menuExpanded = true },
@@ -1262,14 +1290,15 @@ fun ChatDetailScreen(
                         .padding(start = 6.dp, end = 6.dp, bottom = 6.dp, top = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                // White capsule text field
+                // Modern capsule text field
                 Surface(
                     modifier = Modifier
                         .weight(1f)
                         .height(48.dp)
-                        .shadow(1.5.dp, RoundedCornerShape(25.dp)),
-                    shape = RoundedCornerShape(25.dp),
-                    color = Color.White
+                        .shadow(2.dp, RoundedCornerShape(24.dp)),
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color.White,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
                 ) {
                     Row(
                         modifier = Modifier
@@ -1288,7 +1317,7 @@ fun ChatDetailScreen(
                             Icon(
                                 imageVector = if (showEmojiPicker) Icons.Default.Keyboard else Icons.Default.SentimentSatisfiedAlt,
                                 contentDescription = "Emoji",
-                                tint = Color(0xFF8696A0),
+                                tint = if (showEmojiPicker) Color(0xFF0160E3) else Color(0xFF64748B),
                                 modifier = Modifier.size(24.dp)
                             )
                         }
@@ -1319,9 +1348,9 @@ fun ChatDetailScreen(
                         ) {
                             if (inputText.isEmpty()) {
                                 Text(
-                                    text = if (sendViaSms) "Message (SIM SMS)..." else "Message",
-                                    fontSize = 16.sp,
-                                    color = Color(0xFF8696A0)
+                                    text = if (sendViaSms) "Message (SIM SMS)..." else "Message...",
+                                    fontSize = 15.5.sp,
+                                    color = Color(0xFF94A3B8)
                                 )
                             }
                             BasicTextField(
@@ -1331,10 +1360,10 @@ fun ChatDetailScreen(
                                     onTypingChanged(it.isNotBlank())
                                 },
                                 textStyle = TextStyle(
-                                    fontSize = 16.sp,
+                                    fontSize = 15.5.sp,
                                     color = Color(0xFF111B21)
                                 ),
-                                cursorBrush = SolidColor(Color(0xFF00A884)),
+                                cursorBrush = SolidColor(Color(0xFF0160E3)),
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                                 keyboardActions = KeyboardActions(
                                     onSend = { handleSendAction() }
@@ -1356,7 +1385,7 @@ fun ChatDetailScreen(
                             Icon(
                                 imageVector = Icons.Default.AttachFile,
                                 contentDescription = "Attach",
-                                tint = if (showAttachSheet) Color(0xFF00A884) else Color(0xFF8696A0),
+                                tint = if (showAttachSheet) Color(0xFF0160E3) else Color(0xFF64748B),
                                 modifier = Modifier.size(22.dp)
                             )
                         }
@@ -1369,7 +1398,7 @@ fun ChatDetailScreen(
                             Icon(
                                 imageVector = Icons.Default.CameraAlt,
                                 contentDescription = "Camera",
-                                tint = Color(0xFF8696A0),
+                                tint = Color(0xFF64748B),
                                 modifier = Modifier.size(22.dp)
                             )
                         }
@@ -1378,13 +1407,17 @@ fun ChatDetailScreen(
 
                 Spacer(modifier = Modifier.width(6.dp))
 
-                // Floating circular action button (WhatsApp green)
+                // Floating circular action button (Olinam Royal Blue gradient)
                 Box(
                     modifier = Modifier
                         .size(48.dp)
-                        .shadow(2.dp, CircleShape)
+                        .shadow(3.dp, CircleShape)
                         .clip(CircleShape)
-                        .background(Color(0xFF00A884))
+                        .background(
+                            Brush.linearGradient(
+                                listOf(Color(0xFF0A68EB), Color(0xFF0152C7))
+                            )
+                        )
                         .clickable { handleSendAction() }
                         .testTag("send_message_button"),
                     contentAlignment = Alignment.Center
@@ -1434,7 +1467,7 @@ fun ChatDetailScreen(
                 Icon(
                     imageVector = Icons.Default.Security,
                     contentDescription = null,
-                    tint = Color(0xFF00A884),
+                    tint = Color(0xFF0160E3),
                     modifier = Modifier.size(36.dp)
                 )
             },
@@ -1511,7 +1544,7 @@ fun ChatDetailScreen(
             confirmButton = {
                 Button(
                     onClick = { showSafetyDialog = false },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A884))
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3))
                 ) {
                     Text("OK")
                 }
@@ -1661,7 +1694,7 @@ fun ChatDetailScreen(
                 Icon(
                     imageVector = Icons.Default.Lock,
                     contentDescription = null,
-                    tint = Color(0xFF00A884),
+                    tint = Color(0xFF0160E3),
                     modifier = Modifier.size(30.dp)
                 )
             },
@@ -1683,7 +1716,7 @@ fun ChatDetailScreen(
                         text = if (msg.isSms) "Protocol: Direct SIM SMS (Standard Cellular)" else "Protocol: AES-256-GCM (End-to-End Encrypted via Firebase)",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
-                        color = if (msg.isSms) Color(0xFFB45309) else Color(0xFF00A884)
+                        color = if (msg.isSms) Color(0xFFB45309) else Color(0xFF0160E3)
                     )
                 }
             },
@@ -1785,7 +1818,7 @@ fun WhatsAppAttachmentSheet(
                 AttachmentActionItem(
                     label = "Location",
                     icon = Icons.Default.LocationOn,
-                    bgColor = Color(0xFF00A884),
+                    bgColor = Color(0xFF0160E3),
                     onClick = onLocationClick
                 )
                 AttachmentActionItem(
@@ -2021,14 +2054,14 @@ fun WhatsAppEmojiPicker(
                     listOf("😀 Emoji", "👾 GIF", "🎭 Sticker").forEachIndexed { index, title ->
                         Surface(
                             shape = RoundedCornerShape(16.dp),
-                            color = if (selectedTab == index) Color(0xFF00A884).copy(alpha = 0.12f) else Color.Transparent,
+                            color = if (selectedTab == index) Color(0xFF0160E3).copy(alpha = 0.12f) else Color.Transparent,
                             modifier = Modifier.clickable { selectedTab = index }
                         ) {
                             Text(
                                 text = title,
                                 fontSize = 12.5.sp,
                                 fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Medium,
-                                color = if (selectedTab == index) Color(0xFF00A884) else Color(0xFF54656F),
+                                color = if (selectedTab == index) Color(0xFF0160E3) else Color(0xFF54656F),
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                             )
                         }
@@ -2214,7 +2247,7 @@ fun FullGalleryPickerModal(
                     }
 
                     TextButton(onClick = onOpenPhotoPicker) {
-                        Text("All Photos", color = Color(0xFF00A884), fontWeight = FontWeight.Bold)
+                        Text("All Photos", color = Color(0xFF0160E3), fontWeight = FontWeight.Bold)
                     }
                 }
 
@@ -2333,7 +2366,7 @@ fun WhatsAppLocationDialog(
                 Icon(
                     imageVector = Icons.Default.LocationOn,
                     contentDescription = null,
-                    tint = Color(0xFF00A884),
+                    tint = Color(0xFF0160E3),
                     modifier = Modifier.size(24.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
@@ -2358,7 +2391,7 @@ fun WhatsAppLocationDialog(
                         Icon(
                             imageVector = Icons.Default.LocationOn,
                             contentDescription = null,
-                            tint = Color(0xFF00A884),
+                            tint = Color(0xFF0160E3),
                             modifier = Modifier.size(28.dp)
                         )
                         Spacer(modifier = Modifier.width(10.dp))
@@ -2385,7 +2418,7 @@ fun WhatsAppLocationDialog(
                         Icon(
                             imageVector = Icons.Default.Timer,
                             contentDescription = null,
-                            tint = Color(0xFF00A884),
+                            tint = Color(0xFF0160E3),
                             modifier = Modifier.size(28.dp)
                         )
                         Spacer(modifier = Modifier.width(10.dp))
@@ -2525,7 +2558,7 @@ fun WhatsAppContactDialog(
                         onSendContact("👤 Contact: $contactName\n📞 $contactPhone")
                     }
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A884))
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3))
             ) {
                 Text("Send")
             }
@@ -2582,7 +2615,7 @@ fun CreatePollDialog(
                         onCreatePoll(question, listOf(option1, option2))
                     }
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A884))
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3))
             ) {
                 Text("Create")
             }
@@ -2619,31 +2652,33 @@ fun WhatsAppMessageBubble(
     ) {
         Surface(
             modifier = Modifier
-                .widthIn(min = 52.dp, max = 330.dp)
-                .shadow(0.5.dp, RoundedCornerShape(8.dp))
+                .widthIn(min = 54.dp, max = 320.dp)
+                .shadow(1.dp, RoundedCornerShape(16.dp))
                 .combinedClickable(
                     onClick = onClick,
                     onLongClick = onLongClick
                 )
                 .testTag("message_bubble_${message.id}"),
             shape = RoundedCornerShape(
-                topStart = 8.dp,
-                topEnd = 8.dp,
-                bottomStart = if (isMe) 8.dp else 2.dp,
-                bottomEnd = if (isMe) 2.dp else 8.dp
+                topStart = 16.dp,
+                topEnd = 16.dp,
+                bottomStart = if (isMe) 16.dp else 4.dp,
+                bottomEnd = if (isMe) 4.dp else 16.dp
             ),
-            border = if (isHighlighted) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFF59E0B)) else null,
-            color = if (isHighlighted) Color(0xFFFEF3C7) else if (isMe) Color(0xFFD9FDD3) else Color.White
+            border = if (isHighlighted) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFF59E0B))
+                     else if (!isMe) androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFFE2E8F0))
+                     else null,
+            color = if (isHighlighted) Color(0xFFFEF3C7) else if (isMe) Color(0xFF0160E3) else Color.White
         ) {
             Column(
-                modifier = Modifier.padding(start = 7.dp, end = 7.dp, top = 4.dp, bottom = 4.dp)
+                modifier = Modifier.padding(start = 9.dp, end = 9.dp, top = 6.dp, bottom = 5.dp)
             ) {
                 // If message has mediaUrl (image), display image preview
                 val hasImage = (!message.mediaUrl.isNullOrBlank() || message.mediaType == MediaType.IMAGE) &&
                         !message.text.contains("📄") && !message.text.contains("🎵")
                 if (hasImage && !message.mediaUrl.isNullOrBlank()) {
                     Surface(
-                        shape = RoundedCornerShape(6.dp),
+                        shape = RoundedCornerShape(10.dp),
                         color = Color(0xFFE2E8F0),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2668,7 +2703,7 @@ fun WhatsAppMessageBubble(
                         Icon(
                             imageVector = Icons.Default.Sms,
                             contentDescription = "SMS",
-                            tint = Color(0xFFB45309),
+                            tint = if (isMe) Color(0xFFFEF3C7) else Color(0xFFB45309),
                             modifier = Modifier.size(11.dp)
                         )
                         Spacer(modifier = Modifier.width(3.dp))
@@ -2676,7 +2711,7 @@ fun WhatsAppMessageBubble(
                             text = "SMS text",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFFB45309)
+                            color = if (isMe) Color(0xFFFEF3C7) else Color(0xFFB45309)
                         )
                     }
                 }
@@ -2696,8 +2731,8 @@ fun WhatsAppMessageBubble(
                         val subtitle = lines.getOrNull(1)?.takeIf { !it.contains("http") }?.trim() ?: "Accurate GPS Location"
 
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = if (isMe) Color(0xFFC7F3BF) else Color(0xFFE9F0EC),
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isMe) Color(0xFF0A52BA) else Color(0xFFF1F5F9),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(bottom = 3.dp)
@@ -2713,7 +2748,7 @@ fun WhatsAppMessageBubble(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(90.dp)
-                                        .background(Color(0xFF81C784)),
+                                        .background(Color(0xFF60A5FA)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
@@ -2728,13 +2763,13 @@ fun WhatsAppMessageBubble(
                                         text = title,
                                         fontSize = 13.5.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF111B21)
+                                        color = if (isMe) Color.White else Color(0xFF111B21)
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
                                         text = subtitle,
                                         fontSize = 11.sp,
-                                        color = Color(0xFF54656F),
+                                        color = if (isMe) Color.White.copy(alpha = 0.8f) else Color(0xFF54656F),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -2743,7 +2778,7 @@ fun WhatsAppMessageBubble(
                                         Icon(
                                             imageVector = Icons.Default.Map,
                                             contentDescription = null,
-                                            tint = Color(0xFF00A884),
+                                            tint = if (isMe) Color(0xFF93C5FD) else Color(0xFF0160E3),
                                             modifier = Modifier.size(13.dp)
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
@@ -2751,7 +2786,7 @@ fun WhatsAppMessageBubble(
                                             text = "Open in Maps",
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.SemiBold,
-                                            color = Color(0xFF00A884)
+                                            color = if (isMe) Color(0xFF93C5FD) else Color(0xFF0160E3)
                                         )
                                     }
                                 }
@@ -2767,8 +2802,8 @@ fun WhatsAppMessageBubble(
                             ?.substringAfter("📞")?.trim() ?: ""
 
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = if (isMe) Color(0xFFC7F3BF) else Color(0xFFF1F5F9),
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isMe) Color(0xFF0A52BA) else Color(0xFFF1F5F9),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(bottom = 3.dp)
@@ -2795,13 +2830,13 @@ fun WhatsAppMessageBubble(
                                             text = contactName,
                                             fontSize = 13.5.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF111B21)
+                                            color = if (isMe) Color.White else Color(0xFF111B21)
                                         )
                                         if (phone.isNotBlank()) {
                                             Text(
                                                 text = phone,
                                                 fontSize = 11.sp,
-                                                color = Color(0xFF54656F)
+                                                color = if (isMe) Color.White.copy(alpha = 0.8f) else Color(0xFF54656F)
                                             )
                                         }
                                     }
@@ -2811,7 +2846,7 @@ fun WhatsAppMessageBubble(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(0.5.dp)
-                                        .background(Color(0xFFCBD5E1))
+                                        .background(if (isMe) Color.White.copy(alpha = 0.2f) else Color(0xFFCBD5E1))
                                 )
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -2825,7 +2860,7 @@ fun WhatsAppMessageBubble(
                                             }
                                         }
                                     ) {
-                                        Text("Message", fontSize = 11.5.sp, color = Color(0xFF00A884), fontWeight = FontWeight.Bold)
+                                        Text("Message", fontSize = 11.5.sp, color = if (isMe) Color.White else Color(0xFF0160E3), fontWeight = FontWeight.Bold)
                                     }
                                     TextButton(
                                         onClick = {
@@ -2839,7 +2874,7 @@ fun WhatsAppMessageBubble(
                                             try { context.startActivity(intent) } catch (_: Exception) {}
                                         }
                                     ) {
-                                        Text("Save", fontSize = 11.5.sp, color = Color(0xFF00A884), fontWeight = FontWeight.Bold)
+                                        Text("Save", fontSize = 11.5.sp, color = if (isMe) Color.White else Color(0xFF0160E3), fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -2849,8 +2884,8 @@ fun WhatsAppMessageBubble(
                     isDoc -> {
                         val docName = message.text.substringAfter("📄").substringAfter("Document:").trim().ifBlank { "Document.pdf" }
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = if (isMe) Color(0xFFC7F3BF) else Color(0xFFF1F5F9),
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isMe) Color(0xFF0A52BA) else Color(0xFFF1F5F9),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(bottom = 3.dp)
@@ -2894,20 +2929,20 @@ fun WhatsAppMessageBubble(
                                         text = docName,
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = Color(0xFF111B21),
+                                        color = if (isMe) Color.White else Color(0xFF111B21),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
                                         text = "PDF • 340 KB",
                                         fontSize = 11.sp,
-                                        color = Color(0xFF64748B)
+                                        color = if (isMe) Color.White.copy(alpha = 0.8f) else Color(0xFF64748B)
                                     )
                                 }
                                 Icon(
                                     imageVector = Icons.Default.OpenInNew,
                                     contentDescription = "Open",
-                                    tint = Color(0xFF54656F),
+                                    tint = if (isMe) Color.White else Color(0xFF54656F),
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -2918,8 +2953,8 @@ fun WhatsAppMessageBubble(
                         var isPlaying by remember { mutableStateOf(false) }
                         val audioName = message.text.substringAfter("🎵").substringAfter("Audio:").trim().ifBlank { "Voice Note.mp3" }
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = if (isMe) Color(0xFFC7F3BF) else Color(0xFFF1F5F9),
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isMe) Color(0xFF0A52BA) else Color(0xFFF1F5F9),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(bottom = 3.dp)
@@ -2932,14 +2967,14 @@ fun WhatsAppMessageBubble(
                                     modifier = Modifier
                                         .size(34.dp)
                                         .clip(CircleShape)
-                                        .background(Color(0xFF00A884))
+                                        .background(if (isMe) Color.White else Color(0xFF0160E3))
                                         .clickable { isPlaying = !isPlaying },
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
                                         imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                         contentDescription = if (isPlaying) "Pause" else "Play",
-                                        tint = Color.White,
+                                        tint = if (isMe) Color(0xFF0160E3) else Color.White,
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
@@ -2949,7 +2984,7 @@ fun WhatsAppMessageBubble(
                                         text = audioName,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = Color(0xFF111B21),
+                                        color = if (isMe) Color.White else Color(0xFF111B21),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -2965,7 +3000,7 @@ fun WhatsAppMessageBubble(
                                                     .width(3.dp)
                                                     .height(barHeight)
                                                     .clip(RoundedCornerShape(1.dp))
-                                                    .background(if (isPlaying && idx < 7) Color(0xFF00A884) else Color(0xFF94A3B8))
+                                                    .background(if (isPlaying && idx < 7) (if (isMe) Color(0xFF93C5FD) else Color(0xFF0160E3)) else (if (isMe) Color.White.copy(alpha = 0.4f) else Color(0xFF94A3B8)))
                                             )
                                         }
                                     }
@@ -2974,7 +3009,7 @@ fun WhatsAppMessageBubble(
                                 Text(
                                     text = "0:24",
                                     fontSize = 11.sp,
-                                    color = Color(0xFF64748B)
+                                    color = if (isMe) Color.White.copy(alpha = 0.8f) else Color(0xFF64748B)
                                 )
                             }
                         }
@@ -2988,8 +3023,8 @@ fun WhatsAppMessageBubble(
                         val options = pollLines.filter { it.firstOrNull()?.isDigit() == true }
 
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = if (isMe) Color(0xFFC7F3BF) else Color(0xFFF1F5F9),
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isMe) Color(0xFF0A52BA) else Color(0xFFF1F5F9),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(bottom = 3.dp)
@@ -2999,20 +3034,20 @@ fun WhatsAppMessageBubble(
                                     text = question,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF111B21)
+                                    color = if (isMe) Color.White else Color(0xFF111B21)
                                 )
                                 Text(
                                     text = "Select one option",
                                     fontSize = 11.sp,
-                                    color = Color(0xFF64748B)
+                                    color = if (isMe) Color.White.copy(alpha = 0.8f) else Color(0xFF64748B)
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 options.forEachIndexed { idx, opt ->
                                     val isSelected = selectedOptionIndex == idx
                                     Surface(
                                         shape = RoundedCornerShape(6.dp),
-                                        color = if (isSelected) Color(0xFF00A884).copy(alpha = 0.15f) else Color.White,
-                                        border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) Color(0xFF00A884) else Color(0xFFE2E8F0)),
+                                        color = if (isSelected) (if (isMe) Color.White.copy(alpha = 0.25f) else Color(0xFF0160E3).copy(alpha = 0.12f)) else (if (isMe) Color.White.copy(alpha = 0.1f) else Color.White),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) (if (isMe) Color.White else Color(0xFF0160E3)) else (if (isMe) Color.White.copy(alpha = 0.2f) else Color(0xFFE2E8F0))),
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(vertical = 2.dp)
@@ -3026,14 +3061,14 @@ fun WhatsAppMessageBubble(
                                                 modifier = Modifier
                                                     .size(14.dp)
                                                     .clip(CircleShape)
-                                                    .background(if (isSelected) Color(0xFF00A884) else Color.Transparent)
-                                                    .border(1.5.dp, if (isSelected) Color(0xFF00A884) else Color(0xFF94A3B8), CircleShape)
+                                                    .background(if (isSelected) (if (isMe) Color.White else Color(0xFF0160E3)) else Color.Transparent)
+                                                    .border(1.5.dp, if (isSelected) (if (isMe) Color.White else Color(0xFF0160E3)) else (if (isMe) Color.White.copy(alpha = 0.5f) else Color(0xFF94A3B8)), CircleShape)
                                             )
                                             Spacer(modifier = Modifier.width(8.dp))
                                             Text(
                                                 text = opt,
                                                 fontSize = 12.5.sp,
-                                                color = Color(0xFF111B21)
+                                                color = if (isMe) Color.White else Color(0xFF111B21)
                                             )
                                         }
                                     }
@@ -3046,15 +3081,15 @@ fun WhatsAppMessageBubble(
                         if (message.text.isNotBlank()) {
                             Text(
                                 text = message.text,
-                                fontSize = 14.5.sp,
-                                color = Color(0xFF111B21),
-                                lineHeight = 19.sp
+                                fontSize = 15.sp,
+                                color = if (isMe) Color.White else Color(0xFF0F172A),
+                                lineHeight = 20.sp
                             )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(1.dp))
+                Spacer(modifier = Modifier.height(2.dp))
 
                 Row(
                     modifier = Modifier.align(Alignment.End),
@@ -3063,7 +3098,7 @@ fun WhatsAppMessageBubble(
                     Text(
                         text = formatMessageTime(message.timestamp),
                         fontSize = 11.sp,
-                        color = Color(0xFF667781)
+                        color = if (isMe) Color.White.copy(alpha = 0.75f) else Color(0xFF64748B)
                     )
 
                     if (isMe) {
@@ -3071,7 +3106,7 @@ fun WhatsAppMessageBubble(
                         Icon(
                             imageVector = Icons.Default.DoneAll,
                             contentDescription = "Read",
-                            tint = Color(0xFF53BDEB),
+                            tint = Color.White,
                             modifier = Modifier.size(15.dp)
                         )
                     }
@@ -3118,7 +3153,7 @@ fun AddContactDialog(
         confirmButton = {
             Button(
                 onClick = { if (name.isNotBlank()) onSave(name, phone) },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A884))
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3))
             ) {
                 Text("Save")
             }
@@ -3169,7 +3204,7 @@ fun MediaLinksDocsSheet(
                     listOf("Media (${mediaItems.size})", "Docs (${docItems.size})", "Links (${linkItems.size})").forEachIndexed { index, label ->
                         Surface(
                             shape = RoundedCornerShape(12.dp),
-                            color = if (selectedTab == index) Color(0xFF00A884) else Color.Transparent,
+                            color = if (selectedTab == index) Color(0xFF0160E3) else Color.Transparent,
                             modifier = Modifier.clickable { selectedTab = index }
                         ) {
                             Text(
@@ -3277,7 +3312,7 @@ fun MediaLinksDocsSheet(
                                             Icon(
                                                 imageVector = Icons.Default.OpenInNew,
                                                 contentDescription = null,
-                                                tint = Color(0xFF00A884),
+                                                tint = Color(0xFF0160E3),
                                                 modifier = Modifier.size(20.dp)
                                             )
                                             Spacer(modifier = Modifier.width(8.dp))
@@ -3315,7 +3350,7 @@ fun DisappearingMessagesDialog(
                 Icon(
                     imageVector = Icons.Default.Timer,
                     contentDescription = null,
-                    tint = Color(0xFF00A884),
+                    tint = Color(0xFF0160E3),
                     modifier = Modifier.size(24.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
@@ -3334,7 +3369,7 @@ fun DisappearingMessagesDialog(
                     val isSelected = currentDuration.equals(opt, ignoreCase = true)
                     Surface(
                         shape = RoundedCornerShape(8.dp),
-                        color = if (isSelected) Color(0xFF00A884).copy(alpha = 0.12f) else Color(0xFFF1F5F9),
+                        color = if (isSelected) Color(0xFF0160E3).copy(alpha = 0.12f) else Color(0xFFF1F5F9),
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { onSelect(opt) }
@@ -3348,13 +3383,13 @@ fun DisappearingMessagesDialog(
                                 text = opt,
                                 fontSize = 14.sp,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSelected) Color(0xFF00A884) else Color(0xFF111B21)
+                                color = if (isSelected) Color(0xFF0160E3) else Color(0xFF111B21)
                             )
                             if (isSelected) {
                                 Icon(
                                     imageVector = Icons.Default.DoneAll,
                                     contentDescription = "Selected",
-                                    tint = Color(0xFF00A884),
+                                    tint = Color(0xFF0160E3),
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -3396,7 +3431,7 @@ fun WallpaperDialog(
                 Icon(
                     imageVector = Icons.Default.Palette,
                     contentDescription = null,
-                    tint = Color(0xFF00A884),
+                    tint = Color(0xFF0160E3),
                     modifier = Modifier.size(24.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
@@ -3411,7 +3446,7 @@ fun WallpaperDialog(
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = Color(0xFFF8F9FA),
-                        border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF00A884)) else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                        border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF0160E3)) else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { onSelect(key) }
@@ -3477,7 +3512,7 @@ fun MuteNotificationsDialog(
                     val isSelected = selectedOption == opt
                     Surface(
                         shape = RoundedCornerShape(8.dp),
-                        color = if (isSelected) Color(0xFF00A884).copy(alpha = 0.12f) else Color(0xFFF1F5F9),
+                        color = if (isSelected) Color(0xFF0160E3).copy(alpha = 0.12f) else Color(0xFFF1F5F9),
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { selectedOption = opt }
@@ -3490,15 +3525,15 @@ fun MuteNotificationsDialog(
                                 modifier = Modifier
                                     .size(16.dp)
                                     .clip(CircleShape)
-                                    .background(if (isSelected) Color(0xFF00A884) else Color.Transparent)
-                                    .border(1.5.dp, if (isSelected) Color(0xFF00A884) else Color(0xFF94A3B8), CircleShape)
+                                    .background(if (isSelected) Color(0xFF0160E3) else Color.Transparent)
+                                    .border(1.5.dp, if (isSelected) Color(0xFF0160E3) else Color(0xFF94A3B8), CircleShape)
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
                                 text = opt,
                                 fontSize = 14.sp,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSelected) Color(0xFF00A884) else Color(0xFF111B21)
+                                color = if (isSelected) Color(0xFF0160E3) else Color(0xFF111B21)
                             )
                         }
                     }
@@ -3508,7 +3543,7 @@ fun MuteNotificationsDialog(
         confirmButton = {
             Button(
                 onClick = { onMute(selectedOption) },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A884))
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3))
             ) {
                 Text("OK")
             }

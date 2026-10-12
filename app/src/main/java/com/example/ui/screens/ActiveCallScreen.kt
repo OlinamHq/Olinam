@@ -130,6 +130,14 @@ fun ActiveCallScreen(
         ) == PackageManager.PERMISSION_GRANTED
     }
 
+    DisposableEffect(Unit) {
+        onDispose {
+            try {
+                ProcessCameraProvider.getInstance(context).get().unbindAll()
+            } catch (_: Exception) {}
+        }
+    }
+
     val isVideo = currentCall.callType == CallType.VIDEO
 
     Box(
@@ -143,6 +151,7 @@ fun ActiveCallScreen(
             AndroidView(
                 factory = { ctx ->
                     val previewView = PreviewView(ctx).apply {
+                        implementationMode = PreviewView.ImplementationMode.COMPATIBLE
                         scaleType = PreviewView.ScaleType.FILL_CENTER
                     }
                     val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
@@ -166,6 +175,11 @@ fun ActiveCallScreen(
                         } catch (_: Exception) {}
                     }, ContextCompat.getMainExecutor(ctx))
                     previewView
+                },
+                onRelease = { view ->
+                    try {
+                        ProcessCameraProvider.getInstance(view.context).get().unbindAll()
+                    } catch (_: Exception) {}
                 },
                 modifier = Modifier.fillMaxSize()
             )

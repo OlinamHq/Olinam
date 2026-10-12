@@ -63,7 +63,7 @@ fun ContactQuickViewDialog(
 ) {
     val avatarColor = remember(conversation.id) {
         val colors = listOf(
-            Color(0xFF00A884), // WhatsApp Emerald
+            Color(0xFF0160E3), // Olinam Royal Blue
             Color(0xFF0284C7), // Sky
             Color(0xFF6366F1), // Indigo
             Color(0xFF8B5CF6), // Purple
@@ -160,7 +160,7 @@ fun ContactQuickViewDialog(
                                 Icon(
                                     imageVector = Icons.Default.CheckCircle,
                                     contentDescription = "Verified",
-                                    tint = Color(0xFF00A884),
+                                    tint = Color(0xFF0160E3),
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -173,7 +173,7 @@ fun ContactQuickViewDialog(
                     color = Color(0xFFE5E7EB)
                 )
 
-                // WhatsApp-Style Action Icon Row (Emerald Green 0xFF00A884)
+                // Olinam Royal Blue Action Icon Row (0xFF0160E3)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -191,7 +191,7 @@ fun ContactQuickViewDialog(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.Chat,
                             contentDescription = "Chat",
-                            tint = Color(0xFF00A884),
+                            tint = Color(0xFF0160E3),
                             modifier = Modifier.size(23.dp)
                         )
                     }
@@ -205,7 +205,7 @@ fun ContactQuickViewDialog(
                             Icon(
                                 imageVector = Icons.Default.Call,
                                 contentDescription = "Audio Call",
-                                tint = Color(0xFF00A884),
+                                tint = Color(0xFF0160E3),
                                 modifier = Modifier.size(23.dp)
                             )
                         }
@@ -220,7 +220,7 @@ fun ContactQuickViewDialog(
                             Icon(
                                 imageVector = Icons.Default.Videocam,
                                 contentDescription = "Video Call",
-                                tint = Color(0xFF00A884),
+                                tint = Color(0xFF0160E3),
                                 modifier = Modifier.size(25.dp)
                             )
                         }
@@ -234,7 +234,7 @@ fun ContactQuickViewDialog(
                         Icon(
                             imageVector = Icons.Default.Info,
                             contentDescription = "About / Profile",
-                            tint = Color(0xFF00A884),
+                            tint = Color(0xFF0160E3),
                             modifier = Modifier.size(23.dp)
                         )
                     }

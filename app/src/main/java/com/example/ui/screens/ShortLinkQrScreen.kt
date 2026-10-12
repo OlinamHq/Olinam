@@ -125,7 +125,7 @@ fun ShortLinkQrScreen(
                 indicator = { tabPositions ->
                     TabRowDefaults.SecondaryIndicator(
                         modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
-                        color = if (selectedTab == 1) Color.White else Color(0xFF00A884)
+                        color = if (selectedTab == 1) Color.White else Color(0xFF0160E3)
                     )
                 }
             ) {
@@ -182,7 +182,7 @@ fun ShortLinkQrScreen(
                                 modifier = Modifier
                                     .size(60.dp)
                                     .clip(CircleShape)
-                                    .background(Color(0xFF00A884)),
+                                    .background(Color(0xFF0160E3)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
@@ -249,7 +249,7 @@ fun ShortLinkQrScreen(
                             }
                             context.startActivity(Intent.createChooser(shareIntent, "Share QR code"))
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A884)),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3)),
                         shape = RoundedCornerShape(20.dp),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -275,7 +275,7 @@ fun ShortLinkQrScreen(
                             .size(240.dp)
                             .clip(RoundedCornerShape(18.dp))
                             .background(Color(0x33FFFFFF))
-                            .border(2.dp, Color(0xFF00A884), RoundedCornerShape(18.dp)),
+                            .border(2.dp, Color(0xFF0160E3), RoundedCornerShape(18.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -321,7 +321,7 @@ fun ShortLinkQrScreen(
                             modifier = Modifier
                                 .size(48.dp)
                                 .clip(CircleShape)
-                                .background(if (isFlashOn) Color(0xFF00A884) else Color(0x44FFFFFF))
+                                .background(if (isFlashOn) Color(0xFF0160E3) else Color(0x44FFFFFF))
                         ) {
                             Icon(
                                 imageVector = if (isFlashOn) Icons.Default.FlashOn else Icons.Default.FlashOff,

@@ -183,6 +183,18 @@ object SmsHelper {
             } else {
                 smsManager.sendTextMessage(cleanNumber, null, text, null, null)
             }
+
+            // Save sent SMS to system telephony provider
+            try {
+                val values = android.content.ContentValues().apply {
+                    put(Telephony.Sms.Sent.ADDRESS, cleanNumber)
+                    put(Telephony.Sms.Sent.BODY, text)
+                    put(Telephony.Sms.Sent.DATE, System.currentTimeMillis())
+                    put(Telephony.Sms.Sent.READ, 1)
+                }
+                context.contentResolver.insert(Telephony.Sms.Sent.CONTENT_URI, values)
+            } catch (_: Exception) {}
+
             true
         } catch (e: Exception) {
             android.util.Log.e("SmsHelper", "Failed to send direct SIM SMS: ${e.message}")
@@ -190,7 +202,49 @@ object SmsHelper {
         }
     }
 
-    private fun resolveContactName(context: Context, phoneNumber: String): String? {
+    fun saveIncomingSms(context: Context, address: String, body: String, timestamp: Long) {
+        try {
+            val values = android.content.ContentValues().apply {
+                put(Telephony.Sms.Inbox.ADDRESS, address)
+                put(Telephony.Sms.Inbox.BODY, body)
+                put(Telephony.Sms.Inbox.DATE, timestamp)
+                put(Telephony.Sms.Inbox.DATE_SENT, timestamp)
+                put(Telephony.Sms.Inbox.READ, 0)
+                put(Telephony.Sms.Inbox.SEEN, 0)
+            }
+            context.contentResolver.insert(Telephony.Sms.Inbox.CONTENT_URI, values)
+        } catch (e: Exception) {
+            android.util.Log.e("SmsHelper", "Failed to save incoming SMS to provider: ${e.message}")
+        }
+    }
+
+    fun isDefaultSmsApp(context: Context): Boolean {
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            val roleManager = context.getSystemService(android.app.role.RoleManager::class.java)
+            roleManager?.isRoleHeld(android.app.role.RoleManager.ROLE_SMS) == true
+        } else {
+            Telephony.Sms.getDefaultSmsPackage(context) == context.packageName
+        }
+    }
+
+    fun createDefaultSmsIntent(context: Context): android.content.Intent? {
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            val roleManager = context.getSystemService(android.app.role.RoleManager::class.java)
+            if (roleManager != null && roleManager.isRoleAvailable(android.app.role.RoleManager.ROLE_SMS)) {
+                roleManager.createRequestRoleIntent(android.app.role.RoleManager.ROLE_SMS)
+            } else {
+                android.content.Intent(Telephony.Sms.Intents.ACTION_CHANGE_DEFAULT).apply {
+                    putExtra(Telephony.Sms.Intents.EXTRA_PACKAGE_NAME, context.packageName)
+                }
+            }
+        } else {
+            android.content.Intent(Telephony.Sms.Intents.ACTION_CHANGE_DEFAULT).apply {
+                putExtra(Telephony.Sms.Intents.EXTRA_PACKAGE_NAME, context.packageName)
+            }
+        }
+    }
+
+    fun resolveContactName(context: Context, phoneNumber: String): String? {
         try {
             val uri = Uri.withAppendedPath(
                 ContactsContract.PhoneLookup.CONTENT_FILTER_URI,

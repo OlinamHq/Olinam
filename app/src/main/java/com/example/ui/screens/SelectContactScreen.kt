@@ -249,7 +249,8 @@ fun SelectContactScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .background(Color.White)
+                .background(Color.White),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 64.dp)
         ) {
             // Action 1: New Group Action
             item {
@@ -383,7 +384,11 @@ fun SelectContactScreen(
                     }
                 }
 
-                items(olinamContacts, key = { "olinam_" + it.id + it.phoneNumber }) { contact ->
+                items(
+                    items = olinamContacts,
+                    key = { "olinam_" + it.id + it.phoneNumber },
+                    contentType = { "contact_item" }
+                ) { contact ->
                     ContactRowItem(
                         contact = contact,
                         hasApp = true,
@@ -449,7 +454,11 @@ fun SelectContactScreen(
                     }
                 }
 
-                items(nonAppContacts, key = { "sms_" + it.id + it.phoneNumber }) { contact ->
+                items(
+                    items = nonAppContacts,
+                    key = { "sms_" + it.id + it.phoneNumber },
+                    contentType = { "contact_item" }
+                ) { contact ->
                     ContactRowItem(
                         contact = contact,
                         hasApp = false,
@@ -527,6 +536,15 @@ fun SelectContactScreen(
     }
 }
 
+private val CONTACT_AVATAR_PALETTE = listOf(
+    Color(0xFFEF4444),
+    Color(0xFFF59E0B),
+    Color(0xFF10B981),
+    Color(0xFF0160E3),
+    Color(0xFF8B5CF6),
+    Color(0xFFEC4899)
+)
+
 @Composable
 fun ContactRowItem(
     contact: DeviceContact,
@@ -542,15 +560,7 @@ fun ContactRowItem(
         verticalAlignment = Alignment.CenterVertically
     ) {
         val avatarColor = remember(contact.name) {
-            val palette = listOf(
-                Color(0xFFEF4444),
-                Color(0xFFF59E0B),
-                Color(0xFF10B981),
-                Color(0xFF0160E3),
-                Color(0xFF8B5CF6),
-                Color(0xFFEC4899)
-            )
-            palette[Math.abs(contact.name.hashCode()) % palette.size]
+            CONTACT_AVATAR_PALETTE[Math.abs(contact.name.hashCode()) % CONTACT_AVATAR_PALETTE.size]
         }
 
         Box(

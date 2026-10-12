@@ -3,9 +3,11 @@ package com.example.data
 import android.content.Context
 import android.content.SharedPreferences
 import android.provider.ContactsContract
+import androidx.compose.runtime.Immutable
 import org.json.JSONArray
 import org.json.JSONObject
 
+@Immutable
 data class DeviceContact(
     val id: String,
     val name: String,

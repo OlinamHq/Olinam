@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.ai.OjAiChatMessage
 import com.example.ai.OjAiService
 import com.example.crypto.EncryptionManager
+import com.example.data.DeviceContact
 import com.example.data.FirebaseChatRepository
 import com.example.data.SmsHelper
 import com.example.model.AppTab
@@ -70,6 +71,8 @@ class ChatViewModel @JvmOverloads constructor(
     val callLogs: StateFlow<List<CallLog>> = repository.callLogs
     val firebaseConnected: StateFlow<Boolean> = repository.firebaseConnected
 
+    val allConversations: StateFlow<List<Conversation>> = repository.conversations
+
     val conversations: StateFlow<List<Conversation>> = combine(
         repository.conversations,
         _searchQuery,
@@ -78,8 +81,8 @@ class ChatViewModel @JvmOverloads constructor(
     ) { allConv, query, labelId, labelsList ->
         allConv.filter { conv ->
             val matchesLabel = when (labelId) {
-                "direct" -> !conv.isGroup && (conv.labelIds.contains("direct") || !conv.id.startsWith("sms_thread_"))
-                "groups" -> conv.isGroup
+                "direct" -> conv.labelIds.contains("direct") || conv.isGroup || !conv.id.startsWith("sms_thread_")
+                "groups" -> conv.isGroup || conv.labelIds.contains("groups")
                 "sms" -> conv.isSmsContact || conv.labelIds.contains("sms") || conv.id.startsWith("sms_")
                 else -> {
                     val target = labelsList.find { it.id == labelId }
@@ -248,6 +251,16 @@ class ChatViewModel @JvmOverloads constructor(
     }
     fun createNewChat(name: String, isGroup: Boolean, initialMessage: String = ""): String {
         val convId = repository.createNewConversation(name, isGroup, initialMessage)
+        openConversation(convId)
+        return convId
+    }
+    fun createNewGroup(name: String, participants: List<DeviceContact>, initialMessage: String = ""): String {
+        val convId = repository.createNewGroup(
+            name = name,
+            participantNames = participants.map { it.name },
+            participantPhones = participants.map { it.phoneNumber },
+            initialMessage = initialMessage
+        )
         openConversation(convId)
         return convId
     }

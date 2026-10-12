@@ -136,6 +136,14 @@ fun CameraScreen(
         }
     }
 
+    DisposableEffect(Unit) {
+        onDispose {
+            try {
+                ProcessCameraProvider.getInstance(context).get().unbindAll()
+            } catch (_: Exception) {}
+        }
+    }
+
     // Camera settings state (Screenshot 6)
     var isFrontCamera by remember { mutableStateOf(false) }
     var flashMode by remember { mutableStateOf(0) } // 0: Off, 1: On, 2: Auto
@@ -604,6 +612,7 @@ fun CameraScreen(
             AndroidView(
                 factory = { ctx ->
                     val previewView = PreviewView(ctx).apply {
+                        implementationMode = PreviewView.ImplementationMode.COMPATIBLE
                         scaleType = PreviewView.ScaleType.FILL_CENTER
                     }
                     val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
@@ -647,6 +656,11 @@ fun CameraScreen(
                         }
                     }, ContextCompat.getMainExecutor(ctx))
                     previewView
+                },
+                onRelease = { view ->
+                    try {
+                        ProcessCameraProvider.getInstance(view.context).get().unbindAll()
+                    } catch (_: Exception) {}
                 },
                 modifier = Modifier.fillMaxSize()
             )

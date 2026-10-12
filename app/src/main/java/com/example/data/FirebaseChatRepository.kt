@@ -568,7 +568,7 @@ class FirebaseChatRepository {
     }
 
     fun createNewConversation(title: String, isGroup: Boolean, initialMessage: String = ""): String {
-        val newId = "conv_${UUID.randomUUID().toString().take(8)}"
+        val newId = if (isGroup) "group_${UUID.randomUUID().toString().take(8)}" else "conv_${UUID.randomUUID().toString().take(8)}"
         val conv = Conversation(
             id = newId,
             title = title,
@@ -576,7 +576,8 @@ class FirebaseChatRepository {
             lastMessageText = initialMessage.ifEmpty { if (isGroup) "Group created" else "New chat started" },
             lastMessageTimestamp = System.currentTimeMillis(),
             unreadCount = 0,
-            iconType = if (isGroup) "GROUP" else "USER"
+            iconType = if (isGroup) "GROUP" else "USER",
+            labelIds = if (isGroup) listOf("groups", "direct") else listOf("direct")
         )
 
         val updated = _conversations.value.toMutableList()
@@ -599,11 +600,99 @@ class FirebaseChatRepository {
                             "lastMessageText" to conv.lastMessageText,
                             "lastMessageTimestamp" to conv.lastMessageTimestamp,
                             "unreadCount" to 0,
-                            "iconType" to conv.iconType
+                            "iconType" to conv.iconType,
+                            "labelIds" to conv.labelIds
                         )
                     )
                 } catch (e: Exception) {
                     Log.w(tag, "Firestore create conversation note: ${e.message}")
+                }
+            }
+        }
+        return newId
+    }
+
+    fun createNewGroup(
+        name: String,
+        participantNames: List<String> = emptyList(),
+        participantPhones: List<String> = emptyList(),
+        initialMessage: String = ""
+    ): String {
+        val newId = "group_${UUID.randomUUID().toString().take(8)}"
+        val me = _currentUser.value
+        val allParticipantIds = (listOf(me.id.ifBlank { "user_me" }) + participantPhones).filter { it.isNotBlank() }
+        val msgText = initialMessage.ifEmpty { "You created group \"$name\"" }
+        val conv = Conversation(
+            id = newId,
+            title = name,
+            isGroup = true,
+            participantIds = allParticipantIds,
+            lastMessageText = msgText,
+            lastMessageTimestamp = System.currentTimeMillis(),
+            unreadCount = 0,
+            iconType = "GROUP",
+            labelIds = listOf("groups", "direct"),
+            isE2EE = true
+        )
+
+        val updated = _conversations.value.toMutableList()
+        updated.add(0, conv)
+        _conversations.value = updated
+        localDb?.saveConversation(conv)
+
+        val systemMsg = Message(
+            id = "msg_${UUID.randomUUID().toString().take(8)}",
+            conversationId = newId,
+            senderId = me.id.ifBlank { "user_me" },
+            senderName = me.name.ifBlank { "You" },
+            text = msgText,
+            timestamp = System.currentTimeMillis(),
+            isEncrypted = false,
+            status = MessageStatus.SENT
+        )
+        val currentMsgs = _messages.value.toMutableMap()
+        val list = (currentMsgs[newId] ?: emptyList()).toMutableList()
+        list.add(systemMsg)
+        currentMsgs[newId] = list
+        _messages.value = currentMsgs
+        localDb?.saveMessage(systemMsg)
+
+        val db = firestore
+        if (db != null) {
+            scope.launch {
+                try {
+                    db.collection("conversations").document(newId).set(
+                        mapOf(
+                            "title" to name,
+                            "isGroup" to true,
+                            "participantIds" to allParticipantIds,
+                            "participantNames" to (listOf(me.name.ifBlank { "You" }) + participantNames),
+                            "createdBy" to me.id,
+                            "createdAt" to System.currentTimeMillis(),
+                            "lastMessageText" to msgText,
+                            "lastMessageTimestamp" to conv.lastMessageTimestamp,
+                            "unreadCount" to 0,
+                            "iconType" to "GROUP",
+                            "labelIds" to listOf("groups", "direct")
+                        )
+                    )
+                    db.collection("conversations")
+                        .document(newId)
+                        .collection("messages")
+                        .document(systemMsg.id)
+                        .set(
+                            mapOf(
+                                "id" to systemMsg.id,
+                                "conversationId" to newId,
+                                "senderId" to systemMsg.senderId,
+                                "senderName" to systemMsg.senderName,
+                                "text" to systemMsg.text,
+                                "timestamp" to systemMsg.timestamp,
+                                "status" to "SENT"
+                            )
+                        )
+                } catch (e: Exception) {
+                    Log.w(tag, "Firestore create group note: ${e.message}")
                 }
             }
         }

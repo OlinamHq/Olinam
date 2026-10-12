@@ -100,12 +100,10 @@ fun OlinamTopBar(
     currentUserName: String = "",
     onCameraClick: () -> Unit,
     onMenuNewGroup: () -> Unit,
-    onMenuProfile: () -> Unit,
-    onMenuSecurity: () -> Unit,
-    onMenuSettings: () -> Unit,
-    onSyncSms: () -> Unit = {},
-    onOpenSms: () -> Unit = {},
-    onLogout: () -> Unit = {}
+    onMenuLists: () -> Unit,
+    onMenuLinkedDevices: () -> Unit,
+    onMenuStarred: () -> Unit,
+    onMenuSettings: () -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -173,61 +171,50 @@ fun OlinamTopBar(
                     onDismissRequest = { menuExpanded = false },
                     modifier = Modifier.background(MaterialTheme.colorScheme.surface)
                 ) {
+                    // 1. New group
                     DropdownMenuItem(
-                        text = { Text("Profile", fontWeight = FontWeight.Medium) },
-                        onClick = {
-                            menuExpanded = false
-                            onMenuProfile()
-                        },
-                        modifier = Modifier.testTag("menu_profile")
-                    )
-                    DropdownMenuItem(
-                        text = { Text("New group", fontWeight = FontWeight.Medium) },
+                        text = { Text("New group", fontWeight = FontWeight.Medium, fontSize = 15.sp) },
                         onClick = {
                             menuExpanded = false
                             onMenuNewGroup()
                         },
                         modifier = Modifier.testTag("menu_new_group")
                     )
+                    // 2. Lists
                     DropdownMenuItem(
-                        text = { Text("Sync Phone SMS", fontWeight = FontWeight.Medium) },
+                        text = { Text("Lists", fontWeight = FontWeight.Medium, fontSize = 15.sp) },
                         onClick = {
                             menuExpanded = false
-                            onSyncSms()
+                            onMenuLists()
                         },
-                        modifier = Modifier.testTag("menu_sync_sms")
+                        modifier = Modifier.testTag("menu_lists")
                     )
+                    // 3. Linked device
                     DropdownMenuItem(
-                        text = { Text("Text Messages (SMS)", fontWeight = FontWeight.Medium) },
+                        text = { Text("Linked device", fontWeight = FontWeight.Medium, fontSize = 15.sp) },
                         onClick = {
                             menuExpanded = false
-                            onOpenSms()
+                            onMenuLinkedDevices()
                         },
-                        modifier = Modifier.testTag("menu_sms_messages")
+                        modifier = Modifier.testTag("menu_linked_device")
                     )
+                    // 4. Starred messages (Started)
                     DropdownMenuItem(
-                        text = { Text("End-to-End Encryption", fontWeight = FontWeight.Medium) },
+                        text = { Text("Starred messages", fontWeight = FontWeight.Medium, fontSize = 15.sp) },
                         onClick = {
                             menuExpanded = false
-                            onMenuSecurity()
+                            onMenuStarred()
                         },
-                        modifier = Modifier.testTag("menu_security")
+                        modifier = Modifier.testTag("menu_started").testTag("menu_starred")
                     )
+                    // 5. Settings
                     DropdownMenuItem(
-                        text = { Text("Settings", fontWeight = FontWeight.Medium) },
+                        text = { Text("Settings", fontWeight = FontWeight.Medium, fontSize = 15.sp) },
                         onClick = {
                             menuExpanded = false
                             onMenuSettings()
                         },
-                        modifier = Modifier.testTag("menu_settings")
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Log out", color = Color(0xFFDC2626), fontWeight = FontWeight.Medium) },
-                        onClick = {
-                            menuExpanded = false
-                            onLogout()
-                        },
-                        modifier = Modifier.testTag("menu_logout")
+                        modifier = Modifier.testTag("menu_setting").testTag("menu_settings")
                     )
                 }
             }
@@ -511,19 +498,25 @@ fun InviteFriendsItem(
     }
 }
 
+private val AVATAR_PALETTE = listOf(
+    Color(0xFF0160E3), // Olinam Royal Blue
+    Color(0xFF0284C7), // Sky
+    Color(0xFF6366F1), // Indigo
+    Color(0xFF8B5CF6), // Purple
+    Color(0xFFEC4899), // Pink
+    Color(0xFFF59E0B)  // Amber
+)
+
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun ConversationListItem(
     conversation: Conversation,
+    isLocked: Boolean = false,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
     onAvatarClick: () -> Unit = onClick
 ) {
-    val itemContext = androidx.compose.ui.platform.LocalContext.current
-    val isItemLocked = remember(conversation.id) {
-        itemContext.getSharedPreferences("olinam_chat_prefs", android.content.Context.MODE_PRIVATE)
-            .getBoolean("locked_${conversation.id}", false)
-    }
+    val isItemLocked = isLocked
 
     Row(
         modifier = Modifier
@@ -547,15 +540,7 @@ fun ConversationListItem(
                 if (conversation.title.startsWith("A", ignoreCase = true) || conversation.title.equals("Ankit", ignoreCase = true)) {
                     Color(0xFFE91E63) // Vibrant pink/magenta matching screenshot
                 } else {
-                    val colors = listOf(
-                        Color(0xFF00A884), // WhatsApp Emerald
-                        Color(0xFF0284C7), // Sky
-                        Color(0xFF6366F1), // Indigo
-                        Color(0xFF8B5CF6), // Purple
-                        Color(0xFFEC4899), // Pink
-                        Color(0xFFF59E0B)  // Amber
-                    )
-                    colors[Math.abs(conversation.id.hashCode()) % colors.size]
+                    AVATAR_PALETTE[Math.abs(conversation.id.hashCode()) % AVATAR_PALETTE.size]
                 }
             }
 
@@ -628,7 +613,7 @@ fun ConversationListItem(
                         Icon(
                             imageVector = Icons.Default.CheckCircle,
                             contentDescription = "Verified",
-                            tint = Color(0xFF00A884),
+                            tint = Color(0xFF0160E3),
                             modifier = Modifier.size(15.dp)
                         )
                     }
@@ -638,7 +623,7 @@ fun ConversationListItem(
                         Icon(
                             imageVector = Icons.Default.Lock,
                             contentDescription = "Locked chat",
-                            tint = Color(0xFF00A884),
+                            tint = Color(0xFF0160E3),
                             modifier = Modifier.size(14.dp)
                         )
                     }
@@ -649,7 +634,7 @@ fun ConversationListItem(
                 Text(
                     text = formatMessageTime(conversation.lastMessageTimestamp),
                     fontSize = 12.sp,
-                    color = if (conversation.unreadCount > 0) Color(0xFF00A884) else Color(0xFF8696A0),
+                    color = if (conversation.unreadCount > 0) Color(0xFF0160E3) else Color(0xFF8696A0),
                     fontWeight = if (conversation.unreadCount > 0) FontWeight.SemiBold else FontWeight.Normal
                 )
             }
@@ -694,7 +679,7 @@ fun ConversationListItem(
                     Text(
                         text = if (isItemLocked) "🔒 Locked chat" else conversation.lastMessageText,
                         fontSize = 13.5.sp,
-                        color = if (isItemLocked) Color(0xFF00A884) else Color(0xFF64748B),
+                        color = if (isItemLocked) Color(0xFF0160E3) else Color(0xFF64748B),
                         fontStyle = if (isItemLocked) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -707,7 +692,7 @@ fun ConversationListItem(
                             .padding(start = 6.dp)
                             .size(20.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF25D366)),
+                            .background(Color(0xFF0160E3)),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -852,7 +837,7 @@ private fun androidx.compose.foundation.layout.RowScope.BottomNavItem(
             if (!badgeText.isNullOrBlank()) {
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFF25D366),
+                    color = Color(0xFF0160E3),
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .offset(x = 10.dp, y = (-4).dp)
@@ -879,16 +864,21 @@ private fun androidx.compose.foundation.layout.RowScope.BottomNavItem(
     }
 }
 
-private val cachedTimeFormat = SimpleDateFormat("h:mm a", Locale.US)
-private val cachedDateFormat = SimpleDateFormat("MMM d", Locale.US)
+private val timeFormat = ThreadLocal.withInitial { SimpleDateFormat("h:mm a", Locale.US) }
+private val dateFormat = ThreadLocal.withInitial { SimpleDateFormat("MMM d", Locale.US) }
+private val formattedTimeCache = java.util.concurrent.ConcurrentHashMap<Long, String>(256)
 
 fun formatMessageTime(timestamp: Long): String {
     if (timestamp <= 0L) return ""
-    val isToday = android.text.format.DateUtils.isToday(timestamp)
-    val date = Date(timestamp)
-    return if (isToday) {
-        synchronized(cachedTimeFormat) { cachedTimeFormat.format(date).lowercase(Locale.US) }
-    } else {
-        synchronized(cachedDateFormat) { cachedDateFormat.format(date) }
+    return formattedTimeCache.getOrPut(timestamp) {
+        val date = Date(timestamp)
+        val isToday = android.text.format.DateUtils.isToday(timestamp)
+        if (isToday) {
+            val fmt = timeFormat.get() ?: SimpleDateFormat("h:mm a", Locale.US)
+            fmt.format(date).lowercase(Locale.US)
+        } else {
+            val fmt = dateFormat.get() ?: SimpleDateFormat("MMM d", Locale.US)
+            fmt.format(date)
+        }
     }
 }

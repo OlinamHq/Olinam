@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -10,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,6 +25,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.example.data.SmsHelper
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddComment
@@ -82,6 +85,7 @@ import com.example.ui.components.ContactQuickViewDialog
 import com.example.ui.components.ConversationListItem
 import com.example.ui.components.CreateLabelBottomSheet
 import com.example.ui.components.LabelChipsRow
+import com.example.ui.components.ManageListsBottomSheet
 import com.example.ui.components.OlinamBottomNavBar
 import com.example.ui.components.OlinamSearchBar
 import com.example.ui.components.OlinamTopBar
@@ -96,6 +100,7 @@ fun HomeScreen(
     val isLoggedIn by viewModel.isLoggedIn.collectAsState()
     val currentTab by viewModel.currentTab.collectAsState()
     val conversations by viewModel.conversations.collectAsState()
+    val allConversations by viewModel.allConversations.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val labels by viewModel.labels.collectAsState()
     val selectedLabelId by viewModel.selectedLabelId.collectAsState()
@@ -127,16 +132,42 @@ fun HomeScreen(
     var unlockPinError by remember { mutableStateOf(false) }
     var pendingCapturedMedia by remember { mutableStateOf<Pair<String, String?>?>(null) }
     var showShareRecipientDialog by remember { mutableStateOf(false) }
+    var showLinkedDevicesScreen by remember { mutableStateOf(false) }
+    var showStarredMessagesScreen by remember { mutableStateOf(false) }
+    var showSettingsScreen by remember { mutableStateOf(false) }
+    var showManageListsSheet by remember { mutableStateOf(false) }
     val labelSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val manageListsSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val webrtcCallState by viewModel.webRtcCallState.collectAsState()
 
-    // SMS & Contacts Permission handling for auto-syncing real phone messages & spam filtering
+    // SMS & Contacts Permission handling for auto-syncing real phone messages & notifications
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { perms ->
-        val smsGranted = perms[Manifest.permission.READ_SMS] == true
+        val smsGranted = perms[Manifest.permission.READ_SMS] == true ||
+                perms[Manifest.permission.RECEIVE_SMS] == true
         if (smsGranted) {
+            viewModel.syncDeviceSms(context)
+        }
+    }
+
+    val smsPrefs = remember {
+        context.getSharedPreferences("olinam_sms_prefs", android.content.Context.MODE_PRIVATE)
+    }
+    var hasPromptedDefaultSms by remember {
+        mutableStateOf(smsPrefs.getBoolean("has_prompted_default_sms", false))
+    }
+    var showDefaultSmsDialog by remember { mutableStateOf(false) }
+    var isDefaultSmsApp by remember { mutableStateOf(SmsHelper.isDefaultSmsApp(context)) }
+    var isSmsBannerDismissed by remember { mutableStateOf(false) }
+
+    val defaultSmsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        val isDef = SmsHelper.isDefaultSmsApp(context)
+        isDefaultSmsApp = isDef
+        if (isDef) {
             viewModel.syncDeviceSms(context)
         }
     }
@@ -147,20 +178,31 @@ fun HomeScreen(
 
     LaunchedEffect(isLoggedIn) {
         if (isLoggedIn) {
-            val hasSmsPermission = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.READ_SMS
-            ) == PackageManager.PERMISSION_GRANTED
+            val permissionsToRequest = mutableListOf(
+                Manifest.permission.READ_SMS,
+                Manifest.permission.RECEIVE_SMS,
+                Manifest.permission.SEND_SMS,
+                Manifest.permission.READ_CONTACTS
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
 
-            if (hasSmsPermission) {
+            val hasAll = permissionsToRequest.all {
+                ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+            }
+
+            if (hasAll) {
                 viewModel.syncDeviceSms(context)
             } else {
-                permissionLauncher.launch(
-                    arrayOf(
-                        Manifest.permission.READ_SMS,
-                        Manifest.permission.READ_CONTACTS
-                    )
-                )
+                permissionLauncher.launch(permissionsToRequest.toTypedArray())
+            }
+
+            // Check if default SMS app on start; if not prompted yet, show prompt dialog
+            val isDef = SmsHelper.isDefaultSmsApp(context)
+            isDefaultSmsApp = isDef
+            if (!isDef && !hasPromptedDefaultSms) {
+                showDefaultSmsDialog = true
             }
         }
     }
@@ -196,138 +238,69 @@ fun HomeScreen(
         return
     }
 
-    // Contact/Status destination chooser when photo is captured from Camera
+    // Dedicated Fullscreen "Select contacts" Screen matching Screenshot 1
     if (showShareRecipientDialog && pendingCapturedMedia != null) {
         val (caption, mediaUri) = pendingCapturedMedia!!
-        AlertDialog(
-            onDismissRequest = {
+        val deviceContacts = remember { com.example.data.ContactHelper.getDeviceContacts(context) }
+        SelectShareContactsScreen(
+            caption = caption,
+            mediaUri = mediaUri,
+            conversations = conversations,
+            deviceContacts = deviceContacts,
+            onDismiss = {
                 showShareRecipientDialog = false
                 pendingCapturedMedia = null
             },
-            title = {
-                Text("Send photo to...", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            },
-            text = {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 350.dp)
-                ) {
-                    // Option 1: My Status
-                    item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    showShareRecipientDialog = false
-                                    viewModel.addStory(caption, mediaUri, isImage = true)
-                                    viewModel.setTab(AppTab.STORIES)
-                                    pendingCapturedMedia = null
-                                    android.widget.Toast.makeText(context, "Added to status", android.widget.Toast.LENGTH_SHORT).show()
-                                }
-                                .padding(vertical = 10.dp, horizontal = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF00A884)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.CameraAlt,
-                                    contentDescription = "Status",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Text("My status", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                                Text("Tap to post as status update", fontSize = 12.sp, color = Color.Gray)
-                            }
-                        }
-                        androidx.compose.material3.HorizontalDivider(
-                            modifier = Modifier.padding(vertical = 4.dp),
-                            color = Color(0xFFE2E8F0)
-                        )
-                    }
+            onSend = { sendToStatus, selectedConvs, selectedConts ->
+                showShareRecipientDialog = false
+                pendingCapturedMedia = null
 
-                    // Option 2..N: Existing chats / contacts
-                    items(conversations) { conv ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    showShareRecipientDialog = false
-                                    pendingCapturedMedia = null
-                                    viewModel.openConversation(conv.id, context)
-                                    if (!mediaUri.isNullOrBlank()) {
-                                        scope.launch {
-                                            viewModel.sendMediaAttachment(
-                                                context = context,
-                                                conversationId = conv.id,
-                                                uri = android.net.Uri.parse(mediaUri),
-                                                mediaType = com.example.model.MediaType.IMAGE,
-                                                caption = caption
-                                            )
-                                        }
-                                    } else {
-                                        viewModel.sendMessage(conv.id, caption)
-                                    }
-                                    android.widget.Toast.makeText(context, "Photo sent to ${conv.title}", android.widget.Toast.LENGTH_SHORT).show()
-                                }
-                                .padding(vertical = 8.dp, horizontal = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(42.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF00A884)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = conv.title.take(1).uppercase(),
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 18.sp
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = conv.title,
-                                    fontWeight = FontWeight.Medium,
-                                    fontSize = 15.sp,
-                                    maxLines = 1,
-                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = conv.lastMessageText.ifBlank { "Tap to send" },
-                                    fontSize = 12.sp,
-                                    color = Color.Gray,
-                                    maxLines = 1,
-                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                                )
-                            }
+                if (sendToStatus) {
+                    viewModel.addStory(caption, mediaUri, isImage = true)
+                    viewModel.setTab(AppTab.STORIES)
+                }
+
+                selectedConvs.forEach { conv ->
+                    if (!mediaUri.isNullOrBlank()) {
+                        scope.launch {
+                            viewModel.sendMediaAttachment(
+                                context = context,
+                                conversationId = conv.id,
+                                uri = android.net.Uri.parse(mediaUri),
+                                mediaType = com.example.model.MediaType.IMAGE,
+                                caption = caption
+                            )
                         }
+                    } else if (caption.isNotBlank()) {
+                        viewModel.sendMessage(conv.id, caption)
                     }
                 }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        showShareRecipientDialog = false
-                        pendingCapturedMedia = null
+
+                selectedConts.forEach { contact ->
+                    val convId = viewModel.getOrCreateConversationForContact(contact.name, contact.phoneNumber, isSms = false)
+                    if (!mediaUri.isNullOrBlank()) {
+                        scope.launch {
+                            viewModel.sendMediaAttachment(
+                                context = context,
+                                conversationId = convId,
+                                uri = android.net.Uri.parse(mediaUri),
+                                mediaType = com.example.model.MediaType.IMAGE,
+                                caption = caption
+                            )
+                        }
+                    } else if (caption.isNotBlank()) {
+                        viewModel.sendMessage(convId, caption)
                     }
-                ) {
-                    Text("Cancel")
                 }
+
+                if (selectedConvs.size == 1 && !sendToStatus) {
+                    viewModel.openConversation(selectedConvs.first().id, context)
+                }
+
+                android.widget.Toast.makeText(context, "Sending photo...", android.widget.Toast.LENGTH_SHORT).show()
             }
         )
+        return
     }
 
     // 3. Select Call Contact Screen (matching Screenshots 1 and 2)
@@ -365,6 +338,53 @@ fun HomeScreen(
         return
     }
 
+    // Dedicated Linked Devices Screen (Option 3 in 3-dot menu)
+    if (showLinkedDevicesScreen) {
+        LinkedDevicesScreen(
+            currentUser = currentUser,
+            onBackClick = { showLinkedDevicesScreen = false },
+            onLinkDeviceClick = {
+                showLinkedDevicesScreen = false
+                showQrScreen = true
+            }
+        )
+        return
+    }
+
+    // Dedicated Starred Messages Screen (Option 4 in 3-dot menu / Started)
+    if (showStarredMessagesScreen) {
+        StarredMessagesScreen(
+            viewModel = viewModel,
+            onBackClick = { showStarredMessagesScreen = false },
+            onOpenConversation = { convId ->
+                showStarredMessagesScreen = false
+                viewModel.openConversation(convId, context)
+            }
+        )
+        return
+    }
+
+    // Dedicated Full Settings Screen (Option 5 in 3-dot menu)
+    if (showSettingsScreen) {
+        SettingsScreen(
+            viewModel = viewModel,
+            onBackClick = { showSettingsScreen = false },
+            onEditProfileClick = {
+                showSettingsScreen = false
+                showEditProfileScreen = true
+            },
+            onQrClick = {
+                showSettingsScreen = false
+                showQrScreen = true
+            },
+            onSecurityClick = {
+                showSettingsScreen = false
+                showSecurityDialog = true
+            }
+        )
+        return
+    }
+
     // New Contact Screen (Screenshot 6)
     if (showNewContactScreen) {
         NewContactScreen(
@@ -385,17 +405,19 @@ fun HomeScreen(
     // New Group Screen (Screenshots 2 & 4)
     if (showNewGroupScreen) {
         NewGroupScreen(
+            registeredPhoneNumbers = registeredPhoneNumbers,
+            currentUser = currentUser,
             onBackClick = { showNewGroupScreen = false },
             onGroupCreated = { name, participants ->
                 showNewGroupScreen = false
-                viewModel.createNewChat(name, isGroup = true)
+                viewModel.createNewGroup(name, participants)
             }
         )
         return
     }
 
     // Dedicated Contact Profile Screen (opened from ChatDetailScreen or from DP Quick View Popup)
-    val selectedConv = conversations.find { it.id == activeConversationId }
+    val selectedConv = allConversations.find { it.id == activeConversationId }
     val profileToDisplay = viewingProfileConv ?: if (showContactProfileScreen) selectedConv else null
     if (profileToDisplay != null) {
         ContactProfileScreen(
@@ -524,12 +546,10 @@ fun HomeScreen(
                         currentUserName = currentUser.name,
                         onCameraClick = { showCameraScreen = true },
                         onMenuNewGroup = { showNewGroupScreen = true },
-                        onMenuProfile = { showEditProfileScreen = true },
-                        onMenuSecurity = { showSecurityDialog = true },
-                        onMenuSettings = { showEditProfileScreen = true },
-                        onSyncSms = { viewModel.syncDeviceSms(context) },
-                        onOpenSms = { viewModel.selectLabel("sms") },
-                        onLogout = { viewModel.logout(context) }
+                        onMenuLists = { showManageListsSheet = true },
+                        onMenuLinkedDevices = { showLinkedDevicesScreen = true },
+                        onMenuStarred = { showStarredMessagesScreen = true },
+                        onMenuSettings = { showSettingsScreen = true }
                     )
                     OlinamSearchBar(
                         query = searchQuery,
@@ -597,12 +617,37 @@ fun HomeScreen(
         ) {
             when (currentTab) {
                 AppTab.CHATS -> {
+                    val chatPrefs = remember {
+                        context.getSharedPreferences("olinam_chat_prefs", android.content.Context.MODE_PRIVATE)
+                    }
+                    val lockedChatIds = remember(conversations) {
+                        conversations.filter { conv ->
+                            chatPrefs.getBoolean("locked_${conv.id}", false)
+                        }.map { it.id }.toSet()
+                    }
+                    val distinctConversations = remember(conversations) {
+                        conversations.distinctBy { it.id }
+                    }
+
                     ChatsTabContent(
-                        conversations = conversations,
+                        conversations = distinctConversations,
                         selectedLabelId = selectedLabelId,
+                        isDefaultSmsApp = isDefaultSmsApp,
+                        isSmsBannerDismissed = isSmsBannerDismissed,
+                        lockedChatIds = lockedChatIds,
+                        onSetDefaultSmsClick = {
+                            val intent = SmsHelper.createDefaultSmsIntent(context)
+                            if (intent != null) {
+                                try {
+                                    defaultSmsLauncher.launch(intent)
+                                } catch (_: Exception) {
+                                    try { context.startActivity(intent) } catch (_: Exception) {}
+                                }
+                            }
+                        },
+                        onDismissSmsBanner = { isSmsBannerDismissed = true },
                         onConversationClick = { conv ->
-                            val chatPrefs = context.getSharedPreferences("olinam_chat_prefs", android.content.Context.MODE_PRIVATE)
-                            if (chatPrefs.getBoolean("locked_${conv.id}", false)) {
+                            if (lockedChatIds.contains(conv.id)) {
                                 lockedConvPrompt = conv
                                 unlockPinInput = ""
                                 unlockPinError = false
@@ -648,6 +693,24 @@ fun HomeScreen(
         )
     }
 
+    // Manage Lists Bottom Sheet (Option 2 in 3-dot menu)
+    if (showManageListsSheet) {
+        ManageListsBottomSheet(
+            sheetState = manageListsSheetState,
+            labels = labels,
+            selectedLabelId = selectedLabelId,
+            onDismissRequest = { showManageListsSheet = false },
+            onSelectList = { labelId ->
+                showManageListsSheet = false
+                viewModel.selectLabel(labelId)
+            },
+            onCreateNewList = {
+                showManageListsSheet = false
+                showCreateLabelSheet = true
+            }
+        )
+    }
+
     // New Chat / Group Creation Dialog
     if (showNewChatDialog) {
         NewChatModal(
@@ -675,6 +738,92 @@ fun HomeScreen(
         )
     }
 
+    // Default SMS App Setup Dialog (Shown on first launch or when triggered)
+    if (showDefaultSmsDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showDefaultSmsDialog = false
+                smsPrefs.edit().putBoolean("has_prompted_default_sms", true).apply()
+                hasPromptedDefaultSms = true
+            },
+            icon = {
+                Surface(
+                    shape = CircleShape,
+                    color = Color(0xFFEFF6FF),
+                    modifier = Modifier.size(56.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Chat,
+                            contentDescription = null,
+                            tint = Color(0xFF0160E3),
+                            modifier = Modifier.size(30.dp)
+                        )
+                    }
+                }
+            },
+            title = {
+                Text(
+                    text = "Default SMS App",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = Color(0xFF0F172A),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            },
+            text = {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Set Olinam as your default SMS messaging app to receive instant text alerts, OTP notifications, and seamlessly manage conversations in one place.",
+                        fontSize = 13.5.sp,
+                        color = Color(0xFF475569),
+                        lineHeight = 19.sp,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDefaultSmsDialog = false
+                        smsPrefs.edit().putBoolean("has_prompted_default_sms", true).apply()
+                        hasPromptedDefaultSms = true
+                        val intent = SmsHelper.createDefaultSmsIntent(context)
+                        if (intent != null) {
+                            try {
+                                defaultSmsLauncher.launch(intent)
+                            } catch (_: Exception) {
+                                try { context.startActivity(intent) } catch (_: Exception) {}
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3)),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Set as Default", fontWeight = FontWeight.Bold, color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showDefaultSmsDialog = false
+                        smsPrefs.edit().putBoolean("has_prompted_default_sms", true).apply()
+                        hasPromptedDefaultSms = true
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Not Now", color = Color(0xFF64748B), fontWeight = FontWeight.SemiBold)
+                }
+            },
+            containerColor = Color.White,
+            shape = RoundedCornerShape(20.dp)
+        )
+    }
+
     // Real Chat Lock Unlock Prompt Dialog
     if (lockedConvPrompt != null) {
         val targetConv = lockedConvPrompt!!
@@ -685,7 +834,7 @@ fun HomeScreen(
                     Icon(
                         imageVector = Icons.Default.Lock,
                         contentDescription = null,
-                        tint = Color(0xFF00A884),
+                        tint = Color(0xFF0160E3),
                         modifier = Modifier.size(24.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -731,7 +880,7 @@ fun HomeScreen(
                             unlockPinError = true
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A884))
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3))
                 ) {
                     Text("Unlock")
                 }
@@ -786,6 +935,11 @@ fun HomeScreen(
 fun ChatsTabContent(
     conversations: List<Conversation>,
     selectedLabelId: String = "direct",
+    isDefaultSmsApp: Boolean = true,
+    isSmsBannerDismissed: Boolean = false,
+    lockedChatIds: Set<String> = emptySet(),
+    onSetDefaultSmsClick: () -> Unit = {},
+    onDismissSmsBanner: () -> Unit = {},
     onConversationClick: (Conversation) -> Unit,
     onAvatarClick: (Conversation) -> Unit = {},
     onDeleteConversation: (Conversation) -> Unit = {},
@@ -797,13 +951,81 @@ fun ChatsTabContent(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(32.dp),
+                .padding(24.dp),
             contentAlignment = Alignment.Center
         ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
+                if (!isDefaultSmsApp && !isSmsBannerDismissed) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 20.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color(0xFFEFF6FF),
+                        tonalElevation = 1.dp
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFF0160E3),
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Chat,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Set as Default SMS App",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = Color(0xFF1E3A8A)
+                                )
+                                Text(
+                                    text = "Receive notifications & manage SMS",
+                                    fontSize = 11.5.sp,
+                                    color = Color(0xFF3B82F6)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Button(
+                                onClick = onSetDefaultSmsClick,
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3)),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Text("Set Default", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            IconButton(
+                                onClick = onDismissSmsBanner,
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Dismiss",
+                                    tint = Color(0xFF64748B),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
                 Surface(
                     shape = CircleShape,
                     color = when (selectedLabelId) {
@@ -821,11 +1043,7 @@ fun ChatsTabContent(
                                 else -> Icons.Default.Chat
                             },
                             contentDescription = null,
-                            tint = when (selectedLabelId) {
-                                "sms" -> Color(0xFF00A884)
-                                "groups" -> Color(0xFF00A884)
-                                else -> Color(0xFF0160E3)
-                            },
+                            tint = Color(0xFF0160E3),
                             modifier = Modifier.size(36.dp)
                         )
                     }
@@ -864,7 +1082,7 @@ fun ChatsTabContent(
                     Spacer(modifier = Modifier.height(18.dp))
                     Button(
                         onClick = onNewGroupClick,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A884)),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3)),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.testTag("empty_state_new_group_button")
                     ) {
@@ -890,10 +1108,81 @@ fun ChatsTabContent(
         }
     } else {
         LazyColumn(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 84.dp)
         ) {
+            if (!isDefaultSmsApp && !isSmsBannerDismissed) {
+                item(key = "default_sms_banner", contentType = "banner") {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFEFF6FF),
+                        tonalElevation = 1.dp
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFF0160E3),
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Chat,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Set as Default SMS App",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = Color(0xFF1E3A8A)
+                                )
+                                Text(
+                                    text = "Get real-time text message alerts & notifications",
+                                    fontSize = 11.5.sp,
+                                    color = Color(0xFF3B82F6),
+                                    lineHeight = 15.sp
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Button(
+                                onClick = onSetDefaultSmsClick,
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3)),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Text("Set Default", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            IconButton(
+                                onClick = onDismissSmsBanner,
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Dismiss",
+                                    tint = Color(0xFF64748B),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
             if (selectedLabelId == "groups") {
-                item {
+                item(key = "action_new_group", contentType = "action") {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -906,7 +1195,7 @@ fun ChatsTabContent(
                             modifier = Modifier
                                 .size(46.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFF00A884)),
+                                .background(Color(0xFF0160E3)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -933,9 +1222,14 @@ fun ChatsTabContent(
                     }
                 }
             }
-            items(conversations, key = { it.id }) { conv ->
+            items(
+                items = conversations,
+                key = { it.id },
+                contentType = { "conversation_item" }
+            ) { conv ->
                 ConversationListItem(
                     conversation = conv,
+                    isLocked = lockedChatIds.contains(conv.id),
                     onClick = { onConversationClick(conv) },
                     onLongClick = { convToDelete = conv },
                     onAvatarClick = { onAvatarClick(conv) }

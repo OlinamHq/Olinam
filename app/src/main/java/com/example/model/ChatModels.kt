@@ -1,5 +1,7 @@
 package com.example.model
 
+import androidx.compose.runtime.Immutable
+
 enum class MessageStatus {
     SENDING,
     SENT,
@@ -23,6 +25,7 @@ data class EncryptedPayload(
     val algorithm: String = "AES-256-GCM"
 )
 
+@Immutable
 data class Message(
     val id: String = "",
     val conversationId: String = "",
@@ -38,6 +41,7 @@ data class Message(
     val mediaType: MediaType = MediaType.TEXT
 )
 
+@Immutable
 data class ChatLabel(
     val id: String = "",
     val name: String = "",
@@ -45,6 +49,7 @@ data class ChatLabel(
     val chatIds: List<String> = emptyList()
 )
 
+@Immutable
 data class Conversation(
     val id: String = "",
     val title: String = "",

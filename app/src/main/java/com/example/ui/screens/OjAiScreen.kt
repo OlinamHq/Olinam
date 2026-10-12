@@ -198,7 +198,7 @@ fun OjAiScreen(viewModel: ChatViewModel) {
                         },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF00A884)
+                            checkedTrackColor = Color(0xFF0160E3)
                         ),
                         modifier = Modifier.testTag("ai_master_switch")
                     )
@@ -227,7 +227,7 @@ fun OjAiScreen(viewModel: ChatViewModel) {
                                 text = if (settings.isAgentMasterEnabled) "Agent Status: Active on Your Behalf" else "Agent Status: Paused",
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (settings.isAgentMasterEnabled) Color(0xFF00A884) else Color(0xFF64748B)
+                                color = if (settings.isAgentMasterEnabled) Color(0xFF0160E3) else Color(0xFF64748B)
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
@@ -524,7 +524,7 @@ fun OjAiScreen(viewModel: ChatViewModel) {
                                 isSimulating = false
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A884)),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3)),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -556,7 +556,7 @@ fun OjAiScreen(viewModel: ChatViewModel) {
                                     Icon(
                                         imageVector = Icons.Default.CheckCircle,
                                         contentDescription = null,
-                                        tint = Color(0xFF00A884),
+                                        tint = Color(0xFF0160E3),
                                         modifier = Modifier.size(16.dp)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
@@ -744,7 +744,7 @@ private fun PluginItemCard(
                             modifier = Modifier
                                 .size(6.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFF00A884))
+                                .background(Color(0xFF0160E3))
                         )
                     }
                 }
@@ -763,7 +763,7 @@ private fun PluginItemCard(
                 onCheckedChange = onToggle,
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = Color.White,
-                    checkedTrackColor = Color(0xFF00A884)
+                    checkedTrackColor = Color(0xFF0160E3)
                 )
             )
         }
@@ -830,7 +830,7 @@ private fun DelegatedContactCard(
                         onCheckedChange = onToggleAutoReply,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF00A884)
+                            checkedTrackColor = Color(0xFF0160E3)
                         )
                     )
                     IconButton(onClick = onEdit) {

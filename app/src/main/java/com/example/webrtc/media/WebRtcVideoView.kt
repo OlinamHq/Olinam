@@ -39,6 +39,8 @@ fun WebRtcVideoView(
     DisposableEffect(Unit) {
         onDispose {
             try {
+                videoTrack?.removeSink(renderer)
+                renderer.clearImage()
                 renderer.release()
             } catch (_: Exception) {}
         }
@@ -49,6 +51,13 @@ fun WebRtcVideoView(
         update = { view ->
             view.setMirror(isMirror)
             view.setScalingType(scalingType)
+        },
+        onRelease = { view ->
+            try {
+                videoTrack?.removeSink(view)
+                view.clearImage()
+                view.release()
+            } catch (_: Exception) {}
         },
         modifier = modifier
     )

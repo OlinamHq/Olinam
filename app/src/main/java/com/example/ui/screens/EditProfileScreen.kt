@@ -5,10 +5,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,11 +14,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,22 +29,22 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Divider
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -71,20 +71,79 @@ fun EditProfileScreen(
     viewModel: ChatViewModel,
     onBackClick: () -> Unit
 ) {
-    BackHandler { onBackClick() }
-
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val currentUser by viewModel.currentUser.collectAsState()
 
     var isUploadingPhoto by remember { mutableStateOf(false) }
-    var showEditNameDialog by remember { mutableStateOf(false) }
-    var showEditBioDialog by remember { mutableStateOf(false) }
-    var showEditPhoneDialog by remember { mutableStateOf(false) }
 
-    var tempName by remember(currentUser.name) { mutableStateOf(currentUser.name) }
-    var tempBio by remember(currentUser.statusMessage) { mutableStateOf(currentUser.statusMessage) }
-    var tempPhone by remember(currentUser.phoneNumber) { mutableStateOf(currentUser.phoneNumber) }
+    // Navigation state to open dedicated edit full screens matching user design
+    var editingField by remember { mutableStateOf<String?>(null) } // "name", "bio", "phone"
+
+    // When editing a specific field, show the dedicated fullscreen view matching Screenshot 3
+    if (editingField != null) {
+        when (editingField) {
+            "name" -> {
+                EditFieldFullScreen(
+                    title = "Edit name",
+                    label = "Name",
+                    initialValue = currentUser.name,
+                    maxLength = 75,
+                    onBackClick = { editingField = null },
+                    onSave = { newName ->
+                        viewModel.updateProfile(
+                            name = newName,
+                            status = currentUser.statusMessage,
+                            phone = currentUser.phoneNumber
+                        )
+                        editingField = null
+                        Toast.makeText(context, "Name updated", Toast.LENGTH_SHORT).show()
+                    }
+                )
+                return
+            }
+            "bio" -> {
+                EditFieldFullScreen(
+                    title = "Edit bio",
+                    label = "Bio",
+                    initialValue = currentUser.statusMessage,
+                    maxLength = 139,
+                    onBackClick = { editingField = null },
+                    onSave = { newBio ->
+                        viewModel.updateProfile(
+                            name = currentUser.name,
+                            status = newBio,
+                            phone = currentUser.phoneNumber
+                        )
+                        editingField = null
+                        Toast.makeText(context, "Bio updated", Toast.LENGTH_SHORT).show()
+                    }
+                )
+                return
+            }
+            "phone" -> {
+                EditFieldFullScreen(
+                    title = "Edit phone",
+                    label = "Phone number",
+                    initialValue = currentUser.phoneNumber,
+                    maxLength = 15,
+                    onBackClick = { editingField = null },
+                    onSave = { newPhone ->
+                        viewModel.updateProfile(
+                            name = currentUser.name,
+                            status = currentUser.statusMessage,
+                            phone = newPhone
+                        )
+                        editingField = null
+                        Toast.makeText(context, "Phone number updated", Toast.LENGTH_SHORT).show()
+                    }
+                )
+                return
+            }
+        }
+    }
+
+    BackHandler { onBackClick() }
 
     // Photo Picker for Profile DP
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -102,7 +161,7 @@ fun EditProfileScreen(
                         phone = currentUser.phoneNumber,
                         avatarUrl = publicUrl
                     )
-                    Toast.makeText(context, "Profile photo updated via Cloudflare R2", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Profile photo updated", Toast.LENGTH_SHORT).show()
                 }.onFailure { err ->
                     Toast.makeText(context, "Failed to upload photo: ${err.message}", Toast.LENGTH_LONG).show()
                 }
@@ -160,7 +219,7 @@ fun EditProfileScreen(
         ) {
             Spacer(modifier = Modifier.height(28.dp))
 
-            // Large Circular Avatar (Exact match with screenshot)
+            // Large Circular Avatar (Matching screenshot)
             Box(
                 modifier = Modifier
                     .size(130.dp)
@@ -210,9 +269,9 @@ fun EditProfileScreen(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // "Set profile photo" clickable text button (Blue color, exact screenshot match)
+            // "Set profile photo" clickable text button (Clean, no marketing)
             Text(
-                text = if (isUploadingPhoto) "Uploading to Cloudflare R2..." else "Set profile photo",
+                text = if (isUploadingPhoto) "Uploading photo..." else "Set profile photo",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Color(0xFF1D4ED8),
@@ -241,10 +300,7 @@ fun EditProfileScreen(
                 label = "Name",
                 value = currentUser.name.ifBlank { "Add your name" },
                 showChevron = true,
-                onClick = {
-                    tempName = currentUser.name
-                    showEditNameDialog = true
-                },
+                onClick = { editingField = "name" },
                 tag = "profile_field_name"
             )
 
@@ -263,10 +319,7 @@ fun EditProfileScreen(
                 label = "Bio",
                 value = currentUser.statusMessage.ifBlank { "Hello! I'm using Olinam" },
                 showChevron = true,
-                onClick = {
-                    tempBio = currentUser.statusMessage
-                    showEditBioDialog = true
-                },
+                onClick = { editingField = "bio" },
                 tag = "profile_field_bio"
             )
 
@@ -285,177 +338,159 @@ fun EditProfileScreen(
                 label = "Mobile",
                 value = currentUser.phoneNumber.ifBlank { "Not configured" },
                 showChevron = true,
-                onClick = {
-                    tempPhone = currentUser.phoneNumber
-                    showEditPhoneDialog = true
-                },
+                onClick = { editingField = "phone" },
                 tag = "profile_field_mobile"
             )
 
             Spacer(modifier = Modifier.height(40.dp))
-
-            // Cloudflare R2 & Storage Information Badge
-            Surface(
-                color = Color(0xFFF1F5F9),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CloudUpload,
-                        contentDescription = null,
-                        tint = Color(0xFF0F766E),
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Text(
-                            text = "Cloudflare R2 Media Storage",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF0F766E)
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Profile pictures and media are hosted securely with fast edge delivery.",
-                            fontSize = 11.5.sp,
-                            color = Color(0xFF475569)
-                        )
-                    }
-                }
-            }
         }
     }
+}
 
-    // --- DIALOG: Edit Name ---
-    if (showEditNameDialog) {
-        AlertDialog(
-            onDismissRequest = { showEditNameDialog = false },
-            title = { Text("Enter your name", fontWeight = FontWeight.Bold) },
-            text = {
-                OutlinedTextField(
-                    value = tempName,
-                    onValueChange = { tempName = it },
-                    label = { Text("Name") },
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("edit_name_input")
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.updateProfile(
-                            name = tempName.trim(),
-                            status = currentUser.statusMessage,
-                            phone = currentUser.phoneNumber
-                        )
-                        showEditNameDialog = false
-                        Toast.makeText(context, "Name updated", Toast.LENGTH_SHORT).show()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3))
-                ) {
-                    Text("Save")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showEditNameDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
+/**
+ * Dedicated Full Screen field editor matching the user's provided design (Screenshot 3).
+ * Contains:
+ * - TopAppBar with back arrow and title (e.g. "Edit name")
+ * - Rounded OutlinedTextField with floating label, clear (X) icon
+ * - Character counter below (e.g. "5/75")
+ * - Full-width pill-shaped "SAVE" button at the bottom that moves cleanly above keyboard.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EditFieldFullScreen(
+    title: String,
+    label: String,
+    initialValue: String,
+    maxLength: Int = 75,
+    onBackClick: () -> Unit,
+    onSave: (String) -> Unit
+) {
+    BackHandler { onBackClick() }
+    var textValue by remember { mutableStateOf(initialValue) }
 
-    // --- DIALOG: Edit Bio ---
-    if (showEditBioDialog) {
-        AlertDialog(
-            onDismissRequest = { showEditBioDialog = false },
-            title = { Text("Edit bio", fontWeight = FontWeight.Bold) },
-            text = {
-                OutlinedTextField(
-                    value = tempBio,
-                    onValueChange = { tempBio = it },
-                    label = { Text("Bio / Status") },
-                    singleLine = false,
-                    maxLines = 3,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("edit_bio_input")
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.updateProfile(
-                            name = currentUser.name,
-                            status = tempBio.trim(),
-                            phone = currentUser.phoneNumber
-                        )
-                        showEditBioDialog = false
-                        Toast.makeText(context, "Bio updated", Toast.LENGTH_SHORT).show()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3))
-                ) {
-                    Text("Save")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showEditBioDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
-
-    // --- DIALOG: Edit Mobile Number ---
-    if (showEditPhoneDialog) {
-        AlertDialog(
-            onDismissRequest = { showEditPhoneDialog = false },
-            title = { Text("Mobile Number", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Scaffold(
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding()
+            .testTag("edit_field_fullscreen_${label.lowercase()}"),
+        containerColor = Color.White,
+        topBar = {
+            TopAppBar(
+                title = {
                     Text(
-                        text = "Update your verified phone number (+91...)",
-                        fontSize = 12.5.sp,
-                        color = Color(0xFF6B7280)
+                        text = title,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF111827)
                     )
-                    OutlinedTextField(
-                        value = tempPhone,
-                        onValueChange = { tempPhone = it },
-                        label = { Text("Phone number") },
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("edit_phone_input")
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.updateProfile(
-                            name = currentUser.name,
-                            status = currentUser.statusMessage,
-                            phone = tempPhone.trim()
+                },
+                navigationIcon = {
+                    IconButton(
+                        onClick = onBackClick,
+                        modifier = Modifier.testTag("edit_field_back_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color(0xFF111827)
                         )
-                        showEditPhoneDialog = false
-                        Toast.makeText(context, "Phone number updated", Toast.LENGTH_SHORT).show()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3))
-                ) {
-                    Text("Save")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showEditPhoneDialog = false }) {
-                    Text("Cancel")
-                }
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 16.dp)
+        ) {
+            OutlinedTextField(
+                value = textValue,
+                onValueChange = {
+                    if (it.length <= maxLength) {
+                        textValue = it
+                    }
+                },
+                label = { Text(label) },
+                singleLine = maxLength <= 75,
+                maxLines = if (maxLength <= 75) 1 else 4,
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color(0xFF0160E3),
+                    unfocusedBorderColor = Color(0xFF0160E3),
+                    focusedLabelColor = Color(0xFF0160E3),
+                    cursorColor = Color(0xFF0160E3),
+                    focusedTextColor = Color(0xFF111827),
+                    unfocusedTextColor = Color(0xFF111827)
+                ),
+                trailingIcon = {
+                    if (textValue.isNotEmpty()) {
+                        IconButton(
+                            onClick = { textValue = "" },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Cancel,
+                                contentDescription = "Clear",
+                                tint = Color(0xFF6B7280),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("edit_field_input")
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Character counter matching Screenshot 3 (e.g. 5/75)
+            Text(
+                text = "${textValue.length}/$maxLength",
+                fontSize = 12.5.sp,
+                color = Color(0xFF6B7280),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .wrapContentWidth(Alignment.End)
+                    .padding(end = 4.dp)
+                    .testTag("char_counter")
+            )
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            val isSaveEnabled = textValue.isNotBlank()
+            Button(
+                onClick = {
+                    if (isSaveEnabled) {
+                        onSave(textValue.trim())
+                    }
+                },
+                enabled = isSaveEnabled,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF0160E3),
+                    contentColor = Color.White,
+                    disabledContainerColor = Color(0xFFE5E7EB),
+                    disabledContentColor = Color(0xFF9CA3AF)
+                ),
+                shape = RoundedCornerShape(24.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .padding(bottom = 8.dp)
+                    .testTag("save_button")
+            ) {
+                Text(
+                    text = "SAVE",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    letterSpacing = 0.5.sp
+                )
             }
-        )
+        }
     }
 }
 

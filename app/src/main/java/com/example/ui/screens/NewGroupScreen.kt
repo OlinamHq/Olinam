@@ -1,7 +1,9 @@
 package com.example.ui.screens
 
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,12 +29,18 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -58,17 +66,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.ContactHelper
 import com.example.data.DeviceContact
+import com.example.model.UserProfile
 
-private val WhatsAppGreen = Color(0xFF00A884)
+private val OlinamBlue = Color(0xFF0160E3)
+private val OlinamBlueLight = Color(0xFFE2EDFC)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NewGroupScreen(
+    registeredPhoneNumbers: Set<String> = emptySet(),
+    currentUser: UserProfile? = null,
     onBackClick: () -> Unit,
     onGroupCreated: (groupName: String, participants: List<DeviceContact>) -> Unit
 ) {
     val context = LocalContext.current
-    val allContacts = remember { ContactHelper.getDeviceContacts(context) }
+    val rawContacts = remember { ContactHelper.getDeviceContacts(context) }
     val selectedContacts = remember { mutableStateListOf<DeviceContact>() }
 
     var isStep2GroupDetails by remember { mutableStateOf(false) }
@@ -76,19 +88,66 @@ fun NewGroupScreen(
     var searchQuery by remember { mutableStateOf("") }
     var isSearching by remember { mutableStateOf(false) }
 
+    fun isContactOnOlinam(contact: DeviceContact): Boolean {
+        if (contact.hasOlinam) return true
+        val clean = contact.phoneNumber.trim()
+        val digits = clean.filter { it.isDigit() }
+        val last10 = digits.takeLast(10)
+        return registeredPhoneNumbers.contains(clean) ||
+                registeredPhoneNumbers.contains(digits) ||
+                (last10.length >= 7 && registeredPhoneNumbers.contains(last10))
+    }
+
+    fun sendInvite(contact: DeviceContact) {
+        try {
+            val sendIntent = Intent(Intent.ACTION_SENDTO).apply {
+                data = Uri.parse("smsto:${contact.phoneNumber}")
+                putExtra("sms_body", "Let's chat on Olinam! It's a fast, simple, and secure messaging app. Download: https://olinamhq.github.io")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(sendIntent)
+            Toast.makeText(context, "Inviting ${contact.name} via SMS...", Toast.LENGTH_SHORT).show()
+        } catch (_: Exception) {
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, "Let's chat on Olinam! It's a fast, simple, and secure messaging app. Download: https://olinamhq.github.io")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(Intent.createChooser(shareIntent, "Invite ${contact.name} to Olinam"))
+        }
+    }
+
+    val evaluatedContacts = remember(rawContacts, registeredPhoneNumbers) {
+        rawContacts.map { contact ->
+            val hasApp = isContactOnOlinam(contact)
+            contact.copy(
+                hasOlinam = hasApp,
+                status = if (hasApp) "Available on Olinam 🔒" else "Invite to Olinam"
+            )
+        }
+    }
+
+    val filteredContacts = remember(evaluatedContacts, searchQuery) {
+        if (searchQuery.isBlank()) evaluatedContacts
+        else evaluatedContacts.filter {
+            it.name.contains(searchQuery, ignoreCase = true) ||
+                    it.phoneNumber.contains(searchQuery)
+        }
+    }
+
+    val appContacts = remember(filteredContacts) {
+        filteredContacts.filter { it.hasOlinam }
+    }
+
+    val nonAppContacts = remember(filteredContacts) {
+        filteredContacts.filter { !it.hasOlinam }
+    }
+
     BackHandler {
         if (isStep2GroupDetails) {
             isStep2GroupDetails = false
         } else {
             onBackClick()
-        }
-    }
-
-    val filteredContacts = remember(allContacts, searchQuery) {
-        if (searchQuery.isBlank()) allContacts
-        else allContacts.filter {
-            it.name.contains(searchQuery, ignoreCase = true) ||
-                    it.phoneNumber.contains(searchQuery)
         }
     }
 
@@ -107,7 +166,7 @@ fun NewGroupScreen(
                                 color = Color(0xFF111827)
                             )
                             Text(
-                                text = "${selectedContacts.size} participants selected",
+                                text = if (selectedContacts.isEmpty()) "Creating group" else "${selectedContacts.size} participants selected",
                                 fontSize = 12.5.sp,
                                 color = Color(0xFF6B7280)
                             )
@@ -122,14 +181,15 @@ fun NewGroupScreen(
                 )
             },
             floatingActionButton = {
-                // WhatsApp-style Green Checkmark FAB
                 if (groupName.isNotBlank()) {
                     FloatingActionButton(
                         onClick = {
-                            onGroupCreated(groupName.trim(), selectedContacts.toList())
+                            val trimmed = groupName.trim()
+                            Toast.makeText(context, "Group \"$trimmed\" created!", Toast.LENGTH_SHORT).show()
+                            onGroupCreated(trimmed, selectedContacts.toList())
                         },
                         shape = CircleShape,
-                        containerColor = WhatsAppGreen,
+                        containerColor = OlinamBlue,
                         contentColor = Color.White,
                         elevation = FloatingActionButtonDefaults.elevation(4.dp),
                         modifier = Modifier
@@ -160,13 +220,13 @@ fun NewGroupScreen(
                         modifier = Modifier
                             .size(54.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFFE2E8F0)),
+                            .background(OlinamBlue.copy(alpha = 0.12f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.CameraAlt,
                             contentDescription = "Group icon",
-                            tint = Color(0xFF64748B),
+                            tint = OlinamBlue,
                             modifier = Modifier.size(26.dp)
                         )
                     }
@@ -191,9 +251,9 @@ fun NewGroupScreen(
                             .fillMaxWidth()
                             .testTag("group_name_input"),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = WhatsAppGreen,
-                            focusedLabelColor = WhatsAppGreen,
-                            cursorColor = WhatsAppGreen
+                            focusedBorderColor = OlinamBlue,
+                            focusedLabelColor = OlinamBlue,
+                            cursorColor = OlinamBlue
                         )
                     )
                 }
@@ -210,7 +270,7 @@ fun NewGroupScreen(
 
                 // Participants section header
                 Text(
-                    text = "Participants: ${selectedContacts.size}",
+                    text = "Participants: ${if (selectedContacts.isEmpty()) "You (Admin)" else "${selectedContacts.size} contact(s) + You"}",
                     fontSize = 13.5.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF334155)
@@ -232,12 +292,12 @@ fun NewGroupScreen(
                                 modifier = Modifier
                                     .size(46.dp)
                                     .clip(CircleShape)
-                                    .background(WhatsAppGreen.copy(alpha = 0.15f)),
+                                    .background(OlinamBlueLight),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = contact.name.take(1).uppercase(),
-                                    color = WhatsAppGreen,
+                                    color = OlinamBlue,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 18.sp
                                 )
@@ -314,12 +374,12 @@ fun NewGroupScreen(
             )
         },
         floatingActionButton = {
-            // Next arrow button in WhatsApp Green
+            // Next arrow button in Olinam Blue
             if (selectedContacts.isNotEmpty()) {
                 FloatingActionButton(
                     onClick = { isStep2GroupDetails = true },
                     shape = CircleShape,
-                    containerColor = WhatsAppGreen,
+                    containerColor = OlinamBlue,
                     contentColor = Color.White,
                     elevation = FloatingActionButtonDefaults.elevation(4.dp),
                     modifier = Modifier
@@ -359,12 +419,12 @@ fun NewGroupScreen(
                                     modifier = Modifier
                                         .size(46.dp)
                                         .clip(CircleShape)
-                                        .background(WhatsAppGreen.copy(alpha = 0.15f)),
+                                        .background(OlinamBlueLight),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
                                         text = contact.name.take(1).uppercase(),
-                                        color = WhatsAppGreen,
+                                        color = OlinamBlue,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 18.sp
                                     )
@@ -397,105 +457,282 @@ fun NewGroupScreen(
                 }
             }
 
-            // Contact list with circular selection checkboxes matching WhatsApp
             LazyColumn(modifier = Modifier.fillMaxSize()) {
+                // Section 1 Header: Contacts on Olinam (App users only can be added)
                 item {
-                    Text(
-                        text = "Contacts",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF6B7280),
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Contacts on Olinam",
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = OlinamBlue
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = "Encrypted",
+                            tint = OlinamBlue,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        Text(
+                            text = "${appContacts.size}",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF6B7280)
+                        )
+                    }
                 }
 
-                if (filteredContacts.isEmpty()) {
+                // If no app contacts found
+                if (appContacts.isEmpty()) {
                     item {
-                        Box(
+                        Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(32.dp),
-                            contentAlignment = Alignment.Center
+                                .padding(horizontal = 16.dp, vertical = 6.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFFEFF6FF)
                         ) {
-                            Text(
-                                text = "No contacts found on device. Tap New Contact from contacts screen to add contacts.",
-                                color = Color(0xFF6B7280),
-                                fontSize = 13.5.sp,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                            )
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "No contacts on Olinam yet",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF1D4ED8)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Only contacts using Olinam can be added to groups. Non-app contacts can be invited below via SMS.",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF2563EB),
+                                    lineHeight = 16.sp,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Button(
+                                    onClick = { isStep2GroupDetails = true },
+                                    colors = ButtonDefaults.buttonColors(containerColor = OlinamBlue),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text("Create group with You as Admin", fontSize = 12.5.sp)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // List of selectable Olinam contacts
+                    items(appContacts, key = { "app_" + it.id + it.phoneNumber }) { contact ->
+                        val isSelected = selectedContacts.any { it.id == contact.id }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    if (isSelected) {
+                                        selectedContacts.removeAll { it.id == contact.id }
+                                    } else {
+                                        selectedContacts.add(contact)
+                                    }
+                                }
+                                .padding(horizontal = 16.dp, vertical = 10.dp)
+                                .testTag("group_contact_item_${contact.id}"),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Avatar
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(CircleShape)
+                                    .background(OlinamBlueLight),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = contact.name.take(1).uppercase(),
+                                    color = OlinamBlue,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 18.sp
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(14.dp))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = contact.name,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF111827)
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = contact.phoneNumber,
+                                    fontSize = 13.sp,
+                                    color = Color(0xFF6B7280)
+                                )
+                            }
+
+                            // Circular selection checkbox on the right in Olinam Blue
+                            Box(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .clip(CircleShape)
+                                    .border(
+                                        width = 1.5.dp,
+                                        color = if (isSelected) OlinamBlue else Color(0xFF9CA3AF),
+                                        shape = CircleShape
+                                    )
+                                    .background(if (isSelected) OlinamBlue else Color.Transparent),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = "Selected",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
 
-                items(filteredContacts, key = { it.id }) { contact ->
-                    val isSelected = selectedContacts.any { it.id == contact.id }
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                if (isSelected) {
-                                    selectedContacts.removeAll { it.id == contact.id }
-                                } else {
-                                    selectedContacts.add(contact)
+                // Section 2 Header: Invite to Olinam (Non-app contacts with Invite button)
+                if (nonAppContacts.isNotEmpty()) {
+                    item {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 16.dp, bottom = 4.dp)
+                        ) {
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFFFFFBEB)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Send,
+                                        contentDescription = null,
+                                        tint = Color(0xFFB45309),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Contacts not using Olinam cannot be added to group chats. Tap Invite to send them an SMS invite link.",
+                                        fontSize = 12.sp,
+                                        color = Color(0xFFB45309),
+                                        lineHeight = 16.sp
+                                    )
                                 }
                             }
-                            .padding(horizontal = 16.dp, vertical = 10.dp)
-                            .testTag("group_contact_item_${contact.id}"),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Avatar
-                        Box(
-                            modifier = Modifier
-                                .size(46.dp)
-                                .clip(CircleShape)
-                                .background(WhatsAppGreen.copy(alpha = 0.15f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = contact.name.take(1).uppercase(),
-                                color = WhatsAppGreen,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 18.sp
-                            )
-                        }
 
-                        Spacer(modifier = Modifier.width(14.dp))
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = contact.name,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF111827)
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = contact.phoneNumber,
-                                fontSize = 13.sp,
-                                color = Color(0xFF6B7280)
-                            )
-                        }
-
-                        // Circular selection checkbox on the right matching WhatsApp
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .clip(CircleShape)
-                                .border(
-                                    width = 1.5.dp,
-                                    color = if (isSelected) WhatsAppGreen else Color(0xFF9CA3AF),
-                                    shape = CircleShape
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Invite to Olinam",
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF4B5563)
                                 )
-                                .background(if (isSelected) WhatsAppGreen else Color.Transparent),
-                            contentAlignment = Alignment.Center
+                                Spacer(modifier = Modifier.weight(1f))
+                                Text(
+                                    text = "${nonAppContacts.size}",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF6B7280)
+                                )
+                            }
+                        }
+                    }
+
+                    items(nonAppContacts, key = { "nonapp_" + it.id + it.phoneNumber }) { contact ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    Toast.makeText(
+                                        context,
+                                        "${contact.name} is not on Olinam yet. Tap Invite to send them an invitation.",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                                .padding(horizontal = 16.dp, vertical = 9.dp)
+                                .testTag("group_nonapp_contact_${contact.id}"),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            if (isSelected) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = "Selected",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(16.dp)
+                            // Avatar
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFF3F4F6)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = contact.name.take(1).uppercase(),
+                                    color = Color(0xFF6B7280),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 17.sp
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(14.dp))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = contact.name,
+                                    fontSize = 15.5.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color(0xFF111827)
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = contact.phoneNumber,
+                                    fontSize = 12.5.sp,
+                                    color = Color(0xFF9CA3AF)
+                                )
+                            }
+
+                            // Dedicated Invite Button (Cannot add to group, must invite!)
+                            OutlinedButton(
+                                onClick = { sendInvite(contact) },
+                                shape = RoundedCornerShape(20.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, OlinamBlue),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = Color.Transparent,
+                                    contentColor = OlinamBlue
+                                ),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                    horizontal = 14.dp,
+                                    vertical = 4.dp
+                                ),
+                                modifier = Modifier
+                                    .height(32.dp)
+                                    .testTag("invite_contact_button_${contact.id}")
+                            ) {
+                                Text(
+                                    text = "Invite",
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = OlinamBlue
                                 )
                             }
                         }
