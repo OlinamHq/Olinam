@@ -467,6 +467,15 @@ fun HomeScreen(
             onSendMessage = { text ->
                 viewModel.sendMessage(selectedConv.id, text)
             },
+            onSendReplyMessage = { text, replyId, replySender, replyText ->
+                viewModel.sendMessage(
+                    conversationId = selectedConv.id,
+                    text = text,
+                    replyToMessageId = replyId,
+                    replyToSenderName = replySender,
+                    replyToText = replyText
+                )
+            },
             onSendMediaAttachment = { uri, mediaType, caption ->
                 scope.launch {
                     viewModel.sendMediaAttachment(context, selectedConv.id, uri, mediaType, caption)

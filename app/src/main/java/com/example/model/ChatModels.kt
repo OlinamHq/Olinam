@@ -44,7 +44,10 @@ data class Message(
     val actionButtonUrl: String? = null,
     val isUnreadDivider: Boolean = false,
     val isOtp: Boolean = false,
-    val otpCode: String? = null
+    val otpCode: String? = null,
+    val replyToMessageId: String? = null,
+    val replyToSenderName: String? = null,
+    val replyToText: String? = null
 )
 
 @Immutable

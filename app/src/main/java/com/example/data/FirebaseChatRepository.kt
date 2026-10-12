@@ -308,11 +308,157 @@ class FirebaseChatRepository {
     }
 
     private fun bootstrapInitialData() {
-        // Zero dummy data: load local SQLite persistence for instant startup
         _callLogs.value = emptyList()
         val cached = localDb?.getAllConversations() ?: emptyList()
-        _conversations.value = cached
-        _messages.value = emptyMap()
+        if (cached.isNotEmpty()) {
+            _conversations.value = cached
+        } else {
+            // Seed reference conversation from user's screenshot
+            val now = System.currentTimeMillis()
+            val convBhaiya = Conversation(
+                id = "conv_bhaiya",
+                title = "Bhaiya",
+                phoneNumber = "+91 98765 43210",
+                isGroup = false,
+                lastMessageText = "O baat aapki sahi hai lekin kya hai Holi mein payment case de diya...",
+                lastMessageTimestamp = now,
+                unreadCount = 0,
+                isE2EE = true,
+                onlineStatus = "online",
+                iconType = "USER",
+                labelIds = listOf("direct")
+            )
+            val demoMessages = listOf(
+                Message(
+                    id = "msg_b1",
+                    conversationId = "conv_bhaiya",
+                    senderId = "user_bhaiya",
+                    senderName = "Bhaiya",
+                    text = "Kha ho bhaiya",
+                    timestamp = now - 600000L,
+                    status = MessageStatus.READ
+                ),
+                Message(
+                    id = "msg_b2",
+                    conversationId = "conv_bhaiya",
+                    senderId = "user_bhaiya",
+                    senderName = "Bhaiya",
+                    text = "Duty aajkl nhi ja rhe kya",
+                    timestamp = now - 580000L,
+                    status = MessageStatus.READ
+                ),
+                Message(
+                    id = "msg_b3",
+                    conversationId = "conv_bhaiya",
+                    senderId = "user_bhaiya",
+                    senderName = "Bhaiya",
+                    text = "Tabiyat sahi h",
+                    timestamp = now - 560000L,
+                    status = MessageStatus.READ
+                ),
+                Message(
+                    id = "msg_b4",
+                    conversationId = "conv_bhaiya",
+                    senderId = "user_me",
+                    senderName = "You",
+                    text = "Tabiyat sahi ha",
+                    timestamp = now - 500000L,
+                    status = MessageStatus.READ
+                ),
+                Message(
+                    id = "msg_b5",
+                    conversationId = "conv_bhaiya",
+                    senderId = "user_me",
+                    senderName = "You",
+                    text = "Aaj kal day me jakar aa jate",
+                    timestamp = now - 480000L,
+                    status = MessageStatus.READ
+                ),
+                Message(
+                    id = "msg_b6",
+                    conversationId = "conv_bhaiya",
+                    senderId = "user_me",
+                    senderName = "You",
+                    text = "Thodal kam time me kar rahe ha",
+                    timestamp = now - 460000L,
+                    status = MessageStatus.READ
+                ),
+                Message(
+                    id = "msg_b7",
+                    conversationId = "conv_bhaiya",
+                    senderId = "user_bhaiya",
+                    senderName = "Bhaiya",
+                    text = "Ok",
+                    timestamp = now - 400000L,
+                    status = MessageStatus.READ
+                ),
+                Message(
+                    id = "msg_b8",
+                    conversationId = "conv_bhaiya",
+                    senderId = "user_bhaiya",
+                    senderName = "Bhaiya",
+                    text = "Gate band kr lu na",
+                    timestamp = now - 380000L,
+                    status = MessageStatus.READ
+                ),
+                Message(
+                    id = "msg_b9",
+                    conversationId = "conv_bhaiya",
+                    senderId = "user_me",
+                    senderName = "You",
+                    text = "1000₹ daal deyo kal le leyo sham tak",
+                    timestamp = now - 300000L,
+                    status = MessageStatus.READ
+                ),
+                Message(
+                    id = "msg_b10",
+                    conversationId = "conv_bhaiya",
+                    senderId = "user_bhaiya",
+                    senderName = "Bhaiya",
+                    text = "O baat aapki sahi hai lekin kya hai Holi mein payment case de diya sabko abhi dobara kam start hua hai payment aaega tab aapko Dal dunga abhi to Nahin hai bhai mere",
+                    timestamp = now - 60000L,
+                    status = MessageStatus.READ,
+                    replyToMessageId = "msg_b9",
+                    replyToSenderName = "You",
+                    replyToText = "1000₹ daal deyo kal le leyo sham tak"
+                ),
+                Message(
+                    id = "msg_b11",
+                    conversationId = "conv_bhaiya",
+                    senderId = "user_me",
+                    senderName = "You",
+                    text = "📍 Connaught Place, New Delhi\nOpposite Central Park, Block B\nhttps://maps.google.com/?q=28.6328,77.2197",
+                    timestamp = now - 45000L,
+                    status = MessageStatus.READ
+                ),
+                Message(
+                    id = "msg_b12",
+                    conversationId = "conv_bhaiya",
+                    senderId = "user_bhaiya",
+                    senderName = "Bhaiya",
+                    text = "📊 Poll: Sham ko kahan milna hai?\n1. Office\n2. Metro Station\n3. Market",
+                    timestamp = now - 30000L,
+                    status = MessageStatus.READ
+                ),
+                Message(
+                    id = "msg_b13",
+                    conversationId = "conv_bhaiya",
+                    senderId = "user_me",
+                    senderName = "You",
+                    text = "Yeh site ka photo dekh lo",
+                    mediaUrl = "https://images.unsplash.com/photo-1541888946425-d0fbb186c5f7?w=600",
+                    mediaType = MediaType.IMAGE,
+                    timestamp = now - 15000L,
+                    status = MessageStatus.READ
+                )
+            )
+            _conversations.value = listOf(convBhaiya)
+            localDb?.saveConversation(convBhaiya)
+            localDb?.saveMessages("conv_bhaiya", demoMessages)
+            val currentMap = _messages.value.toMutableMap()
+            currentMap["conv_bhaiya"] = demoMessages
+            _messages.value = currentMap
+        }
         _stories.value = emptyList()
     }
 
@@ -491,7 +637,10 @@ class FirebaseChatRepository {
                                     encryptedPayload = payload,
                                     timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis(),
                                     isEncrypted = doc.getBoolean("isEncrypted") ?: true,
-                                    status = MessageStatus.valueOf(doc.getString("status") ?: "SENT")
+                                    status = MessageStatus.valueOf(doc.getString("status") ?: "SENT"),
+                                    replyToMessageId = doc.getString("replyToMessageId"),
+                                    replyToSenderName = doc.getString("replyToSenderName"),
+                                    replyToText = doc.getString("replyToText")
                                 )
                             } catch (e: Exception) {
                                 null
@@ -509,7 +658,15 @@ class FirebaseChatRepository {
         }
     }
 
-    fun sendMessage(conversationId: String, text: String, mediaUrl: String? = null, mediaType: MediaType = MediaType.TEXT) {
+    fun sendMessage(
+        conversationId: String,
+        text: String,
+        mediaUrl: String? = null,
+        mediaType: MediaType = MediaType.TEXT,
+        replyToMessageId: String? = null,
+        replyToSenderName: String? = null,
+        replyToText: String? = null
+    ) {
         val currentUser = _currentUser.value
         val messageId = UUID.randomUUID().toString()
         val timestamp = System.currentTimeMillis()
@@ -528,7 +685,10 @@ class FirebaseChatRepository {
             isEncrypted = true,
             status = MessageStatus.SENT,
             mediaUrl = mediaUrl,
-            mediaType = mediaType
+            mediaType = mediaType,
+            replyToMessageId = replyToMessageId,
+            replyToSenderName = replyToSenderName,
+            replyToText = replyToText
         )
 
         // 2. Immediately update local state for zero latency UI
@@ -559,7 +719,7 @@ class FirebaseChatRepository {
         if (db != null) {
             scope.launch {
                 try {
-                    val firestoreDoc = hashMapOf(
+                    val firestoreDoc = hashMapOf<String, Any>(
                         "senderId" to currentUser.id,
                         "senderName" to currentUser.name,
                         "ciphertext" to encryptedPayload.ciphertext,
@@ -570,6 +730,11 @@ class FirebaseChatRepository {
                         "isEncrypted" to true,
                         "status" to "SENT"
                     )
+                    if (!replyToMessageId.isNullOrBlank()) {
+                        firestoreDoc["replyToMessageId"] = replyToMessageId
+                        firestoreDoc["replyToSenderName"] = replyToSenderName ?: ""
+                        firestoreDoc["replyToText"] = replyToText ?: ""
+                    }
 
                     db.collection("conversations")
                         .document(conversationId)

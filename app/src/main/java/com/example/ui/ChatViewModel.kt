@@ -279,14 +279,22 @@ class ChatViewModel @JvmOverloads constructor(
         stopObservingPresence()
         _activeConversationId.value = null
     }
-    fun sendMessage(conversationId: String, text: String, mediaUrl: String? = null, mediaType: MediaType = MediaType.TEXT) {
+    fun sendMessage(
+        conversationId: String,
+        text: String,
+        mediaUrl: String? = null,
+        mediaType: MediaType = MediaType.TEXT,
+        replyToMessageId: String? = null,
+        replyToSenderName: String? = null,
+        replyToText: String? = null
+    ) {
         if (text.isBlank() && mediaUrl.isNullOrBlank()) return
         val prefs = getApplication<Application>().getSharedPreferences("olinam_chat_prefs", Context.MODE_PRIVATE)
         if (prefs.getBoolean("blocked_$conversationId", false)) {
             android.widget.Toast.makeText(getApplication(), "Cannot send message to blocked contact", android.widget.Toast.LENGTH_SHORT).show()
             return
         }
-        repository.sendMessage(conversationId, text, mediaUrl, mediaType)
+        repository.sendMessage(conversationId, text, mediaUrl, mediaType, replyToMessageId, replyToSenderName, replyToText)
     }
     fun sendDirectSms(context: Context, conversationId: String, recipientPhone: String, text: String): Boolean {
         if (text.isBlank() || recipientPhone.isBlank()) return false

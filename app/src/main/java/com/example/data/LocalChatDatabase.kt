@@ -69,7 +69,10 @@ class LocalChatDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_N
                 isEncrypted INTEGER,
                 status TEXT,
                 mediaUrl TEXT,
-                mediaType TEXT
+                mediaType TEXT,
+                replyToMessageId TEXT,
+                replyToSenderName TEXT,
+                replyToText TEXT
             )
             """.trimIndent()
         )
@@ -85,6 +88,13 @@ class LocalChatDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_N
         )
 
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_msg_conv ON $TABLE_MESSAGES (conversationId, timestamp)")
+    }
+
+    override fun onOpen(db: SQLiteDatabase) {
+        super.onOpen(db)
+        try { db.execSQL("ALTER TABLE $TABLE_MESSAGES ADD COLUMN replyToMessageId TEXT") } catch (_: Exception) {}
+        try { db.execSQL("ALTER TABLE $TABLE_MESSAGES ADD COLUMN replyToSenderName TEXT") } catch (_: Exception) {}
+        try { db.execSQL("ALTER TABLE $TABLE_MESSAGES ADD COLUMN replyToText TEXT") } catch (_: Exception) {}
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -225,6 +235,9 @@ class LocalChatDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_N
             put("status", msg.status.name)
             put("mediaUrl", msg.mediaUrl ?: "")
             put("mediaType", msg.mediaType?.name ?: "")
+            put("replyToMessageId", msg.replyToMessageId ?: "")
+            put("replyToSenderName", msg.replyToSenderName ?: "")
+            put("replyToText", msg.replyToText ?: "")
         }
         db.insertWithOnConflict(TABLE_MESSAGES, null, cv, SQLiteDatabase.CONFLICT_REPLACE)
     }
@@ -246,6 +259,9 @@ class LocalChatDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_N
                     put("status", msg.status.name)
                     put("mediaUrl", msg.mediaUrl ?: "")
                     put("mediaType", msg.mediaType?.name ?: "")
+                    put("replyToMessageId", msg.replyToMessageId ?: "")
+                    put("replyToSenderName", msg.replyToSenderName ?: "")
+                    put("replyToText", msg.replyToText ?: "")
                 }
                 db.insertWithOnConflict(TABLE_MESSAGES, null, cv, SQLiteDatabase.CONFLICT_REPLACE)
             }
@@ -272,6 +288,9 @@ class LocalChatDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_N
             val statusIdx = it.getColumnIndex("status")
             val mediaUrlIdx = it.getColumnIndex("mediaUrl")
             val mediaTypeIdx = it.getColumnIndex("mediaType")
+            val replyIdIdx = it.getColumnIndex("replyToMessageId")
+            val replySenderIdx = it.getColumnIndex("replyToSenderName")
+            val replyTextIdx = it.getColumnIndex("replyToText")
 
             while (it.moveToNext()) {
                 val id = it.getString(idIdx)
@@ -290,6 +309,10 @@ class LocalChatDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_N
                     try { com.example.model.MediaType.valueOf(str) } catch (_: Exception) { null }
                 } ?: com.example.model.MediaType.TEXT
 
+                val replyToMsgId = if (replyIdIdx >= 0) it.getString(replyIdIdx).ifBlank { null } else null
+                val replyToSender = if (replySenderIdx >= 0) it.getString(replySenderIdx).ifBlank { null } else null
+                val replyToContent = if (replyTextIdx >= 0) it.getString(replyTextIdx).ifBlank { null } else null
+
                 result.add(
                     Message(
                         id = id,
@@ -301,7 +324,10 @@ class LocalChatDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_N
                         isEncrypted = if (encIdx >= 0) it.getInt(encIdx) == 1 else false,
                         status = status,
                         mediaUrl = mediaUrl,
-                        mediaType = mediaType
+                        mediaType = mediaType,
+                        replyToMessageId = replyToMsgId,
+                        replyToSenderName = replyToSender,
+                        replyToText = replyToContent
                     )
                 )
             }

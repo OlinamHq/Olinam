@@ -20,13 +20,17 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -34,6 +38,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -53,7 +58,9 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material.icons.filled.Block
@@ -99,9 +106,12 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -482,7 +492,8 @@ fun ChatDetailScreen(
     livePresenceStatus: String? = null,
     canSendReply: Boolean = true,
     onBackClick: () -> Unit,
-    onSendMessage: (String) -> Unit,
+    onSendMessage: (String) -> Unit = {},
+    onSendReplyMessage: (text: String, replyToId: String?, replyToSender: String?, replyToText: String?) -> Unit = { text, _, _, _ -> onSendMessage(text) },
     onSendMediaAttachment: (uri: Uri, mediaType: MediaType, caption: String) -> Unit = { _, _, _ -> },
     onSendDirectSms: (String) -> Boolean = { false },
     onCallClick: (CallType) -> Unit = {},
@@ -502,6 +513,7 @@ fun ChatDetailScreen(
     val coroutineScope = rememberCoroutineScope()
 
     var inputText by remember { mutableStateOf("") }
+    var replyingToMessage by remember { mutableStateOf<Message?>(null) }
     var pendingSmsText by remember { mutableStateOf("") }
     var menuExpanded by remember { mutableStateOf(false) }
     var callMenuExpanded by remember { mutableStateOf(false) }
@@ -525,6 +537,9 @@ fun ChatDetailScreen(
     var showDisappearingDialog by remember { mutableStateOf(false) }
     var showWallpaperDialog by remember { mutableStateOf(false) }
     var showMuteDialog by remember { mutableStateOf(false) }
+    var fullScreenImageUrl by remember { mutableStateOf<String?>(null) }
+    var showCallTypeBottomSheet by remember { mutableStateOf(false) }
+    var showListsBottomSheet by remember { mutableStateOf(false) }
 
     // In-chat Search mode
     var isSearchMode by remember { mutableStateOf(false) }
@@ -735,7 +750,14 @@ fun ChatDetailScreen(
                 smsPermissionLauncher.launch(Manifest.permission.SEND_SMS)
             }
         } else {
-            onSendMessage(textToSend)
+            val targetReply = replyingToMessage
+            val replyId = targetReply?.id
+            val replySender = targetReply?.let {
+                if (it.senderId == currentUserId || it.senderId == "user_me" || it.senderId == "me") "You" else (it.senderName.ifBlank { conversation.title })
+            }
+            val replySnippet = targetReply?.text
+            onSendReplyMessage(textToSend, replyId, replySender, replySnippet)
+            replyingToMessage = null
             inputText = ""
             onTypingChanged(false)
         }
@@ -840,6 +862,42 @@ fun ChatDetailScreen(
         )
     }
 
+    // Fullscreen Image Viewer Dialog
+    if (fullScreenImageUrl != null) {
+        Dialog(
+            onDismissRequest = { fullScreenImageUrl = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+            ) {
+                AsyncImage(
+                    model = fullScreenImageUrl,
+                    contentDescription = "Full screen media",
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
+                    contentScale = ContentScale.Fit
+                )
+                IconButton(
+                    onClick = { fullScreenImageUrl = null },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 40.dp, end = 16.dp)
+                        .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = Color.White
+                    )
+                }
+            }
+        }
+    }
+
     // In-app Add to Contacts Dialog
     if (showAddContactDialog) {
         AddContactDialog(
@@ -857,6 +915,34 @@ fun ChatDetailScreen(
                     )
                 )
                 Toast.makeText(context, "Saved $name to contacts", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    // Select Call Type Bottom Sheet (Voice / Video call as in reference image)
+    if (showCallTypeBottomSheet) {
+        SelectCallTypeBottomSheet(
+            onDismissRequest = { showCallTypeBottomSheet = false },
+            onVoiceCallClick = {
+                onCallClick(CallType.VOICE)
+            },
+            onVideoCallClick = {
+                onCallClick(CallType.VIDEO)
+            }
+        )
+    }
+
+    // Chat Lists Bottom Sheet (Manage custom lists for this chat as in reference image)
+    if (showListsBottomSheet) {
+        ChatListsBottomSheet(
+            conversation = conversation,
+            onDismissRequest = { showListsBottomSheet = false },
+            onSaveLists = { newLabelIds ->
+                val updatedConv = conversation.copy(labelIds = newLabelIds)
+                try {
+                    val db = com.example.data.LocalChatDatabase.getInstance(context)
+                    db.saveConversation(updatedConv)
+                } catch (_: Exception) {}
             }
         )
     }
@@ -1140,82 +1226,42 @@ fun ChatDetailScreen(
                     val isAlphanumericSms = sendViaSms && !hasCallablePhone
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        // Unified Audio & Video Calling in ONE button (with dropdown for Voice / Video Call)
-                        Box {
-                            IconButton(
-                                onClick = {
-                                    if (isContactBlocked) {
-                                        Toast.makeText(context, "Unblock ${conversation.title} to place a call.", Toast.LENGTH_SHORT).show()
-                                    } else if (sendViaSms) {
-                                        val phone = conversation.phoneNumber ?: conversation.title.filter { it.isDigit() || it == '+' }
-                                        if (phone.isNotBlank()) {
-                                            val dialIntent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone"))
-                                            context.startActivity(dialIntent)
-                                        } else {
-                                            Toast.makeText(context, "No valid phone number for SMS contact.", Toast.LENGTH_SHORT).show()
-                                        }
-                                    } else {
-                                        callMenuExpanded = true
-                                    }
-                                },
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .testTag("chat_unified_call_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Call,
-                                    contentDescription = "Call",
-                                    tint = if (isContactBlocked) Color(0xFF94A3B8) else Color(0xFF0160E3),
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
+                        // 1. List icon (stacked cards with person avatar as in reference image)
+                        IconButton(
+                            onClick = { showListsBottomSheet = true },
+                            modifier = Modifier
+                                .size(40.dp)
+                                .testTag("chat_lists_button")
+                        ) {
+                            ChatListIcon(
+                                tint = Color(0xFF111827)
+                            )
+                        }
 
-                            DropdownMenu(
-                                expanded = callMenuExpanded,
-                                onDismissRequest = { callMenuExpanded = false },
-                                modifier = Modifier.widthIn(min = 190.dp)
-                            ) {
-                                DropdownMenuItem(
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Default.Call,
-                                            contentDescription = null,
-                                            tint = Color(0xFF0160E3),
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    },
-                                    text = {
-                                        Column {
-                                            Text("Audio Call", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF111B21))
-                                            Text("Voice calling", fontSize = 11.5.sp, color = Color(0xFF64748B))
-                                        }
-                                    },
-                                    onClick = {
-                                        callMenuExpanded = false
-                                        onCallClick(CallType.VOICE)
+                        // 2. Call icon (handset with plus sign as in reference image)
+                        IconButton(
+                            onClick = {
+                                if (isContactBlocked) {
+                                    Toast.makeText(context, "Unblock ${conversation.title} to place a call.", Toast.LENGTH_SHORT).show()
+                                } else if (sendViaSms) {
+                                    val phone = conversation.phoneNumber ?: conversation.title.filter { it.isDigit() || it == '+' }
+                                    if (phone.isNotBlank()) {
+                                        val dialIntent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone"))
+                                        context.startActivity(dialIntent)
+                                    } else {
+                                        Toast.makeText(context, "No valid phone number for SMS contact.", Toast.LENGTH_SHORT).show()
                                     }
-                                )
-                                DropdownMenuItem(
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Default.Videocam,
-                                            contentDescription = null,
-                                            tint = Color(0xFF0160E3),
-                                            modifier = Modifier.size(22.dp)
-                                        )
-                                    },
-                                    text = {
-                                        Column {
-                                            Text("Video Call", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF111B21))
-                                            Text("HD video calling", fontSize = 11.5.sp, color = Color(0xFF64748B))
-                                        }
-                                    },
-                                    onClick = {
-                                        callMenuExpanded = false
-                                        onCallClick(CallType.VIDEO)
-                                    }
-                                )
-                            }
+                                } else {
+                                    showCallTypeBottomSheet = true
+                                }
+                            },
+                            modifier = Modifier
+                                .size(40.dp)
+                                .testTag("chat_unified_call_button")
+                        ) {
+                            ChatCallWithPlusIcon(
+                                tint = if (isContactBlocked) Color(0xFF94A3B8) else Color(0xFF111827)
+                            )
                         }
 
                         // Beside it: 3-dots list / options button
@@ -1541,6 +1587,17 @@ fun ChatDetailScreen(
                                 isHighlighted = isHighlighted,
                                 onClick = { selectedMessageForCrypto = msg },
                                 onLongClick = { messageForAction = msg },
+                                onImageClick = { url -> fullScreenImageUrl = url },
+                                onReplyClick = { replyTargetId ->
+                                    if (!replyTargetId.isNullOrBlank()) {
+                                        val idx = messages.indexOfFirst { it.id == replyTargetId }
+                                        if (idx >= 0) {
+                                            coroutineScope.launch {
+                                                listState.animateScrollToItem(idx)
+                                            }
+                                        }
+                                    }
+                                },
                                 onActionClick = { showSecurityActionDialog = true }
                             )
                         }
@@ -1663,7 +1720,7 @@ fun ChatDetailScreen(
                                     text = "Learn more",
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF00A884),
+                                    color = Color(0xFF0160E3),
                                     modifier = Modifier.clickable { showShortCodeInfoDialog = true }
                                 )
                             }
@@ -1755,146 +1812,219 @@ fun ChatDetailScreen(
                         }
                     }
                 } else {
-                    // Authentic WhatsApp Floating Input Bar over doodle texture!
-                    Row(
+                    // Floating Input Container with Quoted Reply Bar
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 6.dp, end = 6.dp, bottom = 6.dp, top = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(start = 6.dp, end = 6.dp, bottom = 6.dp, top = 2.dp)
                     ) {
-                        // WhatsApp Rounded White Pill Text Field
-                        Surface(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp)
-                                .shadow(1.5.dp, RoundedCornerShape(26.dp)),
-                            shape = RoundedCornerShape(26.dp),
-                            color = Color.White
+                        // Tagged / Quoted Reply Banner above text input
+                        AnimatedVisibility(
+                            visible = replyingToMessage != null,
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut()
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(horizontal = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                // Emoji toggle button
-                                IconButton(
-                                    onClick = {
-                                        showEmojiPicker = !showEmojiPicker
-                                        if (showEmojiPicker) showAttachSheet = false
-                                    },
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = if (showEmojiPicker) Icons.Default.Keyboard else Icons.Default.SentimentSatisfiedAlt,
-                                        contentDescription = "Emoji",
-                                        tint = if (showEmojiPicker) Color(0xFF00A884) else Color(0xFF54656F),
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-
-                                // SMS indicator tag if SMS mode
-                                if (sendViaSms) {
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = Color(0xFFFEF3C7),
-                                        modifier = Modifier.padding(end = 4.dp)
-                                    ) {
-                                        Text(
-                                            text = "SMS",
-                                            fontSize = 10.5.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFFB45309),
-                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
-
-                                // Input Text Field
-                                Box(
+                            replyingToMessage?.let { targetMsg ->
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color(0xFFEFF6FF),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBFDBFE)),
                                     modifier = Modifier
-                                        .weight(1f)
-                                        .padding(horizontal = 4.dp),
-                                    contentAlignment = Alignment.CenterStart
+                                        .fillMaxWidth()
+                                        .padding(bottom = 4.dp)
                                 ) {
-                                    if (inputText.isEmpty()) {
-                                        Text(
-                                            text = if (sendViaSms) "Message (SIM SMS)..." else "Message",
-                                            fontSize = 16.sp,
-                                            color = Color(0xFF8696A0)
-                                        )
-                                    }
-                                    BasicTextField(
-                                        value = inputText,
-                                        onValueChange = {
-                                            inputText = it
-                                            onTypingChanged(it.isNotBlank())
-                                        },
-                                        textStyle = TextStyle(
-                                            fontSize = 16.sp,
-                                            color = Color(0xFF111B21)
-                                        ),
-                                        cursorBrush = SolidColor(Color(0xFF00A884)),
-                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                                        keyboardActions = KeyboardActions(
-                                            onSend = { handleSendAction() }
-                                        ),
+                                    Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .testTag("chat_message_input")
-                                    )
-                                }
-
-                                // Paperclip attachment button
-                                IconButton(
-                                    onClick = {
-                                        showAttachSheet = !showAttachSheet
-                                        if (showAttachSheet) showEmojiPicker = false
-                                    },
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.AttachFile,
-                                        contentDescription = "Attach",
-                                        tint = if (showAttachSheet) Color(0xFF00A884) else Color(0xFF54656F),
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                }
-
-                                // Camera button
-                                IconButton(
-                                    onClick = { showInAppCamera = true },
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.CameraAlt,
-                                        contentDescription = "Camera",
-                                        tint = Color(0xFF54656F),
-                                        modifier = Modifier.size(22.dp)
-                                    )
+                                            .height(IntrinsicSize.Min),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .width(4.dp)
+                                                .fillMaxHeight()
+                                                .background(Color(0xFF0160E3))
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .padding(vertical = 5.dp)
+                                        ) {
+                                            val replySenderName = if (targetMsg.senderId == currentUserId || targetMsg.senderId == "user_me" || targetMsg.senderId == "me") {
+                                                "You"
+                                            } else {
+                                                targetMsg.senderName.ifBlank { conversation.title }
+                                            }
+                                            Text(
+                                                text = "Replying to $replySenderName",
+                                                fontSize = 12.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF0160E3)
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = targetMsg.text.ifBlank { "[Media attachment]" },
+                                                fontSize = 12.sp,
+                                                color = Color(0xFF475569),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = { replyingToMessage = null },
+                                            modifier = Modifier.size(36.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Cancel reply",
+                                                tint = Color(0xFF64748B),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
 
-                        Spacer(modifier = Modifier.width(6.dp))
-
-                        // Floating circular action button (WhatsApp signature green Color(0xFF00A884))
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .shadow(2.dp, CircleShape)
-                                .clip(CircleShape)
-                                .background(Color(0xFF00A884))
-                                .clickable { handleSendAction() }
-                                .testTag("send_message_button"),
-                            contentAlignment = Alignment.Center
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = if (inputText.isNotBlank()) Icons.AutoMirrored.Filled.Send else Icons.Default.Mic,
-                                contentDescription = if (inputText.isNotBlank()) "Send" else "Voice message",
-                                tint = Color.White,
-                                modifier = Modifier.size(22.dp)
-                            )
+                            // Rounded White Pill Text Field
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                                    .shadow(1.5.dp, RoundedCornerShape(26.dp)),
+                                shape = RoundedCornerShape(26.dp),
+                                color = Color.White
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(horizontal = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Emoji toggle button
+                                    IconButton(
+                                        onClick = {
+                                            showEmojiPicker = !showEmojiPicker
+                                            if (showEmojiPicker) showAttachSheet = false
+                                        },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (showEmojiPicker) Icons.Default.Keyboard else Icons.Default.SentimentSatisfiedAlt,
+                                            contentDescription = "Emoji",
+                                            tint = if (showEmojiPicker) Color(0xFF0160E3) else Color(0xFF54656F),
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+
+                                    // SMS indicator tag if SMS mode
+                                    if (sendViaSms) {
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = Color(0xFFFEF3C7),
+                                            modifier = Modifier.padding(end = 4.dp)
+                                        ) {
+                                            Text(
+                                                text = "SMS",
+                                                fontSize = 10.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFFB45309),
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+
+                                    // Input Text Field
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(horizontal = 4.dp),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
+                                        if (inputText.isEmpty()) {
+                                            Text(
+                                                text = if (sendViaSms) "Message (SIM SMS)..." else "Message",
+                                                fontSize = 16.sp,
+                                                color = Color(0xFF8696A0)
+                                            )
+                                        }
+                                        BasicTextField(
+                                            value = inputText,
+                                            onValueChange = {
+                                                inputText = it
+                                                onTypingChanged(it.isNotBlank())
+                                            },
+                                            textStyle = TextStyle(
+                                                fontSize = 16.sp,
+                                                color = Color(0xFF111B21)
+                                            ),
+                                            cursorBrush = SolidColor(Color(0xFF0160E3)),
+                                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                            keyboardActions = KeyboardActions(
+                                                onSend = { handleSendAction() }
+                                            ),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .testTag("chat_message_input")
+                                        )
+                                    }
+
+                                    // Paperclip attachment button
+                                    IconButton(
+                                        onClick = {
+                                            showAttachSheet = !showAttachSheet
+                                            if (showAttachSheet) showEmojiPicker = false
+                                        },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.AttachFile,
+                                            contentDescription = "Attach",
+                                            tint = if (showAttachSheet) Color(0xFF0160E3) else Color(0xFF54656F),
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+
+                                    // Camera button
+                                    IconButton(
+                                        onClick = { showInAppCamera = true },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CameraAlt,
+                                            contentDescription = "Camera",
+                                            tint = Color(0xFF54656F),
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(6.dp))
+
+                            // Floating circular action button in Official Olinam Royal Blue
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .shadow(2.dp, CircleShape)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF0160E3))
+                                    .clickable { handleSendAction() }
+                                    .testTag("send_message_button"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (inputText.isNotBlank()) Icons.AutoMirrored.Filled.Send else Icons.Default.Mic,
+                                    contentDescription = if (inputText.isNotBlank()) "Send" else "Voice message",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -1936,7 +2066,7 @@ fun ChatDetailScreen(
                 Icon(
                     imageVector = Icons.Default.Info,
                     contentDescription = null,
-                    tint = Color(0xFF00A884),
+                    tint = Color(0xFF0160E3),
                     modifier = Modifier.size(34.dp)
                 )
             },
@@ -1959,7 +2089,7 @@ fun ChatDetailScreen(
             confirmButton = {
                 Button(
                     onClick = { showShortCodeInfoDialog = false },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A884))
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3))
                 ) {
                     Text("Got it", color = Color.White)
                 }
@@ -2117,6 +2247,24 @@ fun ChatDetailScreen(
                         color = Color(0xFF6B7280)
                     )
                     Spacer(modifier = Modifier.height(4.dp))
+                    Button(
+                        onClick = {
+                            val target = messageForAction
+                            messageForAction = null
+                            replyingToMessage = target
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Reply,
+                            contentDescription = "Reply",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Reply / Tag Message", fontWeight = FontWeight.Bold, color = Color.White)
+                    }
                     Button(
                         onClick = {
                             clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(msg.text))
@@ -2927,7 +3075,8 @@ fun WhatsAppLocationDialog(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFFE8F5E9),
+                    color = Color(0xFFEFF6FF),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBFDBFE)),
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable {
@@ -2954,7 +3103,8 @@ fun WhatsAppLocationDialog(
 
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFFF0FDF4),
+                    color = Color(0xFFE0F2FE),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBAE6FD)),
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable {
@@ -2999,7 +3149,7 @@ fun WhatsAppLocationDialog(
                         Icon(
                             imageVector = Icons.Default.Map,
                             contentDescription = null,
-                            tint = Color(0xFF54656F),
+                            tint = Color(0xFF0160E3),
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(10.dp))
@@ -3130,49 +3280,128 @@ fun CreatePollDialog(
     onCreatePoll: (question: String, options: List<String>) -> Unit
 ) {
     var question by remember { mutableStateOf("") }
-    var option1 by remember { mutableStateOf("") }
-    var option2 by remember { mutableStateOf("") }
+    var options by remember { mutableStateOf(listOf("", "")) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Create Poll", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Poll,
+                    contentDescription = null,
+                    tint = Color(0xFF0160E3),
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Create Poll", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color(0xFF111827))
+            }
+        },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 OutlinedTextField(
                     value = question,
                     onValueChange = { question = it },
-                    label = { Text("Question") },
-                    modifier = Modifier.fillMaxWidth()
+                    label = { Text("Ask a question...") },
+                    singleLine = false,
+                    maxLines = 3,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFF0160E3),
+                        focusedLabelColor = Color(0xFF0160E3)
+                    )
                 )
-                OutlinedTextField(
-                    value = option1,
-                    onValueChange = { option1 = it },
-                    label = { Text("Option 1") },
-                    modifier = Modifier.fillMaxWidth()
+
+                Text(
+                    text = "Options",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    color = Color(0xFF64748B)
                 )
-                OutlinedTextField(
-                    value = option2,
-                    onValueChange = { option2 = it },
-                    label = { Text("Option 2") },
-                    modifier = Modifier.fillMaxWidth()
-                )
+
+                options.forEachIndexed { index, opt ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = opt,
+                            onValueChange = { newVal ->
+                                val updated = options.toMutableList()
+                                updated[index] = newVal
+                                options = updated
+                            },
+                            label = { Text("Option ${index + 1}") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF0160E3),
+                                focusedLabelColor = Color(0xFF0160E3)
+                            )
+                        )
+                        if (options.size > 2) {
+                            IconButton(
+                                onClick = {
+                                    val updated = options.toMutableList()
+                                    updated.removeAt(index)
+                                    options = updated
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Remove option",
+                                    tint = Color(0xFFEF4444),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (options.size < 6) {
+                    TextButton(
+                        onClick = {
+                            options = options + ""
+                        },
+                        modifier = Modifier.align(Alignment.Start)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = null,
+                            tint = Color(0xFF0160E3),
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Add Option",
+                            color = Color(0xFF0160E3),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
-                    if (question.isNotBlank() && option1.isNotBlank() && option2.isNotBlank()) {
-                        onCreatePoll(question, listOf(option1, option2))
+                    val validOptions = options.map { it.trim() }.filter { it.isNotBlank() }
+                    if (question.isNotBlank() && validOptions.size >= 2) {
+                        onCreatePoll(question.trim(), validOptions)
                     }
                 },
+                enabled = question.isNotBlank() && options.count { it.isNotBlank() } >= 2,
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3))
             ) {
-                Text("Create")
+                Text("Create Poll", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text("Cancel", color = Color(0xFF54656F))
             }
         }
     )
@@ -3192,10 +3421,18 @@ fun WhatsAppMessageBubble(
     isHighlighted: Boolean = false,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
+    onImageClick: (String) -> Unit = {},
+    onReplyClick: (String?) -> Unit = {},
     onActionClick: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+    val bubbleShape = RoundedCornerShape(
+        topStart = if (isMe) 14.dp else 4.dp,
+        topEnd = if (isMe) 4.dp else 14.dp,
+        bottomStart = 14.dp,
+        bottomEnd = 14.dp
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -3205,48 +3442,125 @@ fun WhatsAppMessageBubble(
         Surface(
             modifier = Modifier
                 .widthIn(min = 60.dp, max = 320.dp)
-                .shadow(0.5.dp, RoundedCornerShape(
-                    topStart = if (isMe) 14.dp else 0.dp,
-                    topEnd = if (isMe) 0.dp else 14.dp,
-                    bottomStart = 14.dp,
-                    bottomEnd = 14.dp
-                ))
+                .shadow(0.8.dp, bubbleShape)
                 .combinedClickable(
                     onClick = onClick,
                     onLongClick = onLongClick
                 )
                 .testTag("message_bubble_${message.id}"),
-            shape = RoundedCornerShape(
-                topStart = if (isMe) 14.dp else 0.dp,
-                topEnd = if (isMe) 0.dp else 14.dp,
-                bottomStart = 14.dp,
-                bottomEnd = 14.dp
-            ),
+            shape = bubbleShape,
             border = if (isHighlighted) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFF59E0B))
                      else null,
-            color = if (isHighlighted) Color(0xFFFEF3C7) else if (isMe) Color(0xFFD9FDD3) else Color.White
+            color = if (isHighlighted) Color(0xFFFEF3C7) else if (isMe) Color(0xFFDCEBFC) else Color.White
         ) {
             Column(
                 modifier = Modifier.padding(start = 9.dp, end = 9.dp, top = 6.dp, bottom = 5.dp)
             ) {
+                // Quoted / Tagged Reply Preview Card inside Bubble (Matching reference image)
+                if (!message.replyToText.isNullOrBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isMe) Color(0xFFCCE4FD) else Color(0xFFF1F5F9),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 5.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onReplyClick(message.replyToMessageId) }
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(IntrinsicSize.Min)
+                        ) {
+                            // Left vertical bar in Official Royal Blue
+                            Box(
+                                modifier = Modifier
+                                    .width(4.dp)
+                                    .fillMaxHeight()
+                                    .background(Color(0xFF0160E3))
+                            )
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 8.dp, vertical = 5.dp)
+                            ) {
+                                Text(
+                                    text = message.replyToSenderName?.ifBlank { "You" } ?: "You",
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF0160E3),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = message.replyToText ?: "",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF475569),
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    lineHeight = 16.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // If message has mediaUrl (image), display image preview
                 val hasImage = (!message.mediaUrl.isNullOrBlank() || message.mediaType == MediaType.IMAGE) &&
                         !message.text.contains("📄") && !message.text.contains("🎵")
+                val hasCustomCaption = hasImage && message.text.isNotBlank() &&
+                        message.text != "🖼️ Photo" &&
+                        message.text != "Photo"
+
                 if (hasImage && !message.mediaUrl.isNullOrBlank()) {
                     Surface(
                         shape = RoundedCornerShape(10.dp),
                         color = Color(0xFFE2E8F0),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 220.dp)
-                            .padding(bottom = 3.dp)
+                            .heightIn(min = 140.dp, max = 240.dp)
+                            .padding(bottom = if (hasCustomCaption) 4.dp else 2.dp)
+                            .clickable { onImageClick(message.mediaUrl) }
                     ) {
-                        AsyncImage(
-                            model = message.mediaUrl,
-                            contentDescription = "Media preview",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            AsyncImage(
+                                model = message.mediaUrl,
+                                contentDescription = "Media preview",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            // If no custom caption, overlay time & ticks directly on image
+                            if (!hasCustomCaption) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color.Black.copy(alpha = 0.55f),
+                                    modifier = Modifier
+                                        .align(Alignment.BottomEnd)
+                                        .padding(6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = formatMessageTime(message.timestamp),
+                                            fontSize = 10.5.sp,
+                                            color = Color.White
+                                        )
+                                        if (isMe) {
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Icon(
+                                                imageVector = Icons.Default.DoneAll,
+                                                contentDescription = "Read",
+                                                tint = Color(0xFF93C5FD),
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -3287,8 +3601,9 @@ fun WhatsAppMessageBubble(
                         val subtitle = lines.getOrNull(1)?.takeIf { !it.contains("http") }?.trim() ?: "Accurate GPS Location"
 
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (isMe) Color(0xFF0A52BA) else Color(0xFFF1F5F9),
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isMe) Color(0xFFCCE4FD) else Color(0xFFF1F5F9),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, if (isMe) Color(0xFFBFDBFE) else Color(0xFFE2E8F0)),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(bottom = 3.dp)
@@ -3303,46 +3618,117 @@ fun WhatsAppMessageBubble(
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(90.dp)
-                                        .background(Color(0xFF60A5FA)),
+                                        .height(100.dp)
+                                        .clip(RoundedCornerShape(topStart = 9.dp, topEnd = 9.dp))
+                                        .background(Color(0xFFE2E8F0)),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.LocationOn,
-                                        contentDescription = "Location Pin",
-                                        tint = Color(0xFFDC2626),
-                                        modifier = Modifier.size(36.dp)
+                                    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                                        val w = size.width
+                                        val h = size.height
+                                        // Blue water band
+                                        drawRect(
+                                            color = Color(0xFFBFDBFE),
+                                            topLeft = androidx.compose.ui.geometry.Offset(0f, h * 0.65f),
+                                            size = androidx.compose.ui.geometry.Size(w, h * 0.35f)
+                                        )
+                                        // Road grids
+                                        drawLine(
+                                            color = Color.White,
+                                            start = androidx.compose.ui.geometry.Offset(0f, h * 0.35f),
+                                            end = androidx.compose.ui.geometry.Offset(w, h * 0.45f),
+                                            strokeWidth = 6f
+                                        )
+                                        drawLine(
+                                            color = Color.White,
+                                            start = androidx.compose.ui.geometry.Offset(w * 0.45f, 0f),
+                                            end = androidx.compose.ui.geometry.Offset(w * 0.55f, h),
+                                            strokeWidth = 7f
+                                        )
+                                        drawLine(
+                                            color = Color(0xFFCBD5E1),
+                                            start = androidx.compose.ui.geometry.Offset(w * 0.1f, 0f),
+                                            end = androidx.compose.ui.geometry.Offset(w * 0.9f, h),
+                                            strokeWidth = 3f
+                                        )
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .size(46.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF0160E3).copy(alpha = 0.18f))
                                     )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(30.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.White)
+                                            .shadow(2.dp, CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.LocationOn,
+                                            contentDescription = "Location Pin",
+                                            tint = Color(0xFFEF4444),
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = Color.White.copy(alpha = 0.92f),
+                                        modifier = Modifier
+                                            .align(Alignment.TopStart)
+                                            .padding(6.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(6.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0xFF0160E3))
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "GPS Location",
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF0160E3)
+                                            )
+                                        }
+                                    }
                                 }
-                                Column(modifier = Modifier.padding(7.dp)) {
+                                Column(modifier = Modifier.padding(8.dp)) {
                                     Text(
                                         text = title,
                                         fontSize = 13.5.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (isMe) Color.White else Color(0xFF111B21)
+                                        color = Color(0xFF111827)
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
                                         text = subtitle,
                                         fontSize = 11.sp,
-                                        color = if (isMe) Color.White.copy(alpha = 0.8f) else Color(0xFF54656F),
+                                        color = Color(0xFF475569),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(
-                                            imageVector = Icons.Default.Map,
+                                            imageVector = Icons.Default.OpenInNew,
                                             contentDescription = null,
-                                            tint = if (isMe) Color(0xFF93C5FD) else Color(0xFF0160E3),
+                                            tint = Color(0xFF0160E3),
                                             modifier = Modifier.size(13.dp)
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
-                                            text = "Open in Maps",
-                                            fontSize = 11.sp,
+                                            text = "Open in Google Maps",
+                                            fontSize = 11.5.sp,
                                             fontWeight = FontWeight.SemiBold,
-                                            color = if (isMe) Color(0xFF93C5FD) else Color(0xFF0160E3)
+                                            color = Color(0xFF0160E3)
                                         )
                                     }
                                 }
@@ -3358,19 +3744,20 @@ fun WhatsAppMessageBubble(
                             ?.substringAfter("📞")?.trim() ?: ""
 
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (isMe) Color(0xFF0A52BA) else Color(0xFFF1F5F9),
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isMe) Color(0xFFCCE4FD) else Color(0xFFF1F5F9),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, if (isMe) Color(0xFFBFDBFE) else Color(0xFFE2E8F0)),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(bottom = 3.dp)
                         ) {
-                            Column(modifier = Modifier.padding(7.dp)) {
+                            Column(modifier = Modifier.padding(8.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Box(
                                         modifier = Modifier
-                                            .size(34.dp)
+                                            .size(36.dp)
                                             .clip(CircleShape)
-                                            .background(Color(0xFF0288D1)),
+                                            .background(Color(0xFF0160E3)),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
@@ -3380,19 +3767,19 @@ fun WhatsAppMessageBubble(
                                             fontSize = 15.sp
                                         )
                                     }
-                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Spacer(modifier = Modifier.width(10.dp))
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = contactName,
                                             fontSize = 13.5.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = if (isMe) Color.White else Color(0xFF111B21)
+                                            color = Color(0xFF111827)
                                         )
                                         if (phone.isNotBlank()) {
                                             Text(
                                                 text = phone,
-                                                fontSize = 11.sp,
-                                                color = if (isMe) Color.White.copy(alpha = 0.8f) else Color(0xFF54656F)
+                                                fontSize = 11.5.sp,
+                                                color = Color(0xFF475569)
                                             )
                                         }
                                     }
@@ -3402,7 +3789,7 @@ fun WhatsAppMessageBubble(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(0.5.dp)
-                                        .background(if (isMe) Color.White.copy(alpha = 0.2f) else Color(0xFFCBD5E1))
+                                        .background(Color(0xFFCBD5E1))
                                 )
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -3416,7 +3803,7 @@ fun WhatsAppMessageBubble(
                                             }
                                         }
                                     ) {
-                                        Text("Message", fontSize = 11.5.sp, color = if (isMe) Color.White else Color(0xFF0160E3), fontWeight = FontWeight.Bold)
+                                        Text("Message", fontSize = 11.5.sp, color = Color(0xFF0160E3), fontWeight = FontWeight.Bold)
                                     }
                                     TextButton(
                                         onClick = {
@@ -3430,7 +3817,7 @@ fun WhatsAppMessageBubble(
                                             try { context.startActivity(intent) } catch (_: Exception) {}
                                         }
                                     ) {
-                                        Text("Save", fontSize = 11.5.sp, color = if (isMe) Color.White else Color(0xFF0160E3), fontWeight = FontWeight.Bold)
+                                        Text("Save", fontSize = 11.5.sp, color = Color(0xFF0160E3), fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -3440,8 +3827,9 @@ fun WhatsAppMessageBubble(
                     isDoc -> {
                         val docName = message.text.substringAfter("📄").substringAfter("Document:").trim().ifBlank { "Document.pdf" }
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (isMe) Color(0xFF0A52BA) else Color(0xFFF1F5F9),
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isMe) Color(0xFFCCE4FD) else Color(0xFFF1F5F9),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, if (isMe) Color(0xFFBFDBFE) else Color(0xFFE2E8F0)),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(bottom = 3.dp)
@@ -3462,7 +3850,7 @@ fun WhatsAppMessageBubble(
                                 }
                         ) {
                             Row(
-                                modifier = Modifier.padding(7.dp),
+                                modifier = Modifier.padding(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Box(
@@ -3485,20 +3873,20 @@ fun WhatsAppMessageBubble(
                                         text = docName,
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = if (isMe) Color.White else Color(0xFF111B21),
+                                        color = Color(0xFF111827),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
                                         text = "PDF • 340 KB",
                                         fontSize = 11.sp,
-                                        color = if (isMe) Color.White.copy(alpha = 0.8f) else Color(0xFF64748B)
+                                        color = Color(0xFF64748B)
                                     )
                                 }
                                 Icon(
                                     imageVector = Icons.Default.OpenInNew,
                                     contentDescription = "Open",
-                                    tint = if (isMe) Color.White else Color(0xFF54656F),
+                                    tint = Color(0xFF0160E3),
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -3509,28 +3897,29 @@ fun WhatsAppMessageBubble(
                         var isPlaying by remember { mutableStateOf(false) }
                         val audioName = message.text.substringAfter("🎵").substringAfter("Audio:").trim().ifBlank { "Voice Note.mp3" }
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (isMe) Color(0xFF0A52BA) else Color(0xFFF1F5F9),
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isMe) Color(0xFFCCE4FD) else Color(0xFFF1F5F9),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, if (isMe) Color(0xFFBFDBFE) else Color(0xFFE2E8F0)),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(bottom = 3.dp)
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 6.dp),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Box(
                                     modifier = Modifier
                                         .size(34.dp)
                                         .clip(CircleShape)
-                                        .background(if (isMe) Color.White else Color(0xFF0160E3))
+                                        .background(Color(0xFF0160E3))
                                         .clickable { isPlaying = !isPlaying },
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
                                         imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                         contentDescription = if (isPlaying) "Pause" else "Play",
-                                        tint = if (isMe) Color(0xFF0160E3) else Color.White,
+                                        tint = Color.White,
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
@@ -3540,7 +3929,7 @@ fun WhatsAppMessageBubble(
                                         text = audioName,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = if (isMe) Color.White else Color(0xFF111B21),
+                                        color = Color(0xFF111827),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -3556,7 +3945,7 @@ fun WhatsAppMessageBubble(
                                                     .width(3.dp)
                                                     .height(barHeight)
                                                     .clip(RoundedCornerShape(1.dp))
-                                                    .background(if (isPlaying && idx < 7) (if (isMe) Color(0xFF93C5FD) else Color(0xFF0160E3)) else (if (isMe) Color.White.copy(alpha = 0.4f) else Color(0xFF94A3B8)))
+                                                    .background(if (isPlaying && idx < 7) Color(0xFF0160E3) else Color(0xFF94A3B8))
                                             )
                                         }
                                     }
@@ -3565,7 +3954,7 @@ fun WhatsAppMessageBubble(
                                 Text(
                                     text = "0:24",
                                     fontSize = 11.sp,
-                                    color = if (isMe) Color.White.copy(alpha = 0.8f) else Color(0xFF64748B)
+                                    color = Color(0xFF64748B)
                                 )
                             }
                         }
@@ -3579,171 +3968,304 @@ fun WhatsAppMessageBubble(
                         val options = pollLines.filter { it.firstOrNull()?.isDigit() == true }
 
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (isMe) Color(0xFF0A52BA) else Color(0xFFF1F5F9),
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isMe) Color(0xFFCCE4FD) else Color(0xFFF8FAFC),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, if (isMe) Color(0xFFBFDBFE) else Color(0xFFE2E8F0)),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(bottom = 3.dp)
                         ) {
-                            Column(modifier = Modifier.padding(8.dp)) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Poll,
+                                        contentDescription = null,
+                                        tint = Color(0xFF0160E3),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = question,
+                                        fontSize = 14.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF111827)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = question,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isMe) Color.White else Color(0xFF111B21)
-                                )
-                                Text(
-                                    text = "Select one option",
+                                    text = "Select one option • Tap to vote",
                                     fontSize = 11.sp,
-                                    color = if (isMe) Color.White.copy(alpha = 0.8f) else Color(0xFF64748B)
+                                    color = Color(0xFF64748B)
                                 )
-                                Spacer(modifier = Modifier.height(4.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
                                 options.forEachIndexed { idx, opt ->
                                     val isSelected = selectedOptionIndex == idx
+                                    val hasAnyVote = selectedOptionIndex != null
+                                    val pct = if (isSelected) 100 else 0
+                                    val voteText = if (isSelected) "1 vote (100%)" else if (hasAnyVote) "0 votes (0%)" else ""
+
                                     Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = if (isSelected) (if (isMe) Color.White.copy(alpha = 0.25f) else Color(0xFF0160E3).copy(alpha = 0.12f)) else (if (isMe) Color.White.copy(alpha = 0.1f) else Color.White),
-                                        border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) (if (isMe) Color.White else Color(0xFF0160E3)) else (if (isMe) Color.White.copy(alpha = 0.2f) else Color(0xFFE2E8F0))),
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color.White,
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            1.dp,
+                                            if (isSelected) Color(0xFF0160E3) else Color(0xFFE2E8F0)
+                                        ),
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(vertical = 2.dp)
-                                            .clickable { selectedOptionIndex = idx }
+                                            .padding(vertical = 3.dp)
+                                            .clickable {
+                                                selectedOptionIndex = if (selectedOptionIndex == idx) null else idx
+                                            }
                                     ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Box(
+                                        Box(modifier = Modifier.fillMaxWidth()) {
+                                            if (hasAnyVote && pct > 0) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth(pct / 100f)
+                                                        .height(40.dp)
+                                                        .background(Color(0xFFDBEAFE).copy(alpha = 0.6f))
+                                                )
+                                            }
+                                            Row(
                                                 modifier = Modifier
-                                                    .size(14.dp)
-                                                    .clip(CircleShape)
-                                                    .background(if (isSelected) (if (isMe) Color.White else Color(0xFF0160E3)) else Color.Transparent)
-                                                    .border(1.5.dp, if (isSelected) (if (isMe) Color.White else Color(0xFF0160E3)) else (if (isMe) Color.White.copy(alpha = 0.5f) else Color(0xFF94A3B8)), CircleShape)
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text(
-                                                text = opt,
-                                                fontSize = 12.5.sp,
-                                                color = if (isMe) Color.White else Color(0xFF111B21)
-                                            )
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(18.dp)
+                                                        .clip(CircleShape)
+                                                        .border(
+                                                            1.8.dp,
+                                                            if (isSelected) Color(0xFF0160E3) else Color(0xFF94A3B8),
+                                                            CircleShape
+                                                        )
+                                                        .background(if (isSelected) Color(0xFF0160E3) else Color.Transparent),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    if (isSelected) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Check,
+                                                            contentDescription = null,
+                                                            tint = Color.White,
+                                                            modifier = Modifier.size(12.dp)
+                                                        )
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Text(
+                                                    text = opt.substringAfter(". ").trim(),
+                                                    fontSize = 13.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                    color = Color(0xFF111827),
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                if (voteText.isNotBlank()) {
+                                                    Text(
+                                                        text = voteText,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = if (isSelected) Color(0xFF0160E3) else Color(0xFF64748B)
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Total votes: ${if (selectedOptionIndex != null) 1 else 0}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color(0xFF64748B)
+                                )
                             }
                         }
                     }
 
                     else -> {
-                        if (!message.boldHeader.isNullOrBlank()) {
-                            Text(
-                                text = message.boldHeader,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF111B21),
-                                lineHeight = 20.sp,
-                                modifier = Modifier.padding(bottom = 3.dp)
-                            )
-                        }
+                        if (!(hasImage && !hasCustomCaption)) {
+                            val otpRegex = remember { Regex("""\b\d{4,8}\b""") }
+                            val foundOtp = message.otpCode ?: if (message.isOtp || message.text.contains("two-factor", ignoreCase = true) || message.text.contains("OTP", ignoreCase = true)) otpRegex.find(message.text)?.value else null
 
-                        if (message.text.isNotBlank()) {
-                            Text(
-                                text = message.text,
-                                fontSize = 14.5.sp,
-                                color = Color(0xFF111B21),
-                                lineHeight = 20.sp
-                            )
-                        }
+                            val isShortSingleLine = message.text.length < 32 &&
+                                    !message.text.contains('\n') &&
+                                    !message.text.contains("http") &&
+                                    message.boldHeader.isNullOrBlank() &&
+                                    message.actionButtonText.isNullOrBlank() &&
+                                    (foundOtp == null || isMe)
 
-                        // OTP quick copy badge if message contains 4-8 digit OTP
-                        val otpRegex = remember { Regex("""\b\d{4,8}\b""") }
-                        val foundOtp = message.otpCode ?: if (message.isOtp || message.text.contains("two-factor", ignoreCase = true) || message.text.contains("OTP", ignoreCase = true)) otpRegex.find(message.text)?.value else null
-                        if (foundOtp != null && !isMe) {
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color(0xFFF0FDF4),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBBF7D0)),
-                                modifier = Modifier.clickable {
-                                    clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(foundOtp))
-                                    android.widget.Toast.makeText(context, "Copied code: $foundOtp", android.widget.Toast.LENGTH_SHORT).show()
-                                }
+                        if (isShortSingleLine) {
+                            Row(
+                                verticalAlignment = Alignment.Bottom,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.padding(bottom = 1.dp)
                             ) {
+                                Text(
+                                    text = message.text,
+                                    fontSize = 14.5.sp,
+                                    color = Color(0xFF111827),
+                                    lineHeight = 20.sp
+                                )
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(bottom = 1.dp)
+                                ) {
+                                    Text(
+                                        text = formatMessageTime(message.timestamp),
+                                        fontSize = 10.5.sp,
+                                        color = Color(0xFF64748B)
+                                    )
+                                    if (isMe) {
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Icon(
+                                            imageVector = Icons.Default.DoneAll,
+                                            contentDescription = "Read",
+                                            tint = Color(0xFF0284C7),
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            if (!message.boldHeader.isNullOrBlank()) {
+                                Text(
+                                    text = message.boldHeader,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF111827),
+                                    lineHeight = 20.sp,
+                                    modifier = Modifier.padding(bottom = 3.dp)
+                                )
+                            }
+
+                            if (message.text.isNotBlank()) {
+                                Text(
+                                    text = message.text,
+                                    fontSize = 14.5.sp,
+                                    color = Color(0xFF111827),
+                                    lineHeight = 20.sp
+                                )
+                            }
+
+                            // OTP quick copy badge in Official Blue style
+                            if (foundOtp != null && !isMe) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color(0xFFEFF6FF),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBFDBFE)),
+                                    modifier = Modifier.clickable {
+                                        clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(foundOtp))
+                                        android.widget.Toast.makeText(context, "Copied code: $foundOtp", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ContentCopy,
+                                            contentDescription = "Copy code",
+                                            tint = Color(0xFF0160E3),
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "Copy $foundOtp",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color(0xFF0160E3)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Interactive card action button in Official Blue style
+                            if (!message.actionButtonText.isNullOrBlank()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(0.8.dp)
+                                        .background(Color(0xFFE2E8F0))
+                                )
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onActionClick(message.actionButtonText) }
+                                        .padding(vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.Center,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.ContentCopy,
-                                        contentDescription = "Copy code",
-                                        tint = Color(0xFF008069),
-                                        modifier = Modifier.size(13.dp)
+                                        imageVector = Icons.Default.OpenInNew,
+                                        contentDescription = null,
+                                        tint = Color(0xFF0160E3),
+                                        modifier = Modifier.size(16.dp)
                                     )
-                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "Copy $foundOtp",
-                                        fontSize = 12.sp,
+                                        text = message.actionButtonText,
+                                        fontSize = 14.sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = Color(0xFF008069)
+                                        color = Color(0xFF0160E3)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(2.dp))
+
+                            Row(
+                                modifier = Modifier.align(Alignment.End),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = formatMessageTime(message.timestamp),
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF64748B)
+                                )
+
+                                if (isMe) {
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Icon(
+                                        imageVector = Icons.Default.DoneAll,
+                                        contentDescription = "Read",
+                                        tint = Color(0xFF0284C7),
+                                        modifier = Modifier.size(15.dp)
                                     )
                                 }
                             }
                         }
-
-                        // Interactive card action button (e.g. "This wasn't me" matching user screenshot!)
-                        if (!message.actionButtonText.isNullOrBlank()) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(0.8.dp)
-                                    .background(Color(0xFFE2E8F0))
-                            )
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { onActionClick(message.actionButtonText) }
-                                    .padding(vertical = 8.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.OpenInNew,
-                                    contentDescription = null,
-                                    tint = Color(0xFF008069),
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = message.actionButtonText,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color(0xFF008069)
-                                )
-                            }
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(2.dp))
-
-                Row(
-                    modifier = Modifier.align(Alignment.End),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = formatMessageTime(message.timestamp),
-                        fontSize = 11.sp,
-                        color = Color(0xFF667781)
-                    )
-
-                    if (isMe) {
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Icon(
-                            imageVector = Icons.Default.DoneAll,
-                            contentDescription = "Read",
-                            tint = Color(0xFF53BDEB),
-                            modifier = Modifier.size(15.dp)
+                // If special card type (media, location, contact, audio, poll), show timestamp at bottom
+                val isSpecialMediaCard = isLocation || isContact || isDoc || isAudio || isPoll
+                if (isSpecialMediaCard) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Row(
+                        modifier = Modifier.align(Alignment.End),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = formatMessageTime(message.timestamp),
+                            fontSize = 11.sp,
+                            color = Color(0xFF64748B)
                         )
+
+                        if (isMe) {
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Icon(
+                                imageVector = Icons.Default.DoneAll,
+                                contentDescription = "Read",
+                                tint = Color(0xFF0284C7),
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -4193,4 +4715,379 @@ private val chatDisplayDateFormat = SimpleDateFormat("d MMMM yyyy", Locale.US)
 private fun getChatDisplayDate(timestamp: Long): String {
     val date = Date(timestamp)
     return synchronized(chatDisplayDateFormat) { chatDisplayDateFormat.format(date) }
+}
+
+/**
+ * List / Contact Card icon as shown in user's reference image:
+ * Features two stacked rounded rectangle cards with a person silhouette (head circle & shoulder arc).
+ */
+@Composable
+fun ChatListIcon(
+    modifier: Modifier = Modifier,
+    tint: Color = Color(0xFF111827)
+) {
+    androidx.compose.foundation.Canvas(modifier = modifier.size(24.dp)) {
+        val stroke = androidx.compose.ui.graphics.drawscope.Stroke(
+            width = 1.8.dp.toPx(),
+            cap = androidx.compose.ui.graphics.StrokeCap.Round,
+            join = androidx.compose.ui.graphics.StrokeJoin.Round
+        )
+        val w = size.width
+        val h = size.height
+
+        // Back layer card (offset to the bottom-left)
+        val backPath = androidx.compose.ui.graphics.Path().apply {
+            moveTo(w * 0.12f, h * 0.30f)
+            lineTo(w * 0.12f, h * 0.88f)
+            quadraticTo(w * 0.12f, h * 0.96f, w * 0.20f, h * 0.96f)
+            lineTo(w * 0.72f, h * 0.96f)
+        }
+        drawPath(backPath, color = tint, style = stroke)
+
+        // Front card (rounded rectangle)
+        val frontCorner = 3.dp.toPx()
+        drawRoundRect(
+            color = tint,
+            topLeft = androidx.compose.ui.geometry.Offset(w * 0.28f, h * 0.08f),
+            size = androidx.compose.ui.geometry.Size(w * 0.68f, h * 0.76f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(frontCorner, frontCorner),
+            style = stroke
+        )
+
+        // Avatar head inside front card
+        val headRadius = 2.4.dp.toPx()
+        drawCircle(
+            color = tint,
+            radius = headRadius,
+            center = androidx.compose.ui.geometry.Offset(w * 0.62f, h * 0.36f),
+            style = stroke
+        )
+
+        // Avatar shoulders inside front card
+        val shoulderPath = androidx.compose.ui.graphics.Path().apply {
+            moveTo(w * 0.44f, h * 0.68f)
+            quadraticTo(w * 0.62f, h * 0.50f, w * 0.80f, h * 0.68f)
+        }
+        drawPath(shoulderPath, color = tint, style = stroke)
+    }
+}
+
+/**
+ * Call icon with a plus sign at the top right, as shown in user's reference image.
+ */
+@Composable
+fun ChatCallWithPlusIcon(
+    modifier: Modifier = Modifier,
+    tint: Color = Color(0xFF111827)
+) {
+    Box(
+        modifier = modifier.size(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = Icons.Default.Call,
+            contentDescription = "Call",
+            tint = tint,
+            modifier = Modifier.size(20.dp)
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .offset(x = 1.dp, y = (-2).dp)
+                .size(11.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(11.dp)
+            )
+        }
+    }
+}
+
+/**
+ * Select Call Type Bottom Sheet matching user's reference image:
+ * Features a top drag handle, "Select call type" title in Official Blue,
+ * and two clean options: "Voice call" and "Video call".
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SelectCallTypeBottomSheet(
+    onDismissRequest: () -> Unit,
+    onVoiceCallClick: () -> Unit,
+    onVideoCallClick: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismissRequest,
+        containerColor = Color.White,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        dragHandle = {
+            Surface(
+                modifier = Modifier
+                    .padding(vertical = 12.dp)
+                    .size(width = 38.dp, height = 4.dp),
+                shape = RoundedCornerShape(2.dp),
+                color = Color(0xFFD1D5DB)
+            ) {}
+        },
+        modifier = Modifier
+            .navigationBarsPadding()
+            .testTag("select_call_type_bottom_sheet")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 28.dp)
+        ) {
+            Text(
+                text = "Select call type",
+                fontSize = 14.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFF0160E3), // Official Blue as requested
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Voice Call
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        onDismissRequest()
+                        onVoiceCallClick()
+                    }
+                    .padding(horizontal = 24.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Call,
+                    contentDescription = "Voice call",
+                    tint = Color(0xFF111827),
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.width(20.dp))
+                Text(
+                    text = "Voice call",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color(0xFF111827)
+                )
+            }
+
+            // Video Call
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        onDismissRequest()
+                        onVideoCallClick()
+                    }
+                    .padding(horizontal = 24.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Videocam,
+                    contentDescription = "Video call",
+                    tint = Color(0xFF111827),
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(20.dp))
+                Text(
+                    text = "Video call",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color(0xFF111827)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Chat Lists Bottom Sheet: allows user to manage / assign this conversation
+ * to custom lists (e.g., Favorites, Friends, Family, Work, VIP).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ChatListsBottomSheet(
+    conversation: Conversation,
+    onDismissRequest: () -> Unit,
+    onSaveLists: (List<String>) -> Unit
+) {
+    val defaultLists = remember {
+        listOf(
+            "favorites" to "Favorites",
+            "friends" to "Friends",
+            "family" to "Family",
+            "work" to "Work",
+            "vip" to "VIP",
+            "direct" to "Direct Messages"
+        )
+    }
+    var selectedLists by remember {
+        mutableStateOf(conversation.labelIds.toSet())
+    }
+    var newListName by remember { mutableStateOf("") }
+    var showAddCustomList by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    ModalBottomSheet(
+        onDismissRequest = onDismissRequest,
+        containerColor = Color.White,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        dragHandle = {
+            Surface(
+                modifier = Modifier
+                    .padding(vertical = 12.dp)
+                    .size(width = 38.dp, height = 4.dp),
+                shape = RoundedCornerShape(2.dp),
+                color = Color(0xFFD1D5DB)
+            ) {}
+        },
+        modifier = Modifier
+            .navigationBarsPadding()
+            .testTag("chat_lists_bottom_sheet")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text(
+                        text = "Lists",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF111827)
+                    )
+                    Text(
+                        text = "Add ${conversation.title} to custom lists",
+                        fontSize = 12.5.sp,
+                        color = Color(0xFF64748B)
+                    )
+                }
+                TextButton(
+                    onClick = {
+                        onSaveLists(selectedLists.toList())
+                        onDismissRequest()
+                        Toast.makeText(context, "Lists updated", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text(
+                        text = "Done",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0160E3) // Official Blue
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            defaultLists.forEach { (id, title) ->
+                val isSelected = selectedLists.contains(id)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable {
+                            selectedLists = if (isSelected) {
+                                selectedLists - id
+                            } else {
+                                selectedLists + id
+                            }
+                        }
+                        .padding(vertical = 10.dp, horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .border(
+                                width = 1.8.dp,
+                                color = if (isSelected) Color(0xFF0160E3) else Color(0xFFCBD5E1),
+                                shape = RoundedCornerShape(6.dp)
+                            )
+                            .background(if (isSelected) Color(0xFF0160E3) else Color.Transparent),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isSelected) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Text(
+                        text = title,
+                        fontSize = 15.sp,
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                        color = Color(0xFF111827)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (!showAddCustomList) {
+                TextButton(
+                    onClick = { showAddCustomList = true },
+                    modifier = Modifier.align(Alignment.Start)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null,
+                        tint = Color(0xFF0160E3),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "New List",
+                        color = Color(0xFF0160E3),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = newListName,
+                        onValueChange = { newListName = it },
+                        placeholder = { Text("List name") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            if (newListName.isNotBlank()) {
+                                val cleanId = newListName.lowercase().replace(" ", "_")
+                                selectedLists = selectedLists + cleanId
+                                newListName = ""
+                                showAddCustomList = false
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3))
+                    ) {
+                        Text("Add")
+                    }
+                }
+            }
+        }
+    }
 }

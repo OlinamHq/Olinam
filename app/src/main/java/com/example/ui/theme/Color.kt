@@ -25,6 +25,14 @@ val OlinamInviteBlue = Color(0xFF3F59C7)
 val OlinamOnlineGreen = Color(0xFF22C55E)
 val OlinamCheckBlue = Color(0xFF3B82F6)
 
+// Official Blue Chat Bubble & Tagged Reply Tokens
+val OlinamOutgoingBubbleBg = Color(0xFFDCEBFC) // Soft official blue for sent message bubbles
+val OlinamIncomingBubbleBg = Color(0xFFFFFFFF) // Clean white for incoming message bubbles
+val OlinamReplyBarColor = Color(0xFF0160E3) // Official royal blue bar for tagged replies
+val OlinamReplyContainerBgSent = Color(0xFFCCE4FD) // Slightly deeper soft blue for quoted reply inside sent bubble
+val OlinamReplyContainerBgReceived = Color(0xFFF1F5F9) // Clean slate tint for quoted reply inside received bubble
+val OlinamReadCheckColor = Color(0xFF0284C7) // WhatsApp-style blue double ticks
+
 // Dark mode tokens
 val OlinamDarkPrimary = Color(0xFF8CA5FF)
 val OlinamDarkBackground = Color(0xFF11141C)
