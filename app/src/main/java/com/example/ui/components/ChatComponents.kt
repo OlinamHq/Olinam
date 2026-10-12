@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -716,7 +717,6 @@ fun OlinamBottomNavBar(
 ) {
     Surface(
         color = Color.White,
-        border = androidx.compose.foundation.BorderStroke(0.6.dp, Color(0xFFE2E8F0)),
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
@@ -828,27 +828,35 @@ private fun androidx.compose.foundation.layout.RowScope.BottomNavItem(
                 .height(32.dp)
                 .clip(RoundedCornerShape(16.dp))
                 .background(if (selected) Color(0xFFE9EBEA) else Color.Transparent)
-                .padding(horizontal = 18.dp, vertical = 4.dp),
+                .padding(horizontal = 16.dp, vertical = 4.dp),
             contentAlignment = Alignment.Center
         ) {
-            val iconTint = if (selected) Color(0xFF111B21) else Color(0xFF54656F)
-            icon(iconTint)
+            Box(
+                contentAlignment = Alignment.Center
+            ) {
+                val iconTint = if (selected) Color(0xFF111B21) else Color(0xFF54656F)
+                icon(iconTint)
 
-            if (!badgeText.isNullOrBlank()) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFF0160E3),
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .offset(x = 10.dp, y = (-4).dp)
-                ) {
-                    Text(
-                        text = badgeText,
-                        color = Color.White,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 4.5.dp, vertical = 1.dp)
-                    )
+                if (!badgeText.isNullOrBlank()) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = 10.dp, y = (-6).dp)
+                            .defaultMinSize(minWidth = 14.dp, minHeight = 14.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF007AFF))
+                            .padding(horizontal = 3.dp, vertical = 0.5.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = badgeText,
+                            color = Color.White,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            lineHeight = 10.sp,
+                            maxLines = 1
+                        )
+                    }
                 }
             }
         }

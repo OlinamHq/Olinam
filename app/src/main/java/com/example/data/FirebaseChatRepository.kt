@@ -375,19 +375,22 @@ class FirebaseChatRepository {
                 it.id == smsConv.id || (it.phoneNumber != null && it.phoneNumber == smsConv.phoneNumber)
             }
             if (idx >= 0) {
+                val isSms = existing[idx].isSmsContact || smsConv.isSmsContact
+                val labels = if (isSms) listOf("sms") else (if (existing[idx].labelIds.contains("sms")) existing[idx].labelIds else existing[idx].labelIds + "sms")
                 existing[idx] = existing[idx].copy(
                     lastMessageText = smsConv.lastMessageText,
                     lastMessageTimestamp = smsConv.lastMessageTimestamp,
                     isSpam = false,
-                    labelIds = if (existing[idx].labelIds.contains("sms")) existing[idx].labelIds else existing[idx].labelIds + "sms"
+                    isSmsContact = isSms,
+                    labelIds = labels
                 )
             } else {
-                existing.add(smsConv)
+                existing.add(smsConv.copy(isSmsContact = true, labelIds = listOf("sms")))
             }
         }
-        existing.sortByDescending { it.lastMessageTimestamp }
-        _conversations.value = existing
-        localDb?.saveConversations(existing)
+        val distinctList = existing.distinctBy { it.id }.sortedByDescending { it.lastMessageTimestamp }
+        _conversations.value = distinctList
+        localDb?.saveConversations(distinctList)
     }
 
     private fun listenToConversations() {
@@ -706,8 +709,8 @@ class FirebaseChatRepository {
                     it.title.contains(phoneNumber)
         }
         if (existing != null) {
-            // Ensure this conversation appears in Chats tab by adding "direct" label
-            if (!existing.labelIds.contains("direct")) {
+            // Ensure this conversation appears in Chats tab by adding "direct" label only if app contact
+            if (!isSms && !existing.isSmsContact && !existing.labelIds.contains("direct")) {
                 val updatedLabels = existing.labelIds + "direct"
                 val updatedConv = existing.copy(labelIds = updatedLabels)
                 val list = _conversations.value.toMutableList()
@@ -739,7 +742,7 @@ class FirebaseChatRepository {
             isE2EE = !finalIsSms,
             onlineStatus = if (!finalIsSms) "End-to-End Encrypted 🔒" else "Cellular SMS (No Olinam app installed)",
             phoneNumber = phoneNumber,
-            labelIds = if (finalIsSms) listOf("direct", "sms") else listOf("direct")
+            labelIds = if (finalIsSms) listOf("sms") else listOf("direct")
         )
 
         val updated = _conversations.value.toMutableList()
@@ -1047,7 +1050,8 @@ class FirebaseChatRepository {
             .map {
                 it.copy(
                     isSpam = false,
-                    labelIds = if (it.labelIds.contains("sms")) it.labelIds else it.labelIds + "sms"
+                    isSmsContact = true,
+                    labelIds = listOf("sms")
                 )
             }
         lastSmsConversations = allSms

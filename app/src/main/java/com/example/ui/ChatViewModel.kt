@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -73,6 +74,11 @@ class ChatViewModel @JvmOverloads constructor(
 
     val allConversations: StateFlow<List<Conversation>> = repository.conversations
 
+    val unreadAppChatsCount: StateFlow<Int> = repository.conversations.map { all ->
+        all.filter { !it.isSmsContact && !it.id.startsWith("sms_") && !it.labelIds.contains("sms") }
+            .sumOf { it.unreadCount }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
     val conversations: StateFlow<List<Conversation>> = combine(
         repository.conversations,
         _searchQuery,
@@ -81,8 +87,11 @@ class ChatViewModel @JvmOverloads constructor(
     ) { allConv, query, labelId, labelsList ->
         allConv.filter { conv ->
             val matchesLabel = when (labelId) {
-                "direct" -> conv.labelIds.contains("direct") || conv.isGroup || !conv.id.startsWith("sms_thread_")
-                "groups" -> conv.isGroup || conv.labelIds.contains("groups")
+                // Chats tab: strictly app-to-app chats only (no text/SMS messages)
+                "direct" -> !conv.isSmsContact && !conv.id.startsWith("sms_") && !conv.labelIds.contains("sms")
+                // Groups tab: app groups only
+                "groups" -> (conv.isGroup || conv.labelIds.contains("groups")) && !conv.isSmsContact
+                // SMS tab: cellular text messages
                 "sms" -> conv.isSmsContact || conv.labelIds.contains("sms") || conv.id.startsWith("sms_")
                 else -> {
                     val target = labelsList.find { it.id == labelId }

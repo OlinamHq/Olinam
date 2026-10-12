@@ -577,12 +577,10 @@ fun HomeScreen(
             }
         },
         bottomBar = {
-            val totalUnread = remember(conversations) {
-                conversations.sumOf { it.unreadCount }
-            }
+            val unreadChatsCount by viewModel.unreadAppChatsCount.collectAsState()
             OlinamBottomNavBar(
                 currentTab = currentTab,
-                unreadChatsCount = totalUnread,
+                unreadChatsCount = unreadChatsCount,
                 onTabSelected = { viewModel.setTab(it) }
             )
         },
