@@ -5,8 +5,11 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.ui.res.painterResource
+import com.example.R
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -152,30 +156,23 @@ fun LoginScreen(
     ) {
         Spacer(modifier = Modifier.height(32.dp))
 
-        // WhatsApp-style Olinam Logo & Branding in Royal Blue
-        Box(
+        // Official Olinam Chat Bubble App Icon (Flat Vector Match)
+        Image(
+            painter = painterResource(id = R.drawable.olinam_app_icon_flat),
+            contentDescription = "Olinam",
             modifier = Modifier
                 .size(76.dp)
                 .clip(CircleShape)
-                .background(OlinamPrimaryContainer),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.ChatBubble,
-                contentDescription = "Olinam",
-                tint = OlinamPrimary,
-                modifier = Modifier.size(42.dp)
-            )
-        }
+        )
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        Text(
-            text = "Olinam",
-            fontSize = 26.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color(0xFF0F172A),
-            letterSpacing = (-0.5).sp
+        Image(
+            painter = painterResource(id = R.drawable.ic_olinam_logo_text),
+            contentDescription = "Olinam",
+            modifier = Modifier
+                .height(36.dp)
+                .widthIn(max = 160.dp)
         )
 
         Spacer(modifier = Modifier.height(4.dp))

@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.layout.ContentScale
@@ -116,24 +118,18 @@ fun OlinamTopBar(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // "Olinam•" branding title matching screenshot
+        // Olinam branding logo image (clean without any trailing dot)
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.testTag("app_title_olinam")
         ) {
-            Text(
-                text = "Olinam",
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF111B21),
-                letterSpacing = (-0.5).sp
-            )
-            Spacer(modifier = Modifier.width(3.dp))
-            Box(
+            Image(
+                painter = painterResource(id = R.drawable.ic_olinam_logo_text),
+                contentDescription = "Olinam",
                 modifier = Modifier
-                    .size(7.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF007AFF))
+                    .height(28.dp)
+                    .widthIn(max = 130.dp),
+                contentScale = ContentScale.Fit
             )
         }
 

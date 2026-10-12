@@ -92,9 +92,28 @@ class LocalChatDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_N
 
     override fun onOpen(db: SQLiteDatabase) {
         super.onOpen(db)
-        try { db.execSQL("ALTER TABLE $TABLE_MESSAGES ADD COLUMN replyToMessageId TEXT") } catch (_: Exception) {}
-        try { db.execSQL("ALTER TABLE $TABLE_MESSAGES ADD COLUMN replyToSenderName TEXT") } catch (_: Exception) {}
-        try { db.execSQL("ALTER TABLE $TABLE_MESSAGES ADD COLUMN replyToText TEXT") } catch (_: Exception) {}
+        ensureColumnExists(db, TABLE_MESSAGES, "replyToMessageId", "TEXT")
+        ensureColumnExists(db, TABLE_MESSAGES, "replyToSenderName", "TEXT")
+        ensureColumnExists(db, TABLE_MESSAGES, "replyToText", "TEXT")
+    }
+
+    private fun ensureColumnExists(db: SQLiteDatabase, tableName: String, columnName: String, columnType: String) {
+        var columnFound = false
+        try {
+            val cursor = db.rawQuery("PRAGMA table_info($tableName)", null)
+            cursor.use {
+                val nameIdx = it.getColumnIndex("name")
+                while (it.moveToNext()) {
+                    if (nameIdx >= 0 && it.getString(nameIdx).equals(columnName, ignoreCase = true)) {
+                        columnFound = true
+                        break
+                    }
+                }
+            }
+            if (!columnFound) {
+                db.execSQL("ALTER TABLE $tableName ADD COLUMN $columnName $columnType")
+            }
+        } catch (_: Exception) {}
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
