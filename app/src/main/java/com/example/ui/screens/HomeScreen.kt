@@ -137,6 +137,7 @@ fun HomeScreen(
     var showLinkedDevicesScreen by remember { mutableStateOf(false) }
     var showStarredMessagesScreen by remember { mutableStateOf(false) }
     var showSettingsScreen by remember { mutableStateOf(false) }
+    var showConnectedServicesScreen by remember { mutableStateOf(false) }
     var showManageListsSheet by remember { mutableStateOf(false) }
     val labelSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val manageListsSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -366,6 +367,15 @@ fun HomeScreen(
         return
     }
 
+    // Connected Google services and account-specific permissions
+    if (showConnectedServicesScreen) {
+        ConnectedServicesScreen(
+            currentUser = currentUser,
+            onBackClick = { showConnectedServicesScreen = false }
+        )
+        return
+    }
+
     // Dedicated Full Settings Screen (Option 5 in 3-dot menu)
     if (showSettingsScreen) {
         SettingsScreen(
@@ -382,6 +392,10 @@ fun HomeScreen(
             onSecurityClick = {
                 showSettingsScreen = false
                 showSecurityDialog = true
+            },
+            onConnectedServicesClick = {
+                showSettingsScreen = false
+                showConnectedServicesScreen = true
             }
         )
         return
