@@ -129,6 +129,7 @@ fun HomeScreen(
     var showContactProfileScreen by remember { mutableStateOf(false) }
     var quickViewConversation by remember { mutableStateOf<Conversation?>(null) }
     var viewingProfileConv by remember { mutableStateOf<Conversation?>(null) }
+    var viewingGroupInfoConv by remember { mutableStateOf<Conversation?>(null) }
     var lockedConvPrompt by remember { mutableStateOf<Conversation?>(null) }
     var unlockPinInput by remember { mutableStateOf("") }
     var unlockPinError by remember { mutableStateOf(false) }
@@ -434,6 +435,25 @@ fun HomeScreen(
 
     // Dedicated Contact Profile Screen (opened from ChatDetailScreen or from DP Quick View Popup)
     val selectedConv = allConversations.find { it.id == activeConversationId }
+
+    val groupInfo = viewingGroupInfoConv
+    if (groupInfo != null) {
+        GroupInfoScreen(
+            conversation = groupInfo,
+            currentUserId = currentUser.id,
+            onBackClick = { viewingGroupInfoConv = null },
+            onSaveGroupName = { name ->
+                viewModel.updateGroupName(groupInfo.id, name)
+                viewingGroupInfoConv = groupInfo.copy(title = name)
+            },
+            onUpdateMembers = { participantIds ->
+                viewModel.updateGroupParticipants(groupInfo.id, participantIds)
+                viewingGroupInfoConv = groupInfo.copy(participantIds = participantIds)
+            }
+        )
+        return
+    }
+
     val profileToDisplay = viewingProfileConv ?: if (showContactProfileScreen) selectedConv else null
     if (profileToDisplay != null) {
         ContactProfileScreen(
@@ -476,6 +496,7 @@ fun HomeScreen(
             canSendReply = viewModel.canSendReplyTo(selectedConv),
             onBackClick = {
                 showContactProfileScreen = false
+                viewingGroupInfoConv = null
                 viewModel.closeConversation()
             },
             onSendMessage = { text ->
@@ -510,7 +531,7 @@ fun HomeScreen(
             },
             onVerifyAppStatus = { viewModel.verifyAndUpdateConversationAppStatus(selectedConv.id) },
             onLoadMessages = { viewModel.loadMessagesForConversation(selectedConv.id, context) },
-            onOpenProfile = { showContactProfileScreen = true },
+            onOpenProfile = { if (selectedConv.isGroup) viewingGroupInfoConv = selectedConv else showContactProfileScreen = true },
             onDeleteMessage = { msgId -> viewModel.deleteMessage(selectedConv.id, msgId) },
             onClearChat = { viewModel.clearConversation(selectedConv.id) },
             onDeleteChat = {
