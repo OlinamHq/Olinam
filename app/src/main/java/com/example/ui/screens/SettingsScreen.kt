@@ -77,7 +77,8 @@ fun SettingsScreen(
     onBackClick: () -> Unit,
     onEditProfileClick: () -> Unit,
     onQrClick: () -> Unit,
-    onSecurityClick: () -> Unit
+    onSecurityClick: () -> Unit,
+    onConnectedServicesClick: () -> Unit
 ) {
     BackHandler { onBackClick() }
 
@@ -211,6 +212,13 @@ fun SettingsScreen(
                     activeInfoDialogTitle = "Account Settings"
                     activeInfoDialogContent = "Manage your registered phone number (${currentUser.phoneNumber.ifBlank { "Not set" }}), passkeys, and account security notifications."
                 }
+            )
+
+            SettingsMenuItem(
+                icon = Icons.Default.Share,
+                title = "Connected apps",
+                subtitle = "Gmail, Calendar, Maps, Contacts, Drive and Photos",
+                onClick = onConnectedServicesClick
             )
 
             SettingsMenuItem(
