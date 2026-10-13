@@ -449,7 +449,8 @@ fun HomeScreen(
             onUpdateMembers = { participantIds ->
                 viewModel.updateGroupParticipants(groupInfo.id, participantIds)
                 viewingGroupInfoConv = groupInfo.copy(participantIds = participantIds)
-            }
+            },
+            onVerifyParticipant = { phone -> viewModel.verifyPhoneNumberRegistered(phone) }
         )
         return
     }
