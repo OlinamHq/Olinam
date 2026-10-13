@@ -35,6 +35,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,12 +60,16 @@ fun GroupInfoScreen(
     currentUserId: String,
     onBackClick: () -> Unit,
     onSaveGroupName: (String) -> Unit,
-    onUpdateMembers: (List<String>) -> Unit
+    onUpdateMembers: (List<String>) -> Unit,
+    onVerifyParticipant: suspend (String) -> Boolean
 ) {
     BackHandler { onBackClick() }
     var groupName by remember(conversation.id, conversation.title) { mutableStateOf(conversation.title) }
     var newMember by remember(conversation.id) { mutableStateOf("") }
     var showRemoveConfirm by remember { mutableStateOf<String?>(null) }
+    var memberError by remember(conversation.id) { mutableStateOf<String?>(null) }
+    var isCheckingMember by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     val members = remember(conversation.participantIds) { conversation.participantIds.distinct() }
 
     Scaffold(
@@ -132,7 +138,7 @@ fun GroupInfoScreen(
                 ) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Add participant", fontWeight = FontWeight.Bold, color = Color(0xFF101828))
-                        Text("Enter the participant's Olinam user ID or phone number.", fontSize = 12.sp, color = Color(0xFF667085))
+                        Text("Enter a phone number already registered with Olinam.", fontSize = 12.sp, color = Color(0xFF667085))
                         OutlinedTextField(
                             value = newMember,
                             onValueChange = { newMember = it },
@@ -144,19 +150,32 @@ fun GroupInfoScreen(
                         Button(
                             onClick = {
                                 val value = newMember.trim()
-                                if (value.isNotBlank() && value !in members) {
-                                    onUpdateMembers((members + value).distinct())
-                                    newMember = ""
+                                scope.launch {
+                                    isCheckingMember = true
+                                    memberError = null
+                                    try {
+                                        if (onVerifyParticipant(value)) {
+                                            if (value !in members) onUpdateMembers((members + value).distinct())
+                                            newMember = ""
+                                        } else {
+                                            memberError = "This phone number is not registered with Olinam."
+                                        }
+                                    } catch (_: Exception) {
+                                        memberError = "Could not verify this number. Please try again."
+                                    } finally {
+                                        isCheckingMember = false
+                                    }
                                 }
                             },
-                            enabled = newMember.isNotBlank() && newMember.trim() !in members,
+                            enabled = newMember.isNotBlank() && newMember.trim() !in members && !isCheckingMember,
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.buttonColors(containerColor = GroupBlue)
                         ) {
                             Icon(Icons.Default.PersonAdd, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
-                            Text("Add participant")
+                            Text(if (isCheckingMember) "Checking number..." else "Add participant")
                         }
+                        memberError?.let { Text(it, color = Color(0xFFB42318), fontSize = 12.sp) }
                     }
                 }
             }
