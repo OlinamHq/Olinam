@@ -889,6 +889,49 @@ class FirebaseChatRepository {
         return newId
     }
 
+    fun updateGroupName(conversationId: String, name: String) {
+        val cleanName = name.trim()
+        if (cleanName.isBlank()) return
+        val updated = _conversations.value.map { conv ->
+            if (conv.id == conversationId && conv.isGroup) conv.copy(title = cleanName) else conv
+        }
+        _conversations.value = updated
+        updated.find { it.id == conversationId }?.let { localDb?.saveConversation(it) }
+        firestore?.let { db ->
+            scope.launch {
+                try {
+                    db.collection("conversations").document(conversationId).set(
+                        mapOf("title" to cleanName, "isGroup" to true),
+                        com.google.firebase.firestore.SetOptions.merge()
+                    )
+                } catch (e: Exception) {
+                    Log.w(tag, "Firestore group rename failed: ${e.message}")
+                }
+            }
+        }
+    }
+
+    fun updateGroupParticipants(conversationId: String, participantIds: List<String>) {
+        val cleanIds = participantIds.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+        val updated = _conversations.value.map { conv ->
+            if (conv.id == conversationId && conv.isGroup) conv.copy(participantIds = cleanIds) else conv
+        }
+        _conversations.value = updated
+        updated.find { it.id == conversationId }?.let { localDb?.saveConversation(it) }
+        firestore?.let { db ->
+            scope.launch {
+                try {
+                    db.collection("conversations").document(conversationId).set(
+                        mapOf("participantIds" to cleanIds, "isGroup" to true),
+                        com.google.firebase.firestore.SetOptions.merge()
+                    )
+                } catch (e: Exception) {
+                    Log.w(tag, "Firestore group participant update failed: ${e.message}")
+                }
+            }
+        }
+    }
+
     fun getOrCreateConversationForContact(name: String, phoneNumber: String, isSms: Boolean = false): String {
         val existing = _conversations.value.find {
             it.title.equals(name, ignoreCase = true) ||
