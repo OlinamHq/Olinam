@@ -113,6 +113,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -556,6 +557,9 @@ fun ChatDetailScreen(
     }
     var isContactBlocked by remember(conversation.id) {
         mutableStateOf(chatPrefs.getBoolean("blocked_${conversation.id}", false))
+    }
+    var isOjAiAutoEnabled by remember(conversation.id) {
+        mutableStateOf(chatPrefs.getBoolean("oj_ai_auto_${conversation.id}", false))
     }
     var isChatStarred by remember(conversation.id) {
         mutableStateOf(chatPrefs.getBoolean("starred_${conversation.id}", false))
@@ -1414,6 +1418,35 @@ fun ChatDetailScreen(
             Column(
                 modifier = Modifier.fillMaxSize()
             ) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    color = if (isOjAiAutoEnabled) Color(0xFFE8F3FF) else Color.White.copy(alpha = 0.94f),
+                    shape = RoundedCornerShape(14.dp),
+                    shadowElevation = 1.dp
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Oj AI for this chat", color = Color(0xFF173B70), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                if (isOjAiAutoEnabled) "Enabled for this conversation on this device" else "Off · enable only for contacts you choose",
+                                color = Color(0xFF667085),
+                                fontSize = 11.sp
+                            )
+                        }
+                        Switch(
+                            checked = isOjAiAutoEnabled,
+                            onCheckedChange = { enabled ->
+                                isOjAiAutoEnabled = enabled
+                                chatPrefs.edit().putBoolean("oj_ai_auto_${conversation.id}", enabled).apply()
+                                Toast.makeText(context, if (enabled) "Oj AI preference enabled for this chat" else "Oj AI preference disabled for this chat", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    }
+                }
+
                 // Messages list filling the available space above the input
                 LazyColumn(
                     state = listState,
