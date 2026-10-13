@@ -315,6 +315,14 @@ class ChatViewModel @JvmOverloads constructor(
         openConversation(convId)
         return convId
     }
+    fun updateGroupName(conversationId: String, name: String) {
+        repository.updateGroupName(conversationId, name)
+    }
+
+    fun updateGroupParticipants(conversationId: String, participantIds: List<String>) {
+        repository.updateGroupParticipants(conversationId, participantIds)
+    }
+
     fun getOrCreateConversationForContact(name: String, phoneNumber: String, isSms: Boolean = false): String {
         return repository.getOrCreateConversationForContact(name, phoneNumber, isSms)
     }
