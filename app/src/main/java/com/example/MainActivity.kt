@@ -14,9 +14,16 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import com.example.receiver.SmsNotificationHelper
 import com.example.ui.ChatViewModel
 import com.example.ui.screens.HomeScreen
+import com.example.ui.screens.SplashScreen
 import com.example.ui.theme.MyApplicationTheme
 
 class MainActivity : ComponentActivity() {
@@ -51,7 +58,23 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = Color.White
                 ) {
-                    HomeScreen(viewModel = chatViewModel)
+                    var showSplash by remember { mutableStateOf(true) }
+
+                    Crossfade(
+                        targetState = showSplash,
+                        animationSpec = tween(durationMillis = 400),
+                        label = "splashCrossfade"
+                    ) { isSplash ->
+                        if (isSplash) {
+                            SplashScreen(
+                                onSplashFinished = {
+                                    showSplash = false
+                                }
+                            )
+                        } else {
+                            HomeScreen(viewModel = chatViewModel)
+                        }
+                    }
                 }
             }
         }

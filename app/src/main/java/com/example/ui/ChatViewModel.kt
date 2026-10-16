@@ -146,9 +146,25 @@ class ChatViewModel @JvmOverloads constructor(
     fun setTab(tab: AppTab) { _currentTab.value = tab }
     fun setSearchQuery(query: String) { _searchQuery.value = query }
     fun selectLabel(labelId: String) { _selectedLabelId.value = labelId }
-    fun createLabel(name: String, colorHex: String, chatIds: List<String>) {
+    fun createLabel(name: String, colorHex: String, chatIds: List<String>): String {
         val newId = repository.createLabel(name, colorHex, chatIds)
         selectLabel(newId)
+        return newId
+    }
+
+    fun deleteLabel(labelId: String) {
+        repository.deleteLabel(labelId)
+        if (_selectedLabelId.value == labelId) {
+            _selectedLabelId.value = "direct"
+        }
+    }
+
+    fun updateLabel(labelId: String, name: String, colorHex: String, chatIds: List<String>) {
+        repository.updateLabel(labelId, name, colorHex, chatIds)
+    }
+
+    fun updateConversationLabels(conversationId: String, newLabelIds: List<String>) {
+        repository.updateConversationLabels(conversationId, newLabelIds)
     }
 
     fun deleteConversation(conversationId: String) {
@@ -305,18 +321,82 @@ class ChatViewModel @JvmOverloads constructor(
         openConversation(convId)
         return convId
     }
-    fun createNewGroup(name: String, participants: List<DeviceContact>, initialMessage: String = ""): String {
+    fun createNewGroup(
+        name: String,
+        participants: List<DeviceContact>,
+        avatarUrl: String? = null,
+        initialMessage: String = "",
+        disappearingDuration: String = "Off",
+        canEditSettings: Boolean = true,
+        canSendMessages: Boolean = true,
+        canAddOthers: Boolean = true,
+        canInviteViaLink: Boolean = false,
+        requireAdminApproval: Boolean = false
+    ): String {
         val convId = repository.createNewGroup(
             name = name,
+            avatarUrl = avatarUrl,
             participantNames = participants.map { it.name },
             participantPhones = participants.map { it.phoneNumber },
-            initialMessage = initialMessage
+            initialMessage = initialMessage,
+            disappearingDuration = disappearingDuration,
+            canEditSettings = canEditSettings,
+            canSendMessages = canSendMessages,
+            canAddOthers = canAddOthers,
+            canInviteViaLink = canInviteViaLink,
+            requireAdminApproval = requireAdminApproval
         )
         openConversation(convId)
         return convId
     }
     fun updateGroupName(conversationId: String, name: String) {
         repository.updateGroupName(conversationId, name)
+    }
+
+    fun updateGroupDescription(conversationId: String, description: String) {
+        repository.updateGroupDescription(conversationId, description)
+    }
+
+    fun updateGroupPermissions(
+        conversationId: String,
+        canEditSettings: Boolean,
+        canSendMessages: Boolean,
+        canAddOthers: Boolean,
+        canInviteViaLink: Boolean,
+        requireAdminApproval: Boolean
+    ) {
+        repository.updateGroupPermissions(
+            conversationId,
+            canEditSettings,
+            canSendMessages,
+            canAddOthers,
+            canInviteViaLink,
+            requireAdminApproval
+        )
+    }
+
+    fun updateGroupDisappearingDuration(conversationId: String, duration: String) {
+        repository.updateGroupDisappearingDuration(conversationId, duration)
+    }
+
+    fun toggleGroupAdmin(conversationId: String, participantId: String) {
+        repository.toggleGroupAdmin(conversationId, participantId)
+    }
+
+    fun removeGroupParticipant(conversationId: String, participantId: String) {
+        repository.removeGroupParticipant(conversationId, participantId)
+    }
+
+    fun addGroupParticipants(conversationId: String, newParticipants: List<String>) {
+        repository.addGroupParticipants(conversationId, newParticipants)
+    }
+
+    fun toggleChatLock(conversationId: String, isLocked: Boolean) {
+        repository.toggleChatLock(conversationId, isLocked)
+    }
+
+    fun toggleFavourite(conversationId: String, isFav: Boolean) {
+        repository.toggleFavourite(conversationId, isFav)
     }
 
     fun updateGroupParticipants(conversationId: String, participantIds: List<String>) {
@@ -643,6 +723,7 @@ class ChatViewModel @JvmOverloads constructor(
         } catch (_: Exception) {}
     }
     fun clearCallHistory() { repository.clearCallHistory() }
+    fun deleteCallLog(callId: String) { repository.deleteCallLog(callId) }
     fun answerCall() {
         val callId = _activeCallState.value?.callId ?: ""
         _activeCallState.value = _activeCallState.value?.copy(isConnected = true, isIncoming = false)
@@ -745,13 +826,31 @@ class ChatViewModel @JvmOverloads constructor(
         }
     }
     fun sendOjAiPrompt(prompt: String) {
-        if (prompt.isBlank()) return
-        _ojAiMessages.value = _ojAiMessages.value + OjAiChatMessage(text = prompt, isUser = true)
+        val trimmed = prompt.trim()
+        if (trimmed.isBlank()) return
+        val currentHistory = _ojAiMessages.value
+        val userMsg = OjAiChatMessage(text = trimmed, isUser = true)
+        _ojAiMessages.value = currentHistory + userMsg
         _isOjAiTyping.value = true
         viewModelScope.launch {
-            val responseText = OjAiService.generateResponse(prompt)
+            val responseText = OjAiService.generateResponse(trimmed, currentHistory)
             _isOjAiTyping.value = false
             _ojAiMessages.value = _ojAiMessages.value + OjAiChatMessage(text = responseText, isUser = false)
+        }
+    }
+
+    fun clearOjAiChat() {
+        _ojAiMessages.value = listOf(
+            OjAiChatMessage(
+                text = "Hello! I am Oj AI, powered by Gemini 3.5 Flash. I'm your intelligent chat assistant in Olinam. How can I help you today?",
+                isUser = false
+            )
+        )
+    }
+
+    fun setOjAiFeedback(messageId: String, feedback: Int) {
+        _ojAiMessages.value = _ojAiMessages.value.map { msg ->
+            if (msg.id == messageId) msg.copy(feedback = feedback) else msg
         }
     }
     fun getSafetyNumber(conversationId: String): String {

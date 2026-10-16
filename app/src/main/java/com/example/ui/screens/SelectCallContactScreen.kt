@@ -91,7 +91,6 @@ fun SelectCallContactScreen(
     var searchQuery by remember { mutableStateOf("") }
     val selectedContacts = remember { mutableStateListOf<DeviceContact>() }
 
-    var showScheduleDialog by remember { mutableStateOf(false) }
     var showCallLinkDialog by remember { mutableStateOf(false) }
 
     fun loadContacts() {
@@ -366,15 +365,6 @@ fun SelectCallContactScreen(
                 )
             }
 
-            // Action 4: Schedule call
-            item {
-                CallActionItem(
-                    icon = Icons.Default.CalendarMonth,
-                    title = "Schedule call",
-                    onClick = { showScheduleDialog = true }
-                )
-            }
-
             // Section Header: "Contacts on Olinam" (Screenshot 2)
             item {
                 Text(
@@ -511,7 +501,15 @@ fun SelectCallContactScreen(
             },
             confirmButton = {
                 Button(
-                    onClick = { showCallLinkDialog = false },
+                    onClick = {
+                        try {
+                            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                            val clip = android.content.ClipData.newPlainText("Call Link", linkUrl)
+                            clipboard?.setPrimaryClip(clip)
+                            android.widget.Toast.makeText(context, "Call link copied to clipboard!", android.widget.Toast.LENGTH_SHORT).show()
+                        } catch (_: Exception) {}
+                        showCallLinkDialog = false
+                    },
                     colors = ButtonDefaults.buttonColors(containerColor = OlinamPrimary)
                 ) {
                     Text("Copy Link")
@@ -520,45 +518,6 @@ fun SelectCallContactScreen(
             dismissButton = {
                 TextButton(onClick = { showCallLinkDialog = false }) {
                     Text("Close")
-                }
-            }
-        )
-    }
-
-    // Schedule Call Modal
-    if (showScheduleDialog) {
-        var callTitle by remember { mutableStateOf("Meeting Call") }
-        AlertDialog(
-            onDismissRequest = { showScheduleDialog = false },
-            title = { Text("Schedule a Call") },
-            text = {
-                Column {
-                    OutlinedTextField(
-                        value = callTitle,
-                        onValueChange = { callTitle = it },
-                        label = { Text("Call Subject") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = "Scheduled for today at 6:00 PM (IST)",
-                        fontSize = 13.sp,
-                        color = Color(0xFF64748B)
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = { showScheduleDialog = false },
-                    colors = ButtonDefaults.buttonColors(containerColor = OlinamPrimary)
-                ) {
-                    Text("Schedule")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showScheduleDialog = false }) {
-                    Text("Cancel")
                 }
             }
         )

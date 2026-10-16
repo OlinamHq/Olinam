@@ -68,6 +68,19 @@ import com.example.data.ContactHelper
 import com.example.data.DeviceContact
 import com.example.model.UserProfile
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.RadioButtonChecked
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material.icons.filled.SentimentSatisfiedAlt
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.material3.TextButton
+import com.example.model.GroupPermissions
+
 private val OlinamBlue = Color(0xFF0160E3)
 private val OlinamBlueLight = Color(0xFFE2EDFC)
 
@@ -77,7 +90,13 @@ fun NewGroupScreen(
     registeredPhoneNumbers: Set<String> = emptySet(),
     currentUser: UserProfile? = null,
     onBackClick: () -> Unit,
-    onGroupCreated: (groupName: String, participants: List<DeviceContact>) -> Unit
+    onGroupCreated: (
+        groupName: String,
+        participants: List<DeviceContact>,
+        disappearingDuration: String,
+        permissions: GroupPermissions,
+        avatarUrl: String?
+    ) -> Unit
 ) {
     val context = LocalContext.current
     val rawContacts = remember { ContactHelper.getDeviceContacts(context) }
@@ -87,6 +106,22 @@ fun NewGroupScreen(
     var groupName by remember { mutableStateOf("") }
     var searchQuery by remember { mutableStateOf("") }
     var isSearching by remember { mutableStateOf(false) }
+
+    var disappearingDuration by remember { mutableStateOf("Off") }
+    var showDisappearingDialog by remember { mutableStateOf(false) }
+    var showGroupPermissionsScreen by remember { mutableStateOf(false) }
+    var groupPermissions by remember { mutableStateOf(GroupPermissions()) }
+    var selectedAvatarEmoji by remember { mutableStateOf("👥") }
+    var showAvatarPickerDialog by remember { mutableStateOf(false) }
+
+    if (showGroupPermissionsScreen) {
+        GroupPermissionsScreen(
+            initialPermissions = groupPermissions,
+            onBackClick = { showGroupPermissionsScreen = false },
+            onPermissionsChanged = { groupPermissions = it }
+        )
+        return
+    }
 
     fun isContactOnOlinam(contact: DeviceContact): Boolean {
         if (contact.hasOlinam) return true
@@ -152,25 +187,18 @@ fun NewGroupScreen(
     }
 
     if (isStep2GroupDetails) {
-        // Step 2: Group subject & confirmation (WhatsApp style)
+        // Step 2: Group subject & confirmation (WhatsApp style matching Screenshot 6)
         Scaffold(
             containerColor = Color.White,
             topBar = {
                 TopAppBar(
                     title = {
-                        Column {
-                            Text(
-                                text = "New group",
-                                fontSize = 18.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF111827)
-                            )
-                            Text(
-                                text = if (selectedContacts.isEmpty()) "Creating group" else "${selectedContacts.size} participants selected",
-                                fontSize = 12.5.sp,
-                                color = Color(0xFF6B7280)
-                            )
-                        }
+                        Text(
+                            text = "New group",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF111827)
+                        )
                     },
                     navigationIcon = {
                         IconButton(onClick = { isStep2GroupDetails = false }) {
@@ -181,27 +209,31 @@ fun NewGroupScreen(
                 )
             },
             floatingActionButton = {
-                if (groupName.isNotBlank()) {
-                    FloatingActionButton(
-                        onClick = {
-                            val trimmed = groupName.trim()
-                            Toast.makeText(context, "Group \"$trimmed\" created!", Toast.LENGTH_SHORT).show()
-                            onGroupCreated(trimmed, selectedContacts.toList())
-                        },
-                        shape = CircleShape,
-                        containerColor = OlinamBlue,
-                        contentColor = Color.White,
-                        elevation = FloatingActionButtonDefaults.elevation(4.dp),
-                        modifier = Modifier
-                            .size(56.dp)
-                            .testTag("create_group_confirm_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = "Create Group",
-                            modifier = Modifier.size(28.dp)
+                FloatingActionButton(
+                    onClick = {
+                        val finalName = if (groupName.isBlank()) "Group" else groupName.trim()
+                        Toast.makeText(context, "Group \"$finalName\" created!", Toast.LENGTH_SHORT).show()
+                        onGroupCreated(
+                            finalName,
+                            selectedContacts.toList(),
+                            disappearingDuration,
+                            groupPermissions,
+                            selectedAvatarEmoji
                         )
-                    }
+                    },
+                    shape = CircleShape,
+                    containerColor = Color(0xFF111827),
+                    contentColor = Color.White,
+                    elevation = FloatingActionButtonDefaults.elevation(4.dp),
+                    modifier = Modifier
+                        .size(56.dp)
+                        .testTag("create_group_confirm_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "Create Group",
+                        modifier = Modifier.size(28.dp)
+                    )
                 }
             }
         ) { innerPadding ->
@@ -209,9 +241,10 @@ fun NewGroupScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
+                    .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 16.dp)
             ) {
-                // Group Icon & Name Row
+                // Group Icon & Name Row (Screenshot 6)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -220,15 +253,23 @@ fun NewGroupScreen(
                         modifier = Modifier
                             .size(54.dp)
                             .clip(CircleShape)
-                            .background(OlinamBlue.copy(alpha = 0.12f)),
+                            .background(Color(0xFFE2EDFC))
+                            .clickable { showAvatarPickerDialog = true },
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.CameraAlt,
-                            contentDescription = "Group icon",
-                            tint = OlinamBlue,
-                            modifier = Modifier.size(26.dp)
-                        )
+                        if (selectedAvatarEmoji.isNotBlank() && selectedAvatarEmoji != "👥") {
+                            Text(
+                                text = selectedAvatarEmoji,
+                                fontSize = 26.sp
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.CameraAlt,
+                                contentDescription = "Group icon",
+                                tint = OlinamBlue,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.width(16.dp))
@@ -236,85 +277,232 @@ fun NewGroupScreen(
                     OutlinedTextField(
                         value = groupName,
                         onValueChange = { groupName = it.take(25) },
-                        placeholder = { Text("Type group subject here...") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        trailingIcon = {
+                        placeholder = {
                             Text(
-                                text = "${25 - groupName.length}",
-                                fontSize = 12.sp,
+                                "Group name (optional)",
                                 color = Color(0xFF94A3B8),
-                                modifier = Modifier.padding(end = 12.dp)
+                                fontSize = 15.sp
+                            )
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(10.dp),
+                        trailingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.SentimentSatisfiedAlt,
+                                contentDescription = "Emoji",
+                                tint = Color(0xFF64748B),
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .clickable {
+                                        groupName += " 😊"
+                                    }
                             )
                         },
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("group_name_input"),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = OlinamBlue,
-                            focusedLabelColor = OlinamBlue,
-                            cursorColor = OlinamBlue
+                            focusedBorderColor = Color(0xFF111827),
+                            unfocusedBorderColor = Color(0xFFCBD5E1),
+                            cursorColor = Color(0xFF111827)
                         )
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(28.dp))
+
+                // Option 1: Disappearing messages (Screenshot 6)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { showDisappearingDialog = true }
+                        .padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Disappearing messages",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Normal,
+                            color = Color(0xFF111827)
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = disappearingDuration,
+                            fontSize = 13.5.sp,
+                            color = Color(0xFF64748B)
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Default.Timer,
+                        contentDescription = "Timer",
+                        tint = Color(0xFF64748B),
+                        modifier = Modifier.size(22.dp)
                     )
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
 
+                // Option 2: Group permissions (Screenshot 6)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { showGroupPermissionsScreen = true }
+                        .padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Group permissions",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Normal,
+                            color = Color(0xFF111827)
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Send messages: ${if (groupPermissions.canMembersSendMessages) "All members" else "Only admins"}",
+                            fontSize = 13.5.sp,
+                            color = Color(0xFF64748B)
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Group permissions",
+                        tint = Color(0xFF64748B),
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(Color(0xFFF1F5F9))
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Members count & list (Screenshot 6)
                 Text(
-                    text = "Provide a group subject and optional group icon",
-                    fontSize = 12.5.sp,
-                    color = Color(0xFF64748B)
+                    text = "Members: ${if (selectedContacts.isEmpty()) "1 (You)" else "${selectedContacts.size}"}",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color(0xFF54656F)
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                // Participants section header
-                Text(
-                    text = "Participants: ${if (selectedContacts.isEmpty()) "You (Admin)" else "${selectedContacts.size} contact(s) + You"}",
-                    fontSize = 13.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF334155)
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Participants grid / list
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    items(selectedContacts, key = { it.id }) { contact ->
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.width(56.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(46.dp)
-                                    .clip(CircleShape)
-                                    .background(OlinamBlueLight),
-                                contentAlignment = Alignment.Center
+                    if (selectedContacts.isEmpty()) {
+                        item {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.width(60.dp)
                             ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFE2EDFC)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "You",
+                                        color = OlinamBlue,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = contact.name.take(1).uppercase(),
-                                    color = OlinamBlue,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 18.sp
+                                    text = "You",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF334155),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = contact.name,
-                                fontSize = 11.5.sp,
-                                color = Color(0xFF334155),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                        }
+                    } else {
+                        items(selectedContacts, key = { it.id }) { contact ->
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.width(62.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFE2EDFC)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = contact.name.take(1).uppercase(),
+                                        color = OlinamBlue,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = contact.name,
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF334155),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }
             }
         }
+
+        if (showDisappearingDialog) {
+            AlertDialog(
+                onDismissRequest = { showDisappearingDialog = false },
+                title = { Text("Disappearing messages timer", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column {
+                        listOf("24 hours", "7 days", "90 days", "Off").forEach { option ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        disappearingDuration = option
+                                        showDisappearingDialog = false
+                                    }
+                                    .padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = disappearingDuration == option,
+                                    onClick = {
+                                        disappearingDuration = option
+                                        showDisappearingDialog = false
+                                    },
+                                    colors = RadioButtonDefaults.colors(selectedColor = Color(0xFF007AFF))
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(option, fontSize = 15.sp)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(onClick = { showDisappearingDialog = false }) {
+                        Text("Cancel", color = Color(0xFF64748B))
+                    }
+                }
+            )
+        }
+
         return
     }
 

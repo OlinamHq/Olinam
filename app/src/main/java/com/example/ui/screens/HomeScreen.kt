@@ -3,9 +3,20 @@ package com.example.ui.screens
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import android.widget.Toast
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.material3.ModalBottomSheet
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -29,15 +40,19 @@ import com.example.data.SmsHelper
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddComment
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -45,6 +60,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -83,6 +99,7 @@ import com.example.model.FilterCategory
 import com.example.ui.ChatViewModel
 import com.example.ui.components.ContactQuickViewDialog
 import com.example.ui.components.ConversationListItem
+import com.example.ui.components.ConversationSelectionTopBar
 import com.example.ui.components.CreateLabelBottomSheet
 import com.example.ui.components.LabelChipsRow
 import com.example.ui.components.ManageListsBottomSheet
@@ -123,9 +140,15 @@ fun HomeScreen(
     var showQrScreen by remember { mutableStateOf(false) }
     var showInviteDialog by remember { mutableStateOf(false) }
     var showCameraScreen by remember { mutableStateOf(false) }
+    var showAddTextStatusDialog by remember { mutableStateOf(false) }
     var showEditProfileScreen by remember { mutableStateOf(false) }
     var showSecurityDialog by remember { mutableStateOf(false) }
     var showCreateLabelSheet by remember { mutableStateOf(false) }
+    var selectedLabelForAction by remember { mutableStateOf<com.example.model.ChatLabel?>(null) }
+    var labelToEdit by remember { mutableStateOf<com.example.model.ChatLabel?>(null) }
+    var labelToDeleteConfirm by remember { mutableStateOf<com.example.model.ChatLabel?>(null) }
+    var selectedConversationIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var showDeleteSelectedChatsDialog by remember { mutableStateOf(false) }
     var showContactProfileScreen by remember { mutableStateOf(false) }
     var quickViewConversation by remember { mutableStateOf<Conversation?>(null) }
     var viewingProfileConv by remember { mutableStateOf<Conversation?>(null) }
@@ -144,6 +167,15 @@ fun HomeScreen(
     val manageListsSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val webrtcCallState by viewModel.webRtcCallState.collectAsState()
+
+    val chatPrefs = remember {
+        context.getSharedPreferences("olinam_chat_prefs", android.content.Context.MODE_PRIVATE)
+    }
+    val lockedChatIds = remember(conversations) {
+        conversations.filter { conv ->
+            chatPrefs.getBoolean("locked_${conv.id}", false)
+        }.map { it.id }.toSet()
+    }
 
     // SMS & Contacts Permission handling for auto-syncing real phone messages & notifications
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -419,15 +451,25 @@ fun HomeScreen(
         return
     }
 
-    // New Group Screen (Screenshots 2 & 4)
+    // New Group Screen (Screenshots 6 & 7)
     if (showNewGroupScreen) {
         NewGroupScreen(
             registeredPhoneNumbers = registeredPhoneNumbers,
             currentUser = currentUser,
             onBackClick = { showNewGroupScreen = false },
-            onGroupCreated = { name, participants ->
+            onGroupCreated = { name, participants, disappearingDuration, permissions, avatarUrl ->
                 showNewGroupScreen = false
-                viewModel.createNewGroup(name, participants)
+                viewModel.createNewGroup(
+                    name = name,
+                    participants = participants,
+                    avatarUrl = avatarUrl,
+                    disappearingDuration = disappearingDuration,
+                    canEditSettings = permissions.canMembersEditSettings,
+                    canSendMessages = permissions.canMembersSendMessages,
+                    canAddOthers = permissions.canMembersAddOthers,
+                    canInviteViaLink = permissions.canMembersInviteViaLink,
+                    requireAdminApproval = permissions.requireAdminApprovalToJoin
+                )
             }
         )
         return
@@ -446,9 +488,39 @@ fun HomeScreen(
                 viewModel.updateGroupName(groupInfo.id, name)
                 viewingGroupInfoConv = groupInfo.copy(title = name)
             },
+            onSaveGroupDescription = { desc ->
+                viewModel.updateGroupDescription(groupInfo.id, desc)
+                viewingGroupInfoConv = groupInfo.copy(groupDescription = desc)
+            },
             onUpdateMembers = { participantIds ->
                 viewModel.updateGroupParticipants(groupInfo.id, participantIds)
                 viewingGroupInfoConv = groupInfo.copy(participantIds = participantIds)
+            },
+            onToggleAdmin = { member ->
+                viewModel.toggleGroupAdmin(groupInfo.id, member)
+            },
+            onToggleLock = { locked ->
+                viewModel.toggleChatLock(groupInfo.id, locked)
+            },
+            onToggleFavourite = { fav ->
+                viewModel.toggleFavourite(groupInfo.id, fav)
+            },
+            onClearChat = {
+                viewModel.clearConversation(groupInfo.id)
+            },
+            onExitGroup = {
+                viewModel.removeGroupParticipant(groupInfo.id, currentUser.id)
+                viewingGroupInfoConv = null
+            },
+            onUpdatePermissions = { perms ->
+                viewModel.updateGroupPermissions(
+                    groupInfo.id,
+                    perms.canMembersEditSettings,
+                    perms.canMembersSendMessages,
+                    perms.canMembersAddOthers,
+                    perms.canMembersInviteViaLink,
+                    perms.requireAdminApprovalToJoin
+                )
             },
             onVerifyParticipant = { phone -> viewModel.verifyPhoneNumberRegistered(phone) }
         )
@@ -482,6 +554,15 @@ fun HomeScreen(
                     callType = type
                 )
             }
+        )
+        return
+    }
+
+    // Dedicated Full-Screen Chat for Oj AI (Hides bottom navigation bar completely)
+    if (currentTab == AppTab.OJ_AI) {
+        OjAiScreen(
+            viewModel = viewModel,
+            onBackClick = { viewModel.setTab(AppTab.CHATS) }
         )
         return
     }
@@ -541,6 +622,13 @@ fun HomeScreen(
             },
             onTypingChanged = { isTyping ->
                 viewModel.setTyping(selectedConv.id, isTyping)
+            },
+            labels = labels,
+            onSaveConversationLabels = { newLabelIds ->
+                viewModel.updateConversationLabels(selectedConv.id, newLabelIds)
+            },
+            onCreateLabel = { name, colorHex ->
+                viewModel.createLabel(name, colorHex, listOf(selectedConv.id))
             }
         )
         return
@@ -577,6 +665,14 @@ fun HomeScreen(
         return
     }
 
+    BackHandler(enabled = selectedConversationIds.isNotEmpty()) {
+        selectedConversationIds = emptySet()
+    }
+
+    BackHandler(enabled = selectedConversationIds.isEmpty() && currentTab != AppTab.CHATS) {
+        viewModel.setTab(AppTab.CHATS)
+    }
+
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
@@ -589,68 +685,172 @@ fun HomeScreen(
                         .fillMaxWidth()
                         .background(Color.White)
                 ) {
-                    OlinamTopBar(
-                        currentUserAvatarUrl = currentUser.avatarUrl,
-                        currentUserName = currentUser.name,
-                        onCameraClick = { showCameraScreen = true },
-                        onMenuNewGroup = { showNewGroupScreen = true },
-                        onMenuLists = { showManageListsSheet = true },
-                        onMenuLinkedDevices = { showLinkedDevicesScreen = true },
-                        onMenuStarred = { showStarredMessagesScreen = true },
-                        onMenuSettings = { showSettingsScreen = true }
-                    )
-                    OlinamSearchBar(
-                        query = searchQuery,
-                        onQueryChange = { viewModel.setSearchQuery(it) }
-                    )
-                    // WhatsApp-style Compact Custom Labels / Folders Chips Row
-                    LabelChipsRow(
-                        labels = labels,
-                        selectedLabelId = selectedLabelId,
-                        unreadCounts = unreadCountsByLabel,
-                        onLabelClick = { label ->
-                            if (label.id == "groups") {
-                                val hasGroups = conversations.any { it.isGroup }
-                                if (!hasGroups) {
-                                    showNewGroupScreen = true
-                                } else {
-                                    viewModel.selectLabel(label.id)
+                    if (selectedConversationIds.isNotEmpty()) {
+                        ConversationSelectionTopBar(
+                            selectedCount = selectedConversationIds.size,
+                            onClearSelection = { selectedConversationIds = emptySet() },
+                            onArchiveClick = {
+                                android.widget.Toast.makeText(context, "${selectedConversationIds.size} chat(s) archived", android.widget.Toast.LENGTH_SHORT).show()
+                                selectedConversationIds = emptySet()
+                            },
+                            onPinClick = {
+                                android.widget.Toast.makeText(context, "${selectedConversationIds.size} chat(s) pinned", android.widget.Toast.LENGTH_SHORT).show()
+                                selectedConversationIds = emptySet()
+                            },
+                            onDeleteClick = {
+                                showDeleteSelectedChatsDialog = true
+                            },
+                            onMuteClick = {
+                                android.widget.Toast.makeText(context, "Notifications muted", android.widget.Toast.LENGTH_SHORT).show()
+                                selectedConversationIds = emptySet()
+                            },
+                            onSelectAllClick = {
+                                selectedConversationIds = conversations.map { it.id }.toSet()
+                            },
+                            onMarkUnreadClick = {
+                                android.widget.Toast.makeText(context, "Marked as unread", android.widget.Toast.LENGTH_SHORT).show()
+                                selectedConversationIds = emptySet()
+                            },
+                            onLockChatClick = {
+                                selectedConversationIds.forEach { id ->
+                                    val isCurrentlyLocked = lockedChatIds.contains(id)
+                                    viewModel.toggleChatLock(id, !isCurrentlyLocked)
                                 }
-                            } else {
-                                viewModel.selectLabel(label.id)
+                                android.widget.Toast.makeText(context, "Lock status updated", android.widget.Toast.LENGTH_SHORT).show()
+                                selectedConversationIds = emptySet()
                             }
-                        },
-                        onAddLabelClick = { showCreateLabelSheet = true }
-                    )
+                        )
+                        OlinamSearchBar(
+                            query = searchQuery,
+                            onQueryChange = { viewModel.setSearchQuery(it) }
+                        )
+                    } else {
+                        OlinamTopBar(
+                            currentUserAvatarUrl = currentUser.avatarUrl,
+                            currentUserName = currentUser.name,
+                            onCameraClick = { showCameraScreen = true },
+                            onMenuNewGroup = { showNewGroupScreen = true },
+                            onMenuLists = { showManageListsSheet = true },
+                            onMenuLinkedDevices = { showLinkedDevicesScreen = true },
+                            onMenuStarred = { showStarredMessagesScreen = true },
+                            onMenuSettings = { showSettingsScreen = true }
+                        )
+                        OlinamSearchBar(
+                            query = searchQuery,
+                            onQueryChange = { viewModel.setSearchQuery(it) }
+                        )
+                        // WhatsApp-style Compact Custom Labels / Folders Chips Row
+                        LabelChipsRow(
+                            labels = labels,
+                            selectedLabelId = selectedLabelId,
+                            unreadCounts = unreadCountsByLabel,
+                            onLabelClick = { label ->
+                                viewModel.selectLabel(label.id)
+                            },
+                            onLabelLongClick = { label ->
+                                selectedLabelForAction = label
+                            },
+                            onAddLabelClick = { showCreateLabelSheet = true }
+                        )
+                    }
                 }
             }
         },
         bottomBar = {
-            OlinamBottomNavBar(
-                currentTab = currentTab,
-                unreadChatsCount = totalUnreadCount,
-                onTabSelected = { viewModel.setTab(it) }
-            )
+            if (currentTab != AppTab.OJ_AI) {
+                OlinamBottomNavBar(
+                    currentTab = currentTab,
+                    unreadChatsCount = totalUnreadCount,
+                    onTabSelected = { viewModel.setTab(it) }
+                )
+            }
         },
         floatingActionButton = {
-            if (currentTab == AppTab.CHATS) {
-                // Vibrant Blue squircle FAB matching Screenshot
-                FloatingActionButton(
-                    onClick = { showSelectContactScreen = true },
-                    shape = RoundedCornerShape(18.dp),
-                    containerColor = Color(0xFF007AFF),
-                    contentColor = Color.White,
-                    elevation = FloatingActionButtonDefaults.elevation(3.dp),
-                    modifier = Modifier
-                        .size(56.dp)
-                        .testTag("new_chat_fab")
+            if (currentTab == AppTab.CHATS || currentTab == AppTab.STORIES || currentTab == AppTab.CALLS) {
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_chat_plus),
-                        contentDescription = "New Chat",
-                        tint = Color.White,
-                        modifier = Modifier.size(26.dp)
-                    )
+                    // In Status tab: secondary small text status FAB (pencil icon) above main FAB
+                    AnimatedVisibility(
+                        visible = currentTab == AppTab.STORIES,
+                        enter = fadeIn(animationSpec = tween(150)) + scaleIn(initialScale = 0.8f),
+                        exit = fadeOut(animationSpec = tween(150)) + scaleOut(targetScale = 0.8f)
+                    ) {
+                        SmallFloatingActionButton(
+                            onClick = { showAddTextStatusDialog = true },
+                            shape = RoundedCornerShape(14.dp),
+                            containerColor = Color(0xFFF0F2F5),
+                            contentColor = Color(0xFF333333),
+                            elevation = FloatingActionButtonDefaults.elevation(2.dp),
+                            modifier = Modifier
+                                .size(44.dp)
+                                .testTag("stories_text_status_fab")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Text Status",
+                                tint = Color(0xFF333333),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+
+                    // UNIFIED PRIMARY FAB: EXACT same component, position, size, shape and elevation - ONLY icon changes smoothly
+                    FloatingActionButton(
+                        onClick = {
+                            when (currentTab) {
+                                AppTab.CHATS -> showSelectContactScreen = true
+                                AppTab.STORIES -> showCameraScreen = true
+                                AppTab.CALLS -> showSelectCallContactScreen = true
+                                else -> {}
+                            }
+                        },
+                        shape = RoundedCornerShape(18.dp),
+                        containerColor = Color(0xFF007AFF),
+                        contentColor = Color.White,
+                        elevation = FloatingActionButtonDefaults.elevation(3.dp),
+                        modifier = Modifier
+                            .size(56.dp)
+                            .testTag("unified_main_fab")
+                    ) {
+                        AnimatedContent(
+                            targetState = currentTab,
+                            transitionSpec = {
+                                (fadeIn(animationSpec = tween(150)) + scaleIn(initialScale = 0.82f))
+                                    .togetherWith(fadeOut(animationSpec = tween(150)) + scaleOut(targetScale = 0.82f))
+                            },
+                            label = "unified_fab_icon"
+                        ) { tab ->
+                            when (tab) {
+                                AppTab.CHATS -> {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_chat_plus),
+                                        contentDescription = "New Chat",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                }
+                                AppTab.STORIES -> {
+                                    Icon(
+                                        imageVector = Icons.Default.CameraAlt,
+                                        contentDescription = "Camera Status",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                }
+                                AppTab.CALLS -> {
+                                    Icon(
+                                        imageVector = Icons.Default.Call,
+                                        contentDescription = "New Call",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                                else -> {}
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -663,24 +863,28 @@ fun HomeScreen(
         ) {
             when (currentTab) {
                 AppTab.CHATS -> {
-                    val chatPrefs = remember {
-                        context.getSharedPreferences("olinam_chat_prefs", android.content.Context.MODE_PRIVATE)
-                    }
-                    val lockedChatIds = remember(conversations) {
-                        conversations.filter { conv ->
-                            chatPrefs.getBoolean("locked_${conv.id}", false)
-                        }.map { it.id }.toSet()
-                    }
                     val distinctConversations = remember(conversations) {
                         conversations.distinctBy { it.id }
                     }
 
                     ChatsTabContent(
                         conversations = distinctConversations,
+                        labels = labels,
                         selectedLabelId = selectedLabelId,
                         isDefaultSmsApp = isDefaultSmsApp,
                         isSmsBannerDismissed = isSmsBannerDismissed,
                         lockedChatIds = lockedChatIds,
+                        selectedConversationIds = selectedConversationIds,
+                        onToggleSelectConversation = { conv ->
+                            selectedConversationIds = if (selectedConversationIds.contains(conv.id)) {
+                                selectedConversationIds - conv.id
+                            } else {
+                                selectedConversationIds + conv.id
+                            }
+                        },
+                        onLongClickConversation = { conv ->
+                            selectedConversationIds = selectedConversationIds + conv.id
+                        },
                         onSetDefaultSmsClick = {
                             val intent = SmsHelper.createDefaultSmsIntent(context)
                             if (intent != null) {
@@ -714,7 +918,8 @@ fun HomeScreen(
                     )
                 }
                 AppTab.OJ_AI -> {
-                    OjAiScreen(viewModel = viewModel)
+                    // Handled above before Scaffold for dedicated full-screen experience
+                    Box(modifier = Modifier.fillMaxSize())
                 }
                 AppTab.CALLS -> {
                     CallsScreen(
@@ -757,6 +962,257 @@ fun HomeScreen(
         )
     }
 
+    // Multi-select Delete Chats Dialog (Triggered from Top Bar Delete icon in selection mode)
+    if (showDeleteSelectedChatsDialog && selectedConversationIds.isNotEmpty()) {
+        val count = selectedConversationIds.size
+        AlertDialog(
+            onDismissRequest = { showDeleteSelectedChatsDialog = false },
+            title = {
+                Text(
+                    text = if (count == 1) "Delete chat?" else "Delete $count chats?",
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF111827)
+                )
+            },
+            text = {
+                Text(
+                    text = if (count == 1)
+                        "Are you sure you want to delete this chat? All messages will be permanently removed from this device."
+                    else
+                        "Are you sure you want to delete these $count chats? All messages will be permanently removed from this device.",
+                    fontSize = 14.sp,
+                    color = Color(0xFF4B5563)
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val idsToDelete = selectedConversationIds.toList()
+                        showDeleteSelectedChatsDialog = false
+                        selectedConversationIds = emptySet()
+                        idsToDelete.forEach { id ->
+                            viewModel.deleteConversation(id)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                ) {
+                    Text("Delete", color = Color.White, fontWeight = FontWeight.SemiBold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteSelectedChatsDialog = false }) {
+                    Text("Cancel", color = Color(0xFF6B7280))
+                }
+            }
+        )
+    }
+
+    // Label Action Bottom Sheet (Triggered on long-pressing a label chip on the Home screen)
+    if (selectedLabelForAction != null) {
+        val targetLabel = selectedLabelForAction!!
+        val isCoreDefault = targetLabel.id in listOf("direct", "all", "groups", "sms")
+        val labelColor = try {
+            Color(android.graphics.Color.parseColor(targetLabel.colorHex))
+        } catch (_: Exception) {
+            Color(0xFF0160E3)
+        }
+        val labelChatCount = conversations.count { it.labelIds.contains(targetLabel.id) }
+
+        ModalBottomSheet(
+            onDismissRequest = { selectedLabelForAction = null },
+            containerColor = Color.White,
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            dragHandle = {
+                Surface(
+                    modifier = Modifier
+                        .padding(vertical = 12.dp)
+                        .size(width = 38.dp, height = 4.dp),
+                    shape = RoundedCornerShape(2.dp),
+                    color = Color(0xFFD1D5DB)
+                ) {}
+            },
+            modifier = Modifier
+                .navigationBarsPadding()
+                .testTag("label_actions_bottom_sheet")
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 32.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(16.dp)
+                            .clip(CircleShape)
+                            .background(labelColor)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = targetLabel.name,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF111827)
+                        )
+                        Text(
+                            text = if (isCoreDefault) "System default list" else "$labelChatCount chat${if (labelChatCount != 1) "s" else ""}",
+                            fontSize = 13.sp,
+                            color = Color(0xFF64748B)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+                HorizontalDivider(color = Color(0xFFF1F5F9))
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Action: Edit list
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable {
+                            val toEdit = targetLabel
+                            selectedLabelForAction = null
+                            labelToEdit = toEdit
+                        }
+                        .padding(vertical = 12.dp, horizontal = 8.dp)
+                        .testTag("action_edit_label"),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Edit list",
+                        tint = Color(0xFF0160E3),
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column {
+                        Text(
+                            text = "Edit list",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF1E293B)
+                        )
+                        Text(
+                            text = "Change name, colour, or assigned chats",
+                            fontSize = 12.sp,
+                            color = Color(0xFF64748B)
+                        )
+                    }
+                }
+
+                // Action: Delete list
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable {
+                            if (isCoreDefault) {
+                                Toast.makeText(context, "System default lists cannot be deleted", Toast.LENGTH_SHORT).show()
+                                selectedLabelForAction = null
+                            } else {
+                                val toDelete = targetLabel
+                                selectedLabelForAction = null
+                                labelToDeleteConfirm = toDelete
+                            }
+                        }
+                        .padding(vertical = 12.dp, horizontal = 8.dp)
+                        .testTag("action_delete_label"),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Delete list",
+                        tint = if (isCoreDefault) Color(0xFF94A3B8) else Color(0xFFDC2626),
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column {
+                        Text(
+                            text = "Delete list",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isCoreDefault) Color(0xFF94A3B8) else Color(0xFFDC2626)
+                        )
+                        Text(
+                            text = if (isCoreDefault) "Core list cannot be deleted" else "Remove list from all chats and home",
+                            fontSize = 12.sp,
+                            color = Color(0xFF94A3B8)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    // Delete Confirmation Dialog
+    if (labelToDeleteConfirm != null) {
+        val target = labelToDeleteConfirm!!
+        AlertDialog(
+            onDismissRequest = { labelToDeleteConfirm = null },
+            title = {
+                Text(
+                    text = "Delete \"${target.name}\"?",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+            },
+            text = {
+                Text(
+                    text = "Chats in this list won't be deleted, but the list tag and filter tab will be removed.",
+                    fontSize = 14.sp,
+                    color = Color(0xFF4B5563)
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteLabel(target.id)
+                        Toast.makeText(context, "List \"${target.name}\" deleted", Toast.LENGTH_SHORT).show()
+                        labelToDeleteConfirm = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                    modifier = Modifier.testTag("confirm_delete_label_button")
+                ) {
+                    Text("Delete", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { labelToDeleteConfirm = null }
+                ) {
+                    Text("Cancel", color = Color(0xFF6B7280))
+                }
+            }
+        )
+    }
+
+    // Edit Label Bottom Sheet
+    if (labelToEdit != null) {
+        CreateLabelBottomSheet(
+            sheetState = labelSheetState,
+            conversations = conversations,
+            initialLabel = labelToEdit,
+            onDismissRequest = { labelToEdit = null },
+            onSaveLabel = { name, colorHex, chatIds ->
+                viewModel.updateLabel(labelToEdit!!.id, name, colorHex, chatIds)
+                Toast.makeText(context, "List \"$name\" updated", Toast.LENGTH_SHORT).show()
+                labelToEdit = null
+            },
+            onDeleteLabel = { labelId ->
+                viewModel.deleteLabel(labelId)
+                Toast.makeText(context, "List deleted", Toast.LENGTH_SHORT).show()
+                labelToEdit = null
+            }
+        )
+    }
+
     // New Chat / Group Creation Dialog
     if (showNewChatDialog) {
         NewChatModal(
@@ -764,6 +1220,41 @@ fun HomeScreen(
             onCreate = { name, isGroup, msg ->
                 viewModel.createNewChat(name, isGroup, msg)
                 showNewChatDialog = false
+            }
+        )
+    }
+
+    // Add Text Status Dialog (opened from Status pencil FAB)
+    if (showAddTextStatusDialog) {
+        var statusText by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showAddTextStatusDialog = false },
+            title = { Text("Add Status Update", fontWeight = FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = statusText,
+                    onValueChange = { statusText = it },
+                    label = { Text("What's on your mind?") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (statusText.isNotBlank()) {
+                            viewModel.addStory(statusText.trim())
+                            showAddTextStatusDialog = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF007AFF))
+                ) {
+                    Text("Post")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddTextStatusDialog = false }) {
+                    Text("Cancel")
+                }
             }
         )
     }
@@ -980,10 +1471,14 @@ fun HomeScreen(
 @Composable
 fun ChatsTabContent(
     conversations: List<Conversation>,
+    labels: List<com.example.model.ChatLabel> = emptyList(),
     selectedLabelId: String = "direct",
     isDefaultSmsApp: Boolean = true,
     isSmsBannerDismissed: Boolean = false,
     lockedChatIds: Set<String> = emptySet(),
+    selectedConversationIds: Set<String> = emptySet(),
+    onToggleSelectConversation: (Conversation) -> Unit = {},
+    onLongClickConversation: (Conversation) -> Unit = {},
     onSetDefaultSmsClick: () -> Unit = {},
     onDismissSmsBanner: () -> Unit = {},
     onConversationClick: (Conversation) -> Unit,
@@ -992,7 +1487,6 @@ fun ChatsTabContent(
     onStartChatClick: () -> Unit,
     onNewGroupClick: () -> Unit = {}
 ) {
-    var convToDelete by remember { mutableStateOf<Conversation?>(null) }
     if (conversations.isEmpty()) {
         Box(
             modifier = Modifier
@@ -1273,51 +1767,36 @@ fun ChatsTabContent(
                 key = { it.id },
                 contentType = { "conversation_item" }
             ) { conv ->
+                val isSelected = selectedConversationIds.contains(conv.id)
                 ConversationListItem(
                     conversation = conv,
+                    labels = labels,
                     isLocked = lockedChatIds.contains(conv.id),
-                    onClick = { onConversationClick(conv) },
-                    onLongClick = { convToDelete = conv },
-                    onAvatarClick = { onAvatarClick(conv) }
+                    isSelected = isSelected,
+                    onClick = {
+                        if (selectedConversationIds.isNotEmpty()) {
+                            onToggleSelectConversation(conv)
+                        } else {
+                            onConversationClick(conv)
+                        }
+                    },
+                    onLongClick = {
+                        if (selectedConversationIds.isNotEmpty()) {
+                            onToggleSelectConversation(conv)
+                        } else {
+                            onLongClickConversation(conv)
+                        }
+                    },
+                    onAvatarClick = {
+                        if (selectedConversationIds.isNotEmpty()) {
+                            onToggleSelectConversation(conv)
+                        } else {
+                            onAvatarClick(conv)
+                        }
+                    }
                 )
             }
         }
-    }
-
-    if (convToDelete != null) {
-        val target = convToDelete!!
-        AlertDialog(
-            onDismissRequest = { convToDelete = null },
-            title = {
-                Text(text = "Delete Chat?", fontWeight = FontWeight.Bold, color = Color(0xFF111827))
-            },
-            text = {
-                Text(
-                    text = "Are you sure you want to delete this chat with \"${target.title}\"? All messages will be permanently removed from this device.",
-                    fontSize = 14.sp,
-                    color = Color(0xFF4B5563)
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val toDel = convToDelete
-                        convToDelete = null
-                        if (toDel != null) {
-                            onDeleteConversation(toDel)
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
-                ) {
-                    Text("Delete", color = Color.White, fontWeight = FontWeight.SemiBold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { convToDelete = null }) {
-                    Text("Cancel", color = Color(0xFF4B5563))
-                }
-            }
-        )
     }
 }
 

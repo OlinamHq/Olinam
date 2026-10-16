@@ -223,34 +223,6 @@ fun StoriesScreen(
                 }
             }
         }
-
-        // FAB to add status
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            horizontalAlignment = Alignment.End
-        ) {
-            FloatingActionButton(
-                onClick = { showAddStatusDialog = true },
-                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(46.dp)
-            ) {
-                Icon(Icons.Default.Edit, contentDescription = "Text Status", modifier = Modifier.size(20.dp))
-            }
-
-            FloatingActionButton(
-                onClick = { onCameraClick() },
-                containerColor = OlinamPrimary,
-                contentColor = Color.White,
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.size(56.dp)
-            ) {
-                Icon(Icons.Default.CameraAlt, contentDescription = "Camera Status", modifier = Modifier.size(24.dp))
-            }
-        }
     }
 
     if (showAddStatusDialog) {

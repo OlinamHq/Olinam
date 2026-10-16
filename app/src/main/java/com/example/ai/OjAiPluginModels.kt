@@ -8,7 +8,10 @@ data class AiPlugin(
     val isConnected: Boolean = true,
     val syncSummary: String = "",
     val sampleItems: List<String> = emptyList()
-)
+) {
+    val type: String get() = iconType
+    val isEnabled: Boolean get() = isConnected
+}
 
 data class DelegatedContact(
     val id: String,
@@ -28,7 +31,9 @@ data class AiAgentSettings(
     val personalityTone: String = "Professional Executive", // "Professional Executive", "Friendly & Warm", "Concise & Fast"
     val userTitle: String = "Manager",
     val customSystemBio: String = "I am currently focused on project operations. Handle client inquiries smoothly."
-)
+) {
+    val isMasterEnabled: Boolean get() = isAgentMasterEnabled
+}
 
 data class AiReplyResult(
     val generatedText: String,

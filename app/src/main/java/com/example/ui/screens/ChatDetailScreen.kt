@@ -1,6 +1,9 @@
 package com.example.ui.screens
 
 import android.Manifest
+import com.example.model.ChatLabel
+import com.example.ui.components.WhatsAppListColors
+import com.example.ui.components.parseHexColorSafely
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -61,9 +64,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
@@ -72,12 +77,15 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Hd
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Map
@@ -88,6 +96,7 @@ import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayArrow
@@ -504,9 +513,34 @@ fun ChatDetailScreen(
     onDeleteMessage: (String) -> Unit = {},
     onClearChat: () -> Unit = {},
     onDeleteChat: () -> Unit = {},
-    onTypingChanged: (Boolean) -> Unit = {}
+    onTypingChanged: (Boolean) -> Unit = {},
+    onUpdateGroupDescription: (String) -> Unit = {},
+    onAddGroupMember: (String) -> Unit = {},
+    labels: List<ChatLabel> = emptyList(),
+    onSaveConversationLabels: (List<String>) -> Unit = {},
+    onCreateLabel: (String, String) -> Unit = { _, _ -> }
 ) {
-    BackHandler { onBackClick() }
+    var showGroupLinkScreen by remember { mutableStateOf(false) }
+    var showEditGroupDescDialog by remember { mutableStateOf(false) }
+    var editGroupDescText by remember(conversation.groupDescription) { mutableStateOf(conversation.groupDescription ?: "") }
+    var showAddGroupMemberDialog by remember { mutableStateOf(false) }
+    var newMemberPhoneText by remember { mutableStateOf("") }
+
+    BackHandler {
+        if (showGroupLinkScreen) {
+            showGroupLinkScreen = false
+        } else {
+            onBackClick()
+        }
+    }
+
+    if (showGroupLinkScreen) {
+        GroupLinkScreen(
+            conversation = conversation,
+            onBackClick = { showGroupLinkScreen = false }
+        )
+        return
+    }
 
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -940,8 +974,13 @@ fun ChatDetailScreen(
     if (showListsBottomSheet) {
         ChatListsBottomSheet(
             conversation = conversation,
+            labels = labels,
             onDismissRequest = { showListsBottomSheet = false },
+            onCreateNewLabel = { name, colorHex ->
+                onCreateLabel(name, colorHex)
+            },
             onSaveLists = { newLabelIds ->
+                onSaveConversationLabels(newLabelIds)
                 val updatedConv = conversation.copy(labelIds = newLabelIds)
                 try {
                     val db = com.example.data.LocalChatDatabase.getInstance(context)
@@ -1230,42 +1269,172 @@ fun ChatDetailScreen(
                     val isAlphanumericSms = sendViaSms && !hasCallablePhone
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        // 1. List icon (stacked cards with person avatar as in reference image)
-                        IconButton(
-                            onClick = { showListsBottomSheet = true },
-                            modifier = Modifier
-                                .size(40.dp)
-                                .testTag("chat_lists_button")
-                        ) {
-                            ChatListIcon(
-                                tint = Color(0xFF111827)
-                            )
-                        }
+                        if (conversation.isGroup) {
+                            // 1. Gallery / Media icon (Screenshot 8)
+                            IconButton(
+                                onClick = { showMediaLinksDocsSheet = true },
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .testTag("chat_group_media_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PhotoLibrary,
+                                    contentDescription = "Media",
+                                    tint = Color(0xFF111827),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
 
-                        // 2. Call icon (handset with plus sign as in reference image)
-                        IconButton(
-                            onClick = {
-                                if (isContactBlocked) {
-                                    Toast.makeText(context, "Unblock ${conversation.title} to place a call.", Toast.LENGTH_SHORT).show()
-                                } else if (sendViaSms) {
-                                    val phone = conversation.phoneNumber ?: conversation.title.filter { it.isDigit() || it == '+' }
-                                    if (phone.isNotBlank()) {
-                                        val dialIntent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone"))
-                                        context.startActivity(dialIntent)
-                                    } else {
-                                        Toast.makeText(context, "No valid phone number for SMS contact.", Toast.LENGTH_SHORT).show()
-                                    }
-                                } else {
-                                    showCallTypeBottomSheet = true
+                            // 2. Video Call with dropdown arrow (Screenshots 8 & 9)
+                            Box {
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable { callMenuExpanded = true }
+                                        .padding(horizontal = 4.dp, vertical = 6.dp)
+                                        .testTag("chat_group_call_dropdown_button"),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Videocam,
+                                        contentDescription = "Video call options",
+                                        tint = Color(0xFF111827),
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowDropDown,
+                                        contentDescription = null,
+                                        tint = Color(0xFF111827),
+                                        modifier = Modifier.size(18.dp)
+                                    )
                                 }
-                            },
-                            modifier = Modifier
-                                .size(40.dp)
-                                .testTag("chat_unified_call_button")
-                        ) {
-                            ChatCallWithPlusIcon(
-                                tint = if (isContactBlocked) Color(0xFF94A3B8) else Color(0xFF111827)
-                            )
+
+                                // Dropdown menu matching Screenshot 9
+                                DropdownMenu(
+                                    expanded = callMenuExpanded,
+                                    onDismissRequest = { callMenuExpanded = false },
+                                    modifier = Modifier.widthIn(min = 200.dp)
+                                ) {
+                                    DropdownMenuItem(
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Call,
+                                                contentDescription = null,
+                                                tint = Color(0xFF54656F),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        },
+                                        text = { Text("Voice call", fontSize = 15.sp, color = Color(0xFF111827)) },
+                                        onClick = {
+                                            callMenuExpanded = false
+                                            onCallClick(CallType.VOICE)
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Videocam,
+                                                contentDescription = null,
+                                                tint = Color(0xFF54656F),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        },
+                                        text = { Text("Video call", fontSize = 15.sp, color = Color(0xFF111827)) },
+                                        onClick = {
+                                            callMenuExpanded = false
+                                            onCallClick(CallType.VIDEO)
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Person,
+                                                contentDescription = null,
+                                                tint = Color(0xFF54656F),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        },
+                                        text = { Text("Select people", fontSize = 15.sp, color = Color(0xFF111827)) },
+                                        onClick = {
+                                            callMenuExpanded = false
+                                            showAddGroupMemberDialog = true
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Link,
+                                                contentDescription = null,
+                                                tint = Color(0xFF54656F),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        },
+                                        text = { Text("Send call link", fontSize = 15.sp, color = Color(0xFF111827)) },
+                                        onClick = {
+                                            callMenuExpanded = false
+                                            val callLink = "https://call.olinam.com/${conversation.id}"
+                                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                                type = "text/plain"
+                                                putExtra(Intent.EXTRA_TEXT, "Join our Olinam group call: $callLink")
+                                            }
+                                            context.startActivity(Intent.createChooser(shareIntent, "Share call link"))
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.CalendarToday,
+                                                contentDescription = null,
+                                                tint = Color(0xFF54656F),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        },
+                                        text = { Text("Schedule call", fontSize = 15.sp, color = Color(0xFF111827)) },
+                                        onClick = {
+                                            callMenuExpanded = false
+                                            Toast.makeText(context, "Call scheduling scheduled for group", Toast.LENGTH_SHORT).show()
+                                        }
+                                    )
+                                }
+                            }
+                        } else {
+                            // 1. List icon (stacked cards with person avatar as in reference image)
+                            IconButton(
+                                onClick = { showListsBottomSheet = true },
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .testTag("chat_lists_button")
+                            ) {
+                                ChatListIcon(
+                                    tint = Color(0xFF111827)
+                                )
+                            }
+
+                            // 2. Call icon (handset with plus sign as in reference image)
+                            IconButton(
+                                onClick = {
+                                    if (isContactBlocked) {
+                                        Toast.makeText(context, "Unblock ${conversation.title} to place a call.", Toast.LENGTH_SHORT).show()
+                                    } else if (sendViaSms) {
+                                        val phone = conversation.phoneNumber ?: conversation.title.filter { it.isDigit() || it == '+' }
+                                        if (phone.isNotBlank()) {
+                                            val dialIntent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone"))
+                                            context.startActivity(dialIntent)
+                                        } else {
+                                            Toast.makeText(context, "No valid phone number for SMS contact.", Toast.LENGTH_SHORT).show()
+                                        }
+                                    } else {
+                                        showCallTypeBottomSheet = true
+                                    }
+                                },
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .testTag("chat_unified_call_button")
+                            ) {
+                                ChatCallWithPlusIcon(
+                                    tint = if (isContactBlocked) Color(0xFF94A3B8) else Color(0xFF111827)
+                                )
+                            }
                         }
 
                         // Beside it: 3-dots list / options button
@@ -1289,25 +1458,42 @@ fun ChatDetailScreen(
                                 onDismissRequest = { menuExpanded = false },
                                 modifier = Modifier.widthIn(min = 210.dp)
                             ) {
-                                DropdownMenuItem(
-                                    text = { Text("Add to contacts", fontSize = 15.sp, color = Color(0xFF111B21)) },
-                                    onClick = {
-                                        menuExpanded = false
-                                        val insertIntent = Intent(Intent.ACTION_INSERT).apply {
-                                            type = ContactsContract.Contacts.CONTENT_TYPE
-                                            putExtra(ContactsContract.Intents.Insert.NAME, conversation.title)
-                                            val phone = conversation.phoneNumber ?: conversation.title.filter { it.isDigit() || it == '+' }
-                                            if (phone.isNotBlank()) {
-                                                putExtra(ContactsContract.Intents.Insert.PHONE, phone)
+                                if (conversation.isGroup) {
+                                    DropdownMenuItem(
+                                        text = { Text("Group info", fontSize = 15.sp, color = Color(0xFF111B21)) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            onOpenProfile()
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Group media", fontSize = 15.sp, color = Color(0xFF111B21)) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            showMediaLinksDocsSheet = true
+                                        }
+                                    )
+                                } else {
+                                    DropdownMenuItem(
+                                        text = { Text("Add to contacts", fontSize = 15.sp, color = Color(0xFF111B21)) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            val insertIntent = Intent(Intent.ACTION_INSERT).apply {
+                                                type = ContactsContract.Contacts.CONTENT_TYPE
+                                                putExtra(ContactsContract.Intents.Insert.NAME, conversation.title)
+                                                val phone = conversation.phoneNumber ?: conversation.title.filter { it.isDigit() || it == '+' }
+                                                if (phone.isNotBlank()) {
+                                                    putExtra(ContactsContract.Intents.Insert.PHONE, phone)
+                                                }
+                                            }
+                                            try {
+                                                context.startActivity(insertIntent)
+                                            } catch (_: Exception) {
+                                                showAddContactDialog = true
                                             }
                                         }
-                                        try {
-                                            context.startActivity(insertIntent)
-                                        } catch (_: Exception) {
-                                            showAddContactDialog = true
-                                        }
-                                    }
-                                )
+                                    )
+                                }
                                 DropdownMenuItem(
                                     text = { Text("Search", fontSize = 15.sp, color = Color(0xFF111B21)) },
                                     onClick = {
@@ -1324,13 +1510,15 @@ fun ChatDetailScreen(
                                         Toast.makeText(context, if (isChatStarred) "Chat starred" else "Chat unstarred", Toast.LENGTH_SHORT).show()
                                     }
                                 )
-                                DropdownMenuItem(
-                                    text = { Text("Media, links, and docs", fontSize = 15.sp, color = Color(0xFF111B21)) },
-                                    onClick = {
-                                        menuExpanded = false
-                                        showMediaLinksDocsSheet = true
-                                    }
-                                )
+                                if (!conversation.isGroup) {
+                                    DropdownMenuItem(
+                                        text = { Text("Media, links, and docs", fontSize = 15.sp, color = Color(0xFF111B21)) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            showMediaLinksDocsSheet = true
+                                        }
+                                    )
+                                }
                                 DropdownMenuItem(
                                     text = { Text("Mute notifications", fontSize = 15.sp, color = Color(0xFF111B21)) },
                                     onClick = {
@@ -1392,7 +1580,7 @@ fun ChatDetailScreen(
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Delete chat", fontSize = 15.sp, color = Color(0xFFDC2626), fontWeight = FontWeight.SemiBold) },
+                                    text = { Text(if (conversation.isGroup) "Exit group" else "Delete chat", fontSize = 15.sp, color = Color(0xFFDC2626), fontWeight = FontWeight.SemiBold) },
                                     onClick = {
                                         menuExpanded = false
                                         showDeleteChatConfirm = true
@@ -1547,6 +1735,27 @@ fun ChatDetailScreen(
                                     )
                                 }
                             }
+                        }
+                    }
+
+                    // WhatsApp Group Hero Welcome Card (Screenshot 8)
+                    if (conversation.isGroup) {
+                        item {
+                            WhatsAppGroupHeroCard(
+                                groupTitle = conversation.title,
+                                participantsCount = conversation.participantIds.size,
+                                groupDescription = conversation.groupDescription,
+                                onAddDescriptionClick = {
+                                    editGroupDescText = conversation.groupDescription ?: ""
+                                    showEditGroupDescDialog = true
+                                },
+                                onAddMembersClick = {
+                                    showAddGroupMemberDialog = true
+                                },
+                                onInviteLinkClick = {
+                                    showGroupLinkScreen = true
+                                }
+                            )
                         }
                     }
 
@@ -2417,6 +2626,86 @@ fun ChatDetailScreen(
         )
     }
 
+    // Edit Group Description Dialog (Screenshot 8)
+    if (showEditGroupDescDialog) {
+        AlertDialog(
+            onDismissRequest = { showEditGroupDescDialog = false },
+            title = { Text("Group description", fontWeight = FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = editGroupDescText,
+                    onValueChange = { editGroupDescText = it },
+                    placeholder = { Text("Add group description...") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showEditGroupDescDialog = false
+                        onUpdateGroupDescription(editGroupDescText.trim())
+                        Toast.makeText(context, "Group description updated", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF007AFF))
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditGroupDescDialog = false }) {
+                    Text("Cancel", color = Color(0xFF64748B))
+                }
+            }
+        )
+    }
+
+    // Add Group Member Dialog (Screenshot 8)
+    if (showAddGroupMemberDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddGroupMemberDialog = false },
+            title = { Text("Add to group", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text(
+                        text = "Enter phone number or contact ID to add to ${conversation.title}:",
+                        fontSize = 13.5.sp,
+                        color = Color(0xFF64748B)
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = newMemberPhoneText,
+                        onValueChange = { newMemberPhoneText = it },
+                        singleLine = true,
+                        placeholder = { Text("+91 98765 43210") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val clean = newMemberPhoneText.trim()
+                        if (clean.isNotBlank()) {
+                            onAddGroupMember(clean)
+                            newMemberPhoneText = ""
+                            showAddGroupMemberDialog = false
+                            Toast.makeText(context, "$clean added to group", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF007AFF))
+                ) {
+                    Text("Add")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddGroupMemberDialog = false }) {
+                    Text("Cancel", color = Color(0xFF64748B))
+                }
+            }
+        )
+    }
+
     // Inspect individual message crypto details
     selectedMessageForCrypto?.let { msg ->
         AlertDialog(
@@ -2457,6 +2746,188 @@ fun ChatDetailScreen(
                 }
             }
         )
+    }
+}
+
+/**
+ * WhatsApp Group Hero Card shown at the top of a group chat (Screenshot 8).
+ * Features:
+ * - Centered group avatar circle
+ * - Group title in bold
+ * - Subtitle: "Group · X members"
+ * - Clickable "Add group description" link or description text
+ * - "Add members" and "Invite to group via link" rounded action chips
+ */
+@Composable
+fun WhatsAppGroupHeroCard(
+    groupTitle: String,
+    participantsCount: Int,
+    groupDescription: String?,
+    onAddDescriptionClick: () -> Unit,
+    onAddMembersClick: () -> Unit,
+    onInviteLinkClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = Color.White.copy(alpha = 0.94f),
+        shadowElevation = 0.5.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Group Avatar Icon
+            Box(
+                modifier = Modifier
+                    .size(68.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFE2EDFC)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Group,
+                    contentDescription = "Group",
+                    tint = Color(0xFF0160E3),
+                    modifier = Modifier.size(36.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Group Name
+            Text(
+                text = groupTitle,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF111827),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(modifier = Modifier.height(3.dp))
+
+            // Subtitle: Group · X members
+            Text(
+                text = "Group · $participantsCount members",
+                fontSize = 13.sp,
+                color = Color(0xFF64748B),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Group Description or "Add group description"
+            if (!groupDescription.isNullOrBlank()) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFF8FAFC),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onAddDescriptionClick() }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = groupDescription,
+                            fontSize = 13.sp,
+                            color = Color(0xFF334155),
+                            modifier = Modifier.weight(1f),
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edit description",
+                            tint = Color(0xFF94A3B8),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            } else {
+                Text(
+                    text = "Add group description",
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color(0xFF0160E3),
+                    modifier = Modifier
+                        .clickable { onAddDescriptionClick() }
+                        .padding(vertical = 4.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Action Buttons: Add members & Invite via link
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color(0xFFE2EDFC),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onAddMembersClick() }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PersonAdd,
+                            contentDescription = null,
+                            tint = Color(0xFF0160E3),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Add members",
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF0160E3)
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color(0xFFF1F5F9),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onInviteLinkClick() }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Link,
+                            contentDescription = null,
+                            tint = Color(0xFF475569),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Invite via link",
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF334155)
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -4947,24 +5418,17 @@ fun SelectCallTypeBottomSheet(
 @Composable
 fun ChatListsBottomSheet(
     conversation: Conversation,
+    labels: List<ChatLabel> = emptyList(),
     onDismissRequest: () -> Unit,
+    onCreateNewLabel: (String, String) -> Unit = { _, _ -> },
     onSaveLists: (List<String>) -> Unit
 ) {
-    val defaultLists = remember {
-        listOf(
-            "favorites" to "Favorites",
-            "friends" to "Friends",
-            "family" to "Family",
-            "work" to "Work",
-            "vip" to "VIP",
-            "direct" to "Direct Messages"
-        )
-    }
     var selectedLists by remember {
         mutableStateOf(conversation.labelIds.toSet())
     }
-    var newListName by remember { mutableStateOf("") }
     var showAddCustomList by remember { mutableStateOf(false) }
+    var newListName by remember { mutableStateOf("") }
+    var selectedColor by remember { mutableStateOf(WhatsAppListColors.first()) }
     val context = LocalContext.current
 
     ModalBottomSheet(
@@ -5013,63 +5477,81 @@ fun ChatListsBottomSheet(
                         onSaveLists(selectedLists.toList())
                         onDismissRequest()
                         Toast.makeText(context, "Lists updated", Toast.LENGTH_SHORT).show()
-                    }
+                    },
+                    modifier = Modifier.testTag("chat_lists_done_button")
                 ) {
                     Text(
                         text = "Done",
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF0160E3) // Official Blue
+                        color = Color(0xFF0160E3)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            defaultLists.forEach { (id, title) ->
-                val isSelected = selectedLists.contains(id)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .clickable {
-                            selectedLists = if (isSelected) {
-                                selectedLists - id
-                            } else {
-                                selectedLists + id
+            // Display all available labels from labels (both defaults and custom)
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 280.dp)
+            ) {
+                items(labels) { label ->
+                    val isSelected = selectedLists.contains(label.id)
+                    val labelColor = parseHexColorSafely(label.colorHex, Color(0xFF0160E3))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable {
+                                selectedLists = if (isSelected) {
+                                    selectedLists - label.id
+                                } else {
+                                    selectedLists + label.id
+                                }
+                            }
+                            .padding(vertical = 10.dp, horizontal = 8.dp)
+                            .testTag("chat_list_item_${label.id}"),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(22.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .border(
+                                    width = 1.8.dp,
+                                    color = if (isSelected) Color(0xFF0160E3) else Color(0xFFCBD5E1),
+                                    shape = RoundedCornerShape(6.dp)
+                                )
+                                .background(if (isSelected) Color(0xFF0160E3) else Color.Transparent),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isSelected) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
                             }
                         }
-                        .padding(vertical = 10.dp, horizontal = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(22.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .border(
-                                width = 1.8.dp,
-                                color = if (isSelected) Color(0xFF0160E3) else Color(0xFFCBD5E1),
-                                shape = RoundedCornerShape(6.dp)
-                            )
-                            .background(if (isSelected) Color(0xFF0160E3) else Color.Transparent),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (isSelected) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
+                        Spacer(modifier = Modifier.width(14.dp))
+                        // Color indicator dot
+                        Box(
+                            modifier = Modifier
+                                .size(12.dp)
+                                .clip(CircleShape)
+                                .background(labelColor)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = label.name,
+                            fontSize = 15.sp,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                            color = Color(0xFF111827)
+                        )
                     }
-                    Spacer(modifier = Modifier.width(14.dp))
-                    Text(
-                        text = title,
-                        fontSize = 15.sp,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                        color = Color(0xFF111827)
-                    )
                 }
             }
 
@@ -5078,7 +5560,9 @@ fun ChatListsBottomSheet(
             if (!showAddCustomList) {
                 TextButton(
                     onClick = { showAddCustomList = true },
-                    modifier = Modifier.align(Alignment.Start)
+                    modifier = Modifier
+                        .align(Alignment.Start)
+                        .testTag("chat_new_list_button")
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
@@ -5094,30 +5578,98 @@ fun ChatListsBottomSheet(
                     )
                 }
             } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFFF8FAFC))
+                        .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(12.dp))
+                        .padding(14.dp)
                 ) {
+                    Text(
+                        text = "Create New List",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1E293B)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = newListName,
                         onValueChange = { newListName = it },
-                        placeholder = { Text("List name") },
+                        placeholder = { Text("List name (e.g. Work, Family)") },
                         singleLine = true,
-                        modifier = Modifier.weight(1f)
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF0160E3),
+                            unfocusedBorderColor = Color(0xFFCBD5E1)
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("new_list_name_input")
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Button(
-                        onClick = {
-                            if (newListName.isNotBlank()) {
-                                val cleanId = newListName.lowercase().replace(" ", "_")
-                                selectedLists = selectedLists + cleanId
-                                newListName = ""
-                                showAddCustomList = false
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3))
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "Choose colour",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF64748B)
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    // Palette row
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Add")
+                        items(WhatsAppListColors.take(10)) { colorHex ->
+                            val c = parseHexColorSafely(colorHex)
+                            val isColorChosen = selectedColor.equals(colorHex, ignoreCase = true)
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(c)
+                                    .clickable { selectedColor = colorHex }
+                                    .border(
+                                        width = if (isColorChosen) 2.5.dp else 0.dp,
+                                        color = if (isColorChosen) Color(0xFF1E293B) else Color.Transparent,
+                                        shape = CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isColorChosen) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = { showAddCustomList = false }) {
+                            Text("Cancel", color = Color(0xFF64748B))
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                if (newListName.isNotBlank()) {
+                                    val trimmedName = newListName.trim()
+                                    onCreateNewLabel(trimmedName, selectedColor)
+                                    Toast.makeText(context, "List \"$trimmedName\" created", Toast.LENGTH_SHORT).show()
+                                    newListName = ""
+                                    showAddCustomList = false
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3)),
+                            modifier = Modifier.testTag("create_new_list_confirm_button")
+                        ) {
+                            Text("Add List")
+                        }
                     }
                 }
             }

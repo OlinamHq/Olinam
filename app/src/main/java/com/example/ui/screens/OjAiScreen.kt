@@ -1,10 +1,25 @@
-@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@file:OptIn(
+    androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
+    androidx.compose.material3.ExperimentalMaterial3Api::class
+)
 
 package com.example.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,58 +27,85 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SentimentSatisfiedAlt
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SimCard
 import androidx.compose.material.icons.filled.Sms
+import androidx.compose.material.icons.filled.ThumbDown
+import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -73,529 +115,429 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ai.AiPlugin
-import com.example.ai.AiReplyResult
 import com.example.ai.DelegatedContact
+import com.example.ai.OjAiAgentManager
+import com.example.ai.OjAiChatMessage
+import com.example.ai.OjAiService
 import com.example.data.ContactHelper
+import com.example.model.AppTab
 import com.example.ui.ChatViewModel
-import com.example.ui.theme.OlinamPrimary
-import com.example.ui.theme.OlinamPrimaryContainer
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.UUID
 
+private val GeminiBlue = Color(0xFF0160E3)
+private val GeminiPurple = Color(0xFF7C3AED)
+private val WhatsAppGreenBubble = Color(0xFFE7FFDB) // Signature WhatsApp outgoing bubble
+private val WhatsAppDarkText = Color(0xFF111B21)
+private val WhatsAppSubText = Color(0xFF54656F)
+private val WhatsAppTickBlue = Color(0xFF53BDEB)
+
 /**
- * Oj AI Agent Control Hub & Plugin Management:
- * Not a simple chatbot; an autonomous agent management center with
- * Gmail, Google Drive, Calendar, SIM SMS plugins and contact delegation.
+ * Authentic WhatsApp Meta AI style Chat Screen for Oj AI:
+ * - Real WhatsApp doodle wallpaper background
+ * - Authentic WhatsApp chat Top Bar with Meta AI glowing ring & call/menu actions
+ * - Center date pill and E2EE yellow privacy banner
+ * - Light green outgoing user bubbles with double ticks & crisp white incoming AI bubbles
+ * - Exact WhatsApp bottom input bar: floating capsule with emoji, attach, camera + circular blue send/mic button
+ * - Clean ModalBottomSheet for Agent Tools & Workspace Plugins accessible from menu
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun OjAiScreen(viewModel: ChatViewModel) {
+fun OjAiScreen(
+    viewModel: ChatViewModel,
+    onBackClick: () -> Unit = { viewModel.setTab(AppTab.CHATS) }
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val agentManager = remember { viewModel.getOrCreateAiAgentManager(context) }
 
-    val plugins by agentManager.plugins.collectAsState()
-    val delegatedContacts by agentManager.delegatedContacts.collectAsState()
-    val settings by agentManager.settings.collectAsState()
-    val recentActions by agentManager.recentActions.collectAsState()
+    // Intercept hardware/system back gesture to smoothly return to Chats
+    BackHandler {
+        onBackClick()
+    }
 
-    var showAddContactDialog by remember { mutableStateOf(false) }
-    var showEditContactDialog by remember { mutableStateOf<DelegatedContact?>(null) }
-    var selectedPluginForDetails by remember { mutableStateOf<AiPlugin?>(null) }
+    val messages by viewModel.ojAiMessages.collectAsState()
+    val isTyping by viewModel.isOjAiTyping.collectAsState()
+    val listState = rememberLazyListState()
 
-    // Simulator testing states
-    var testSelectedContact by remember { mutableStateOf<DelegatedContact?>(null) }
-    var testQueryInput by remember { mutableStateOf("When is the project meeting scheduled for today?") }
-    var isSimulating by remember { mutableStateOf(false) }
-    var simulationResult by remember { mutableStateOf<AiReplyResult?>(null) }
+    var inputPrompt by remember { mutableStateOf("") }
+    var showMenu by remember { mutableStateOf(false) }
+    var showClearDialog by remember { mutableStateOf(false) }
+    var showProfileScreen by remember { mutableStateOf(false) }
+    var showAgentToolsSheet by remember { mutableStateOf(false) }
+    var showEmojiQuickPicker by remember { mutableStateOf(false) }
 
-    LazyColumn(
+    // When profile/settings is opened, show full-screen OjAiProfileScreen (matching ContactProfileScreen)
+    if (showProfileScreen) {
+        OjAiProfileScreen(
+            agentManager = agentManager,
+            viewModel = viewModel,
+            onBackClick = { showProfileScreen = false }
+        )
+        return
+    }
+
+    // Auto-scroll to bottom on new message or typing state change
+    LaunchedEffect(messages.size, isTyping) {
+        if (messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.size - 1)
+        }
+    }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF8FAFC))
             .testTag("oj_ai_screen")
     ) {
-        // 1. Header
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color.White)
-                    .statusBarsPadding()
-                    .padding(horizontal = 20.dp, vertical = 16.dp)
+        // 1. Authentic WhatsApp Doodle Background
+        WhatsAppDoodleBackground(modifier = Modifier.fillMaxSize())
+
+        Column(modifier = Modifier.fillMaxSize()) {
+            // 2. WhatsApp Authentic Chat Top Bar
+            Surface(
+                color = Color.White,
+                shadowElevation = 1.dp,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            shape = CircleShape,
-                            color = Color(0xFFEFF6FF),
-                            modifier = Modifier.size(44.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Psychology,
-                                    contentDescription = "Oj AI Hub",
-                                    tint = OlinamPrimary,
-                                    modifier = Modifier.size(26.dp)
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "Oj AI Agent Hub",
-                                    fontSize = 20.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF0F172A)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = Color(0xFFEEF2FF)
-                                ) {
-                                    Text(
-                                        text = "Gemini 2.5",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = OlinamPrimary,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-                            Text(
-                                text = "Autonomous agent & daily-use plugin manager",
-                                fontSize = 12.sp,
-                                color = Color(0xFF64748B)
-                            )
-                        }
-                    }
-
-                    // Master Toggle
-                    Switch(
-                        checked = settings.isAgentMasterEnabled,
-                        onCheckedChange = {
-                            agentManager.updateSettings(settings.copy(isAgentMasterEnabled = it))
-                            val msg = if (it) "Oj AI Agent is now Active" else "Oj AI Agent Paused"
-                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF0160E3)
-                        ),
-                        modifier = Modifier.testTag("ai_master_switch")
-                    )
-                }
-            }
-        }
-
-        // 2. Master Status & Mode Card
-        item {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = if (settings.isAgentMasterEnabled) "Agent Status: Active on Your Behalf" else "Agent Status: Paused",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (settings.isAgentMasterEnabled) Color(0xFF0160E3) else Color(0xFF64748B)
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = if (settings.autonomousMode) "Mode: Direct Autonomous Dispatch (SMS & Chats)" else "Mode: Draft with 1-Tap Approval",
-                                fontSize = 12.5.sp,
-                                color = Color(0xFF64748B)
-                            )
-                        }
-
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFFF1F5F9),
-                            modifier = Modifier.clickable {
-                                val newMode = !settings.autonomousMode
-                                agentManager.updateSettings(settings.copy(autonomousMode = newMode))
-                            }
-                        ) {
-                            Text(
-                                text = if (settings.autonomousMode) "Auto-Send" else "Approval Mode",
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF334155),
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    HorizontalDivider(color = Color(0xFFF1F5F9))
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // Persona / Tone Selector
-                    Text(
-                        text = "AI Communication Tone",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFF475569)
-                    )
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        val tones = listOf("Professional Executive", "Friendly & Warm", "Concise & Fast")
-                        tones.forEach { tone ->
-                            val isSelected = settings.personalityTone == tone
-                            Surface(
-                                shape = RoundedCornerShape(20.dp),
-                                color = if (isSelected) OlinamPrimaryContainer else Color(0xFFF8FAFC),
-                                border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, OlinamPrimary) else null,
-                                modifier = Modifier.clickable {
-                                    agentManager.updateSettings(settings.copy(personalityTone = tone))
-                                }
-                            ) {
-                                Text(
-                                    text = tone,
-                                    fontSize = 12.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isSelected) OlinamPrimary else Color(0xFF475569),
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 3. Daily Connected Plugins & Add-ons Section
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text(
-                            text = "Daily Plugins & Add-ons",
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF0F172A)
-                        )
-                        Text(
-                            text = "Oj AI reads from connected plugins to answer on your behalf",
-                            fontSize = 12.sp,
-                            color = Color(0xFF64748B)
-                        )
-                    }
-                }
-            }
-        }
-
-        items(plugins, key = { it.id }) { plugin ->
-            PluginItemCard(
-                plugin = plugin,
-                onToggle = { isChecked ->
-                    agentManager.togglePlugin(plugin.id, isChecked)
-                },
-                onClick = { selectedPluginForDetails = plugin }
-            )
-        }
-
-        // 4. Delegated Contacts Section (Who AI can message directly)
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 8.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Authorized Contacts for AI",
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF0F172A)
-                        )
-                        Text(
-                            text = "Contacts where Oj AI can reply directly using email/calendar context",
-                            fontSize = 12.sp,
-                            color = Color(0xFF64748B)
-                        )
-                    }
-
-                    Button(
-                        onClick = { showAddContactDialog = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = OlinamPrimary),
-                        shape = RoundedCornerShape(20.dp),
-                        modifier = Modifier.testTag("authorize_contact_button")
-                    ) {
-                        Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Add", fontSize = 13.sp)
-                    }
-                }
-            }
-        }
-
-        if (delegatedContacts.isEmpty()) {
-            item {
-                Surface(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color.White
+                        .statusBarsPadding()
                 ) {
-                    Column(
-                        modifier = Modifier.padding(20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(58.dp)
+                            .padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.PersonAdd,
-                            contentDescription = null,
-                            tint = Color(0xFF94A3B8),
-                            modifier = Modifier.size(36.dp)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "No Contacts Authorized Yet",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF334155)
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Tap '+ Add' above to select contacts that Oj AI has permission to auto-reply to on your behalf.",
-                            fontSize = 12.5.sp,
-                            color = Color(0xFF64748B),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
+                        // Back Button (Switches back to main Chats tab)
+                        IconButton(
+                            onClick = onBackClick,
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back to Chats",
+                                tint = WhatsAppDarkText,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+
+                        // Meta AI Style Glowing Ring Avatar
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    Brush.linearGradient(
+                                        listOf(
+                                            GeminiBlue,
+                                            GeminiPurple,
+                                            Color(0xFF06B6D4)
+                                        )
+                                    )
+                                )
+                                .clickable { showProfileScreen = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = "Oj AI Profile",
+                                    tint = GeminiBlue,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(10.dp))
+
+                        // Name & Online Status
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { showProfileScreen = true }
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "Oj AI",
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = WhatsAppDarkText,
+                                    maxLines = 1
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = "Verified",
+                                    tint = GeminiBlue,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF22C55E))
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (isTyping) "typing..." else "with Google Gemini • online",
+                                    fontSize = 12.sp,
+                                    color = if (isTyping) GeminiBlue else WhatsAppSubText,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+
+                        // Action Icons: Video Call, Voice Call, Overflow Menu
+                        IconButton(
+                            onClick = {
+                                Toast.makeText(context, "Oj AI Vision assistant ready", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Videocam,
+                                contentDescription = "Video Call",
+                                tint = WhatsAppSubText,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = {
+                                Toast.makeText(context, "Voice call: Oj AI listening...", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Call,
+                                contentDescription = "Voice Call",
+                                tint = WhatsAppSubText,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        Box {
+                            IconButton(
+                                onClick = { showMenu = true },
+                                modifier = Modifier.size(38.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "Menu",
+                                    tint = WhatsAppSubText,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Profile & Settings") },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.Person,
+                                            contentDescription = null,
+                                            tint = GeminiBlue,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        showProfileScreen = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Agent Tools & Rules") },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.Settings,
+                                            contentDescription = null,
+                                            tint = GeminiBlue,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        showProfileScreen = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Clear Chat") },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = null,
+                                            tint = Color(0xFFEF4444),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        showClearDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("About Gemini 3.5 Flash") },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.AutoAwesome,
+                                            contentDescription = null,
+                                            tint = GeminiPurple,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        Toast.makeText(
+                                            context,
+                                            "Oj AI is powered by Google Gemini 3.5 Flash with end-to-end privacy.",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
-        } else {
-            items(delegatedContacts, key = { it.id }) { contact ->
-                DelegatedContactCard(
-                    contact = contact,
-                    onEdit = { showEditContactDialog = contact },
-                    onDelete = { agentManager.removeDelegatedContact(contact.id) },
-                    onToggleAutoReply = { isChecked ->
-                        agentManager.updateDelegatedContact(contact.copy(isAiAutoReplyEnabled = isChecked))
-                    }
-                )
-            }
-        }
 
-        // 5. Live Agent Simulator & Test Console
-        item {
-            Column(
+            // 3. Chat Messages LazyColumn
+            LazyColumn(
+                state = listState,
                 modifier = Modifier
+                    .weight(1f)
                     .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 22.dp, bottom = 8.dp)
+                    .padding(horizontal = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                contentPadding = PaddingValues(top = 10.dp, bottom = 8.dp)
             ) {
-                Text(
-                    text = "Live Agent Simulator",
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF0F172A)
-                )
-                Text(
-                    text = "Test how Oj AI reads Gmail/Calendar data to formulate smart replies",
-                    fontSize = 12.sp,
-                    color = Color(0xFF64748B)
-                )
-            }
-        }
-
-        item {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Sample Incoming Message Query:",
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF334155)
-                    )
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    OutlinedTextField(
-                        value = testQueryInput,
-                        onValueChange = { testQueryInput = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp),
-                        placeholder = { Text("e.g. When is our project meeting?") }
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // Preset Quick Questions
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        val presets = listOf(
-                            "When is our meeting?",
-                            "Did you get the proposal?",
-                            "What is your flight time?"
-                        )
-                        presets.forEach { preset ->
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color(0xFFF1F5F9),
-                                modifier = Modifier.clickable { testQueryInput = preset }
-                            ) {
-                                Text(
-                                    text = preset,
-                                    fontSize = 11.5.sp,
-                                    color = Color(0xFF334155),
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    Button(
-                        onClick = {
-                            isSimulating = true
-                            simulationResult = null
-                            scope.launch {
-                                val targetContact = testSelectedContact ?: delegatedContacts.firstOrNull() ?: DelegatedContact(
-                                    id = "sample_test",
-                                    name = "Alex Client",
-                                    phoneNumber = "+91 98765 43210",
-                                    isAiAutoReplyEnabled = true,
-                                    allowReadEmailContext = true,
-                                    allowDirectSend = true
-                                )
-                                val res = agentManager.generateAutonomousReply(targetContact, testQueryInput)
-                                simulationResult = res
-                                isSimulating = false
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3)),
-                        shape = RoundedCornerShape(10.dp),
+                // Top Centered Date Pill (Matching WhatsApp screenshot)
+                item {
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .testTag("run_ai_simulation_button")
+                            .padding(vertical = 4.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        if (isSimulating) {
-                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Analyzing Plugins & Generating...", fontSize = 13.5.sp)
-                        } else {
-                            Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Simulate Oj AI Autonomous Reply", fontSize = 13.5.sp)
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color.White.copy(alpha = 0.92f),
+                            shadowElevation = 0.5.dp
+                        ) {
+                            Text(
+                                text = "Today",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = WhatsAppSubText,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                            )
                         }
                     }
+                }
 
-                    // Simulation Result Display
-                    AnimatedVisibility(visible = simulationResult != null) {
-                        simulationResult?.let { res ->
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 14.dp)
+                // Yellow End-to-End Encryption Banner (Matching Screenshot 1)
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFFFFF9C4), // Soft warm yellow banner
+                            shadowElevation = 0.5.dp
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.Top
                             ) {
-                                HorizontalDivider(color = Color(0xFFF1F5F9))
-                                Spacer(modifier = Modifier.height(10.dp))
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = "Encrypted",
+                                    tint = Color(0xFF854D0E),
+                                    modifier = Modifier
+                                        .size(13.dp)
+                                        .offset(y = 2.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Messages and calls are end-to-end encrypted. Generated with Google Gemini 3.5 Flash. No one outside of this chat, not even Olinam, can read them. Learn more",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF713F12),
+                                    textAlign = TextAlign.Center,
+                                    lineHeight = 16.sp
+                                )
+                            }
+                        }
+                    }
+                }
 
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.CheckCircle,
-                                        contentDescription = null,
-                                        tint = Color(0xFF0160E3),
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Sources Context Analyzed:",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF334155)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = res.contextSourcesUsed.joinToString(", ").ifEmpty { "Personal Agent Knowledge" },
-                                        fontSize = 12.sp,
-                                        color = OlinamPrimary,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = Color(0xFFF8FAFC),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
+                // Suggested Prompts Row if chat has 1 or fewer messages
+                if (messages.size <= 1) {
+                    item {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "💡 Quick Prompts",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = WhatsAppSubText,
+                                modifier = Modifier.padding(bottom = 6.dp)
+                            )
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp)
+                            ) {
+                                items(OjAiService.initialSuggestions) { suggestion ->
+                                    Surface(
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = Color.White,
+                                        shadowElevation = 1.dp,
+                                        modifier = Modifier.clickable {
+                                            viewModel.sendOjAiPrompt(suggestion)
+                                        }
+                                    ) {
                                         Text(
-                                            text = "Oj AI Formulated Response (Sent on Your Behalf):",
-                                            fontSize = 11.5.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = Color(0xFF64748B)
-                                        )
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = "\"${res.generatedText}\"",
-                                            fontSize = 14.sp,
-                                            color = Color(0xFF0F172A),
-                                            lineHeight = 20.sp
+                                            text = suggestion,
+                                            fontSize = 12.5.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = WhatsAppDarkText,
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                                         )
                                     }
                                 }
@@ -603,454 +545,693 @@ fun OjAiScreen(viewModel: ChatViewModel) {
                         }
                     }
                 }
-            }
-        }
 
-        item {
-            Spacer(modifier = Modifier.height(40.dp))
-        }
-    }
-
-    // Dialog: Authorize New Contact
-    if (showAddContactDialog) {
-        AuthorizeContactDialog(
-            context = context,
-            onDismiss = { showAddContactDialog = false },
-            onAdd = { newContact ->
-                agentManager.addDelegatedContact(newContact)
-                showAddContactDialog = false
-                Toast.makeText(context, "${newContact.name} authorized for Oj AI", Toast.LENGTH_SHORT).show()
-            }
-        )
-    }
-
-    // Dialog: Edit Contact Authorization
-    showEditContactDialog?.let { target ->
-        EditDelegatedContactDialog(
-            contact = target,
-            onDismiss = { showEditContactDialog = null },
-            onSave = { updated ->
-                agentManager.updateDelegatedContact(updated)
-                showEditContactDialog = null
-                Toast.makeText(context, "Permissions updated", Toast.LENGTH_SHORT).show()
-            }
-        )
-    }
-
-    // Dialog: Plugin Details & Scope Inspection
-    selectedPluginForDetails?.let { plugin ->
-        AlertDialog(
-            onDismissRequest = { selectedPluginForDetails = null },
-            icon = {
-                Icon(
-                    imageVector = getPluginIcon(plugin.iconType),
-                    contentDescription = null,
-                    tint = OlinamPrimary,
-                    modifier = Modifier.size(36.dp)
-                )
-            },
-            title = {
-                Text(plugin.name, fontWeight = FontWeight.Bold)
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(plugin.description, fontSize = 13.5.sp, color = Color(0xFF475569))
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("Synced Data Feeds for Gemini Context:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    plugin.sampleItems.forEach { item ->
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color(0xFFF1F5F9),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(item, fontSize = 12.sp, modifier = Modifier.padding(8.dp))
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = { selectedPluginForDetails = null },
-                    colors = ButtonDefaults.buttonColors(containerColor = OlinamPrimary)
-                ) {
-                    Text("Done")
-                }
-            }
-        )
-    }
-}
-
-@Composable
-private fun PluginItemCard(
-    plugin: AiPlugin,
-    onToggle: (Boolean) -> Unit,
-    onClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 5.dp)
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = when (plugin.iconType) {
-                    "GMAIL" -> Color(0xFFFEF2F2)
-                    "DRIVE" -> Color(0xFFEFF6FF)
-                    "CALENDAR" -> Color(0xFFF0FDF4)
-                    "SMS" -> Color(0xFFFFFBEB)
-                    else -> Color(0xFFF8FAFC)
-                },
-                modifier = Modifier.size(46.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = getPluginIcon(plugin.iconType),
-                        contentDescription = null,
-                        tint = when (plugin.iconType) {
-                            "GMAIL" -> Color(0xFFDC2626)
-                            "DRIVE" -> Color(0xFF2563EB)
-                            "CALENDAR" -> Color(0xFF16A34A)
-                            "SMS" -> Color(0xFFD97706)
-                            else -> Color(0xFF64748B)
-                        },
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(14.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = plugin.name,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF0F172A)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    if (plugin.isConnected) {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF0160E3))
+                // Messages List (WhatsApp Bubbles)
+                items(messages, key = { it.id }) { msg ->
+                    if (msg.isUser) {
+                        WhatsAppUserBubble(message = msg)
+                    } else {
+                        WhatsAppAiBubble(
+                            message = msg,
+                            onCopy = { text ->
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("Oj AI response", text))
+                                Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                            },
+                            onShare = { text ->
+                                val intent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TEXT, text)
+                                }
+                                context.startActivity(Intent.createChooser(intent, "Share Oj AI response"))
+                            },
+                            onFeedback = { feedback ->
+                                viewModel.setOjAiFeedback(msg.id, feedback)
+                                Toast.makeText(context, if (feedback > 0) "Helpful! 👍" else "Thanks for feedback 👎", Toast.LENGTH_SHORT).show()
+                            },
+                            onRegenerate = {
+                                val lastUserMsg = messages.filter { it.isUser }.lastOrNull()
+                                if (lastUserMsg != null) {
+                                    viewModel.sendOjAiPrompt(lastUserMsg.text)
+                                }
+                            }
                         )
                     }
                 }
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = plugin.syncSummary,
-                    fontSize = 12.sp,
-                    color = Color(0xFF64748B),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+
+                // Typing Indicator Bubble
+                if (isTyping) {
+                    item {
+                        WhatsAppAiTypingBubble()
+                    }
+                }
             }
 
-            Switch(
-                checked = plugin.isConnected,
-                onCheckedChange = onToggle,
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color.White,
-                    checkedTrackColor = Color(0xFF0160E3)
-                )
+            // Quick emoji picker bar when emoji icon is clicked
+            AnimatedVisibility(visible = showEmojiQuickPicker) {
+                Surface(
+                    color = Color.White,
+                    shadowElevation = 2.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val quickEmojis = listOf("😊", "👍", "❤️", "🔥", "✨", "😂", "🙏", "💡", "🚀", "🎉")
+                        quickEmojis.forEach { emoji ->
+                            Text(
+                                text = emoji,
+                                fontSize = 22.sp,
+                                modifier = Modifier
+                                    .clickable {
+                                        inputPrompt += emoji
+                                    }
+                                    .padding(4.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 4. WhatsApp Bottom Input Bar (Exact match to Screenshot 1)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 6.dp, end = 6.dp, bottom = 6.dp, top = 2.dp)
+                    .navigationBarsPadding()
+                    .imePadding(),
+                verticalAlignment = Alignment.Bottom
+            ) {
+                // Floating Capsule Input on Left
+                Surface(
+                    shape = RoundedCornerShape(26.dp),
+                    color = Color.White,
+                    shadowElevation = 1.5.dp,
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Smiley / Emoji Button
+                        IconButton(
+                            onClick = { showEmojiQuickPicker = !showEmojiQuickPicker },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SentimentSatisfiedAlt,
+                                contentDescription = "Emoji",
+                                tint = if (showEmojiQuickPicker) GeminiBlue else WhatsAppSubText,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+
+                        // Message Input Field
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 4.dp, vertical = 6.dp),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            if (inputPrompt.isEmpty()) {
+                                Text(
+                                    text = "Message",
+                                    fontSize = 16.sp,
+                                    color = Color(0xFF8696A0)
+                                )
+                            }
+                            BasicTextField(
+                                value = inputPrompt,
+                                onValueChange = { inputPrompt = it },
+                                textStyle = TextStyle(
+                                    fontSize = 16.sp,
+                                    color = WhatsAppDarkText
+                                ),
+                                cursorBrush = SolidColor(GeminiBlue),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                keyboardActions = KeyboardActions(
+                                    onSend = {
+                                        if (inputPrompt.isNotBlank()) {
+                                            val promptToSend = inputPrompt
+                                            inputPrompt = ""
+                                            viewModel.sendOjAiPrompt(promptToSend)
+                                        }
+                                    }
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("oj_ai_chat_input")
+                            )
+                        }
+
+                        // Paperclip Attachment Button
+                        IconButton(
+                            onClick = {
+                                Toast.makeText(context, "Attach doc, photo or audio for Oj AI", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AttachFile,
+                                contentDescription = "Attach",
+                                tint = WhatsAppSubText,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        // Camera Button
+                        IconButton(
+                            onClick = {
+                                Toast.makeText(context, "Camera input for Oj AI Vision", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CameraAlt,
+                                contentDescription = "Camera",
+                                tint = WhatsAppSubText,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                // Floating Circular Blue Action Button (Mic / Send)
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .shadow(2.dp, CircleShape)
+                        .clip(CircleShape)
+                        .background(GeminiBlue)
+                        .clickable {
+                            if (inputPrompt.isNotBlank()) {
+                                val promptToSend = inputPrompt
+                                inputPrompt = ""
+                                viewModel.sendOjAiPrompt(promptToSend)
+                            } else {
+                                Toast.makeText(context, "Listening... speak your prompt to Oj AI", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        .testTag("oj_ai_send_mic_button"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (inputPrompt.isNotBlank()) Icons.AutoMirrored.Filled.Send else Icons.Default.Mic,
+                        contentDescription = if (inputPrompt.isNotBlank()) "Send" else "Voice input",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+        }
+    }
+
+    // Clear Chat Confirmation Dialog
+    if (showClearDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDialog = false },
+            title = { Text("Clear Oj AI chat?") },
+            text = { Text("This will reset your chat history with Oj AI. Your saved agent tools and rules will be preserved.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.clearOjAiChat()
+                        showClearDialog = false
+                        Toast.makeText(context, "Chat cleared", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+                ) {
+                    Text("Clear")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Modal Bottom Sheet for Agent Tools & Workspace Plugins
+    if (showAgentToolsSheet) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { showAgentToolsSheet = false },
+            sheetState = sheetState,
+            containerColor = Color.White
+        ) {
+            OjAiAgentBottomSheetContent(
+                agentManager = agentManager,
+                onClose = {
+                    scope.launch {
+                        sheetState.hide()
+                        showAgentToolsSheet = false
+                    }
+                }
             )
         }
     }
 }
 
+/**
+ * Authentic WhatsApp User Bubble (Outgoing - Light Green with double ticks)
+ */
 @Composable
-private fun DelegatedContactCard(
-    contact: DelegatedContact,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
-    onToggleAutoReply: (Boolean) -> Unit
+private fun WhatsAppUserBubble(message: OjAiChatMessage) {
+    val timeFormat = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
+    val formattedTime = remember(message.timestamp) { timeFormat.format(Date(message.timestamp)) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.End
+    ) {
+        Surface(
+            shape = RoundedCornerShape(
+                topStart = 14.dp,
+                topEnd = 2.dp,
+                bottomStart = 14.dp,
+                bottomEnd = 14.dp
+            ),
+            color = WhatsAppGreenBubble,
+            shadowElevation = 0.8.dp,
+            modifier = Modifier.widthIn(max = 300.dp)
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)) {
+                Text(
+                    text = message.text,
+                    fontSize = 15.sp,
+                    color = WhatsAppDarkText,
+                    lineHeight = 20.sp
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Row(
+                    modifier = Modifier.align(Alignment.End),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = formattedTime,
+                        fontSize = 11.sp,
+                        color = WhatsAppSubText
+                    )
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Icon(
+                        imageVector = Icons.Default.DoneAll,
+                        contentDescription = "Read",
+                        tint = WhatsAppTickBlue,
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Authentic WhatsApp Incoming AI Bubble (White, left-aligned, markdown supported, subtle actions)
+ */
+@Composable
+private fun WhatsAppAiBubble(
+    message: OjAiChatMessage,
+    onCopy: (String) -> Unit,
+    onShare: (String) -> Unit,
+    onFeedback: (Int) -> Unit,
+    onRegenerate: () -> Unit
 ) {
-    Card(
+    val timeFormat = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
+    val formattedTime = remember(message.timestamp) { timeFormat.format(Date(message.timestamp)) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Start
+    ) {
+        Surface(
+            shape = RoundedCornerShape(
+                topStart = 2.dp,
+                topEnd = 14.dp,
+                bottomStart = 14.dp,
+                bottomEnd = 14.dp
+            ),
+            color = Color.White,
+            shadowElevation = 0.8.dp,
+            modifier = Modifier.widthIn(max = 330.dp)
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                // Header badge
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = GeminiBlue,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                        text = "Oj AI",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = GeminiBlue
+                    )
+                }
+
+                // AI Response Text
+                Text(
+                    text = message.text,
+                    fontSize = 14.5.sp,
+                    color = WhatsAppDarkText,
+                    lineHeight = 21.sp
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Bottom Row: Timestamp & Compact Action Icons
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    // Actions on Left
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(
+                            onClick = { onCopy(message.text) },
+                            modifier = Modifier.size(26.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = "Copy",
+                                tint = WhatsAppSubText,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = { onShare(message.text) },
+                            modifier = Modifier.size(26.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = "Share",
+                                tint = WhatsAppSubText,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = { onFeedback(1) },
+                            modifier = Modifier.size(26.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ThumbUp,
+                                contentDescription = "Like",
+                                tint = if (message.feedback == 1) GeminiBlue else WhatsAppSubText,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = { onRegenerate() },
+                            modifier = Modifier.size(26.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Regenerate",
+                                tint = WhatsAppSubText,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
+
+                    // Timestamp on Right
+                    Text(
+                        text = formattedTime,
+                        fontSize = 11.sp,
+                        color = WhatsAppSubText
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Animated Typing Bubble for Oj AI (WhatsApp style with bouncing dots)
+ */
+@Composable
+private fun WhatsAppAiTypingBubble() {
+    val infiniteTransition = rememberInfiniteTransition(label = "typing")
+    val dot1 by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = -6f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "dot1"
+    )
+    val dot2 by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = -6f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(400, delayMillis = 150, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "dot2"
+    )
+    val dot3 by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = -6f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(400, delayMillis = 300, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "dot3"
+    )
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Start
+    ) {
+        Surface(
+            shape = RoundedCornerShape(
+                topStart = 2.dp,
+                topEnd = 14.dp,
+                bottomStart = 14.dp,
+                bottomEnd = 14.dp
+            ),
+            color = Color.White,
+            shadowElevation = 0.8.dp,
+            modifier = Modifier.padding(vertical = 2.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    tint = GeminiBlue,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Oj AI is thinking",
+                    fontSize = 13.sp,
+                    color = WhatsAppSubText
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Box(
+                    modifier = Modifier
+                        .offset(y = dot1.dp)
+                        .size(5.dp)
+                        .clip(CircleShape)
+                        .background(GeminiBlue)
+                )
+                Spacer(modifier = Modifier.width(3.dp))
+                Box(
+                    modifier = Modifier
+                        .offset(y = dot2.dp)
+                        .size(5.dp)
+                        .clip(CircleShape)
+                        .background(GeminiPurple)
+                )
+                Spacer(modifier = Modifier.width(3.dp))
+                Box(
+                    modifier = Modifier
+                        .offset(y = dot3.dp)
+                        .size(5.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF06B6D4))
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Clean ModalBottomSheet Content for Autonomous Agent Tools & Plugins
+ */
+@Composable
+private fun OjAiAgentBottomSheetContent(
+    agentManager: OjAiAgentManager,
+    onClose: () -> Unit
+) {
+    val plugins by agentManager.plugins.collectAsState()
+    val settings by agentManager.settings.collectAsState()
+    val delegatedContacts by agentManager.delegatedContacts.collectAsState()
+    val context = LocalContext.current
+
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 5.dp),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp)
+            .padding(horizontal = 18.dp)
+            .padding(bottom = 28.dp)
+            .navigationBarsPadding()
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        // Sheet Header
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = null,
+                    tint = GeminiBlue,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = "Agent Tools & Plugins",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = WhatsAppDarkText
+                    )
+                    Text(
+                        text = "Executive Auto-Pilot & Workspace Sync",
+                        fontSize = 12.5.sp,
+                        color = WhatsAppSubText
+                    )
+                }
+            }
+            IconButton(onClick = onClose) {
+                Icon(Icons.Default.Close, contentDescription = "Close", tint = WhatsAppSubText)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+        HorizontalDivider(color = Color(0xFFF1F5F9))
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Executive Auto-Pilot Switch
+        Card(
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(
-                        shape = CircleShape,
-                        color = Color(0xFFEEF2FF),
-                        modifier = Modifier.size(40.dp)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Executive Auto-Pilot",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = WhatsAppDarkText
+                    )
+                    Text(
+                        text = if (settings.isMasterEnabled) "Actively assists delegated contacts" else "Auto-replies are paused",
+                        fontSize = 12.5.sp,
+                        color = WhatsAppSubText
+                    )
+                }
+                Switch(
+                    checked = settings.isMasterEnabled,
+                    onCheckedChange = { agentManager.setMasterEnabled(it) },
+                    colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = GeminiBlue)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(
+            text = "Integrated Capabilities",
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp,
+            color = WhatsAppDarkText,
+            modifier = Modifier.padding(vertical = 4.dp)
+        )
+
+        // Integrated Plugins
+        plugins.forEach { plugin ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFEFF6FF)),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                text = contact.name.take(1).uppercase(),
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = OlinamPrimary
-                            )
-                        }
+                        Icon(
+                            imageVector = when (plugin.iconType) {
+                                "GMAIL" -> Icons.Default.Email
+                                "DRIVE" -> Icons.Default.Description
+                                "CALENDAR" -> Icons.Default.CalendarMonth
+                                "SMS" -> Icons.Default.SimCard
+                                else -> Icons.Default.Lightbulb
+                            },
+                            contentDescription = plugin.name,
+                            tint = GeminiBlue,
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
-
-                    Spacer(modifier = Modifier.width(12.dp))
-
+                    Spacer(modifier = Modifier.width(10.dp))
                     Column {
                         Text(
-                            text = contact.name,
-                            fontSize = 15.sp,
+                            text = plugin.name,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF0F172A)
+                            fontSize = 14.sp,
+                            color = WhatsAppDarkText
                         )
                         Text(
-                            text = contact.phoneNumber,
-                            fontSize = 12.sp,
-                            color = Color(0xFF64748B)
+                            text = plugin.syncSummary.ifBlank { plugin.description },
+                            fontSize = 11.5.sp,
+                            color = WhatsAppSubText,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(
-                        checked = contact.isAiAutoReplyEnabled,
-                        onCheckedChange = onToggleAutoReply,
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF0160E3)
-                        )
-                    )
-                    IconButton(onClick = onEdit) {
-                        Icon(imageVector = Icons.Default.Edit, contentDescription = "Edit", tint = Color(0xFF64748B), modifier = Modifier.size(18.dp))
-                    }
-                    IconButton(onClick = onDelete) {
-                        Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete", tint = Color(0xFFDC2626), modifier = Modifier.size(18.dp))
-                    }
-                }
+                Switch(
+                    checked = plugin.isConnected,
+                    onCheckedChange = { agentManager.togglePlugin(plugin.id, it) },
+                    colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = GeminiBlue)
+                )
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Badges
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (contact.allowReadEmailContext) {
-                    Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFFEF2F2)) {
-                        Text("Gmail Context: ON", fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFFDC2626), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
-                    }
-                }
-                if (contact.allowDirectSend) {
-                    Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFF0FDF4)) {
-                        Text("Direct Send: ON", fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF16A34A), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = "Last Action: ${contact.lastActionSummary}",
-                fontSize = 11.5.sp,
-                color = Color(0xFF64748B),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
         }
-    }
-}
-
-@Composable
-private fun AuthorizeContactDialog(
-    context: Context,
-    onDismiss: () -> Unit,
-    onAdd: (DelegatedContact) -> Unit
-) {
-    val deviceContacts = remember { ContactHelper.getDeviceContacts(context) }
-    var selectedName by remember { mutableStateOf("") }
-    var selectedPhone by remember { mutableStateOf("") }
-    var allowEmail by remember { mutableStateOf(true) }
-    var allowDirectSend by remember { mutableStateOf(true) }
-    var customNotes by remember { mutableStateOf("Respond politely and professionally") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Authorize Contact for Oj AI", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = "Select a contact or enter phone number to allow Oj AI to message them on your behalf:",
-                    fontSize = 13.sp,
-                    color = Color(0xFF475569)
-                )
-
-                OutlinedTextField(
-                    value = selectedName,
-                    onValueChange = { selectedName = it },
-                    label = { Text("Contact Name") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp)
-                )
-
-                OutlinedTextField(
-                    value = selectedPhone,
-                    onValueChange = { selectedPhone = it },
-                    label = { Text("Phone Number") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp)
-                )
-
-                // Pick from real device contacts quickly
-                if (deviceContacts.isNotEmpty()) {
-                    Text("Quick pick from contacts:", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF64748B))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        deviceContacts.take(5).forEach { c ->
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color(0xFFF1F5F9),
-                                modifier = Modifier.clickable {
-                                    selectedName = c.name
-                                    selectedPhone = c.phoneNumber
-                                }
-                            ) {
-                                Text(c.name, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
-                            }
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Allow reading Gmail context", fontSize = 13.sp)
-                    Switch(checked = allowEmail, onCheckedChange = { allowEmail = it })
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Allow direct send via SIM/Chat", fontSize = 13.sp)
-                    Switch(checked = allowDirectSend, onCheckedChange = { allowDirectSend = it })
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (selectedName.isNotBlank()) {
-                        onAdd(
-                            DelegatedContact(
-                                id = UUID.randomUUID().toString(),
-                                name = selectedName.trim(),
-                                phoneNumber = selectedPhone.trim(),
-                                isAiAutoReplyEnabled = true,
-                                allowReadEmailContext = allowEmail,
-                                allowDirectSend = allowDirectSend,
-                                customInstruction = customNotes.trim()
-                            )
-                        )
-                    }
-                },
-                enabled = selectedName.isNotBlank(),
-                colors = ButtonDefaults.buttonColors(containerColor = OlinamPrimary)
-            ) {
-                Text("Authorize")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
-}
-
-@Composable
-private fun EditDelegatedContactDialog(
-    contact: DelegatedContact,
-    onDismiss: () -> Unit,
-    onSave: (DelegatedContact) -> Unit
-) {
-    var allowEmail by remember { mutableStateOf(contact.allowReadEmailContext) }
-    var allowDirectSend by remember { mutableStateOf(contact.allowDirectSend) }
-    var customInstruction by remember { mutableStateOf(contact.customInstruction) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Permissions: ${contact.name}", fontWeight = FontWeight.Bold) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Read Gmail & Drive Context", fontSize = 13.sp)
-                    Switch(checked = allowEmail, onCheckedChange = { allowEmail = it })
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Send directly without confirmation", fontSize = 13.sp)
-                    Switch(checked = allowDirectSend, onCheckedChange = { allowDirectSend = it })
-                }
-
-                OutlinedTextField(
-                    value = customInstruction,
-                    onValueChange = { customInstruction = it },
-                    label = { Text("Custom instructions for this contact") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp)
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    onSave(
-                        contact.copy(
-                            allowReadEmailContext = allowEmail,
-                            allowDirectSend = allowDirectSend,
-                            customInstruction = customInstruction
-                        )
-                    )
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = OlinamPrimary)
-            ) {
-                Text("Save")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
-}
-
-private fun getPluginIcon(type: String): ImageVector {
-    return when (type) {
-        "GMAIL" -> Icons.Default.Email
-        "DRIVE" -> Icons.Default.Description
-        "CALENDAR" -> Icons.Default.CalendarMonth
-        "SMS" -> Icons.Default.SimCard
-        else -> Icons.Default.Lightbulb
     }
 }

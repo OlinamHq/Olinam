@@ -1,9 +1,11 @@
 package com.example.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import com.example.model.ChatLabel
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,14 +35,19 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Lock
@@ -214,6 +221,145 @@ fun OlinamTopBar(
                         modifier = Modifier.testTag("menu_setting").testTag("menu_settings")
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Contextual Action Bar shown when 1 or more conversations are selected.
+ * Matches WhatsApp style selection bar (Image 1):
+ * Back Arrow, Selection Count, Archive, Pin, Delete, Mute, 3-dots Menu.
+ */
+@Composable
+fun ConversationSelectionTopBar(
+    selectedCount: Int,
+    onClearSelection: () -> Unit,
+    onArchiveClick: () -> Unit = {},
+    onPinClick: () -> Unit = {},
+    onDeleteClick: () -> Unit = {},
+    onMuteClick: () -> Unit = {},
+    onSelectAllClick: () -> Unit = {},
+    onMarkUnreadClick: () -> Unit = {},
+    onLockChatClick: () -> Unit = {}
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .height(56.dp)
+            .background(Color.White)
+            .padding(horizontal = 4.dp)
+            .testTag("conversation_selection_top_bar"),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(
+            onClick = onClearSelection,
+            modifier = Modifier.testTag("selection_back_button")
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = "Cancel Selection",
+                tint = Color(0xFF1E293B)
+            )
+        }
+
+        Text(
+            text = selectedCount.toString(),
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF0F172A),
+            modifier = Modifier
+                .padding(start = 12.dp)
+                .testTag("selection_count_text")
+        )
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        IconButton(
+            onClick = onArchiveClick,
+            modifier = Modifier.testTag("selection_archive_button")
+        ) {
+            Icon(
+                imageVector = Icons.Default.Archive,
+                contentDescription = "Archive",
+                tint = Color(0xFF1E293B)
+            )
+        }
+
+        IconButton(
+            onClick = onPinClick,
+            modifier = Modifier.testTag("selection_pin_button")
+        ) {
+            Icon(
+                imageVector = Icons.Default.PushPin,
+                contentDescription = "Pin",
+                tint = Color(0xFF1E293B)
+            )
+        }
+
+        IconButton(
+            onClick = onDeleteClick,
+            modifier = Modifier.testTag("selection_delete_button")
+        ) {
+            Icon(
+                imageVector = Icons.Default.Delete,
+                contentDescription = "Delete",
+                tint = Color(0xFF1E293B)
+            )
+        }
+
+        IconButton(
+            onClick = onMuteClick,
+            modifier = Modifier.testTag("selection_mute_button")
+        ) {
+            Icon(
+                imageVector = Icons.Default.NotificationsOff,
+                contentDescription = "Mute",
+                tint = Color(0xFF1E293B)
+            )
+        }
+
+        Box {
+            IconButton(
+                onClick = { menuExpanded = true },
+                modifier = Modifier.testTag("selection_more_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "More options",
+                    tint = Color(0xFF1E293B)
+                )
+            }
+
+            DropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = { menuExpanded = false },
+                modifier = Modifier.background(MaterialTheme.colorScheme.surface)
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Select all", fontWeight = FontWeight.Medium, fontSize = 15.sp) },
+                    onClick = {
+                        menuExpanded = false
+                        onSelectAllClick()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Mark as unread", fontWeight = FontWeight.Medium, fontSize = 15.sp) },
+                    onClick = {
+                        menuExpanded = false
+                        onMarkUnreadClick()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Lock chat", fontWeight = FontWeight.Medium, fontSize = 15.sp) },
+                    onClick = {
+                        menuExpanded = false
+                        onLockChatClick()
+                    }
+                )
             }
         }
     }
@@ -508,16 +654,25 @@ private val AVATAR_PALETTE = listOf(
 @Composable
 fun ConversationListItem(
     conversation: Conversation,
+    labels: List<ChatLabel> = emptyList(),
     isLocked: Boolean = false,
+    isSelected: Boolean = false,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
     onAvatarClick: () -> Unit = onClick
 ) {
     val isItemLocked = isLocked
+    val attachedLabels = remember(conversation.labelIds, labels) {
+        labels.filter { label ->
+            label.id !in listOf("all", "direct", "sms") &&
+            (conversation.labelIds.contains(label.id) || label.chatIds.contains(conversation.id))
+        }
+    }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .background(if (isSelected) Color(0xFFEBF2FA) else Color.Transparent)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
@@ -572,7 +727,22 @@ fun ConversationListItem(
                 }
             }
 
-            if (conversation.onlineStatus == "online") {
+            if (isSelected) {
+                Box(
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF1E293B)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "Selected",
+                        tint = Color.White,
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
+            } else if (conversation.onlineStatus == "online") {
                 Box(
                     modifier = Modifier
                         .size(13.dp)
@@ -701,6 +871,57 @@ fun ConversationListItem(
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             lineHeight = 13.sp
+                        )
+                    }
+                }
+            }
+
+            // Attached label badges shown below last message (satisfies "home page me jo lable laga hua uska niche ki traf dekhi bhi de")
+            if (attachedLabels.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    attachedLabels.take(3).forEach { label ->
+                        val labelColor = try {
+                            Color(android.graphics.Color.parseColor(label.colorHex))
+                        } catch (_: Exception) {
+                            Color(0xFF007AFF)
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = labelColor.copy(alpha = 0.12f),
+                            border = BorderStroke(0.7.dp, labelColor.copy(alpha = 0.35f)),
+                            modifier = Modifier.testTag("chat_label_badge_${conversation.id}_${label.id}")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(labelColor)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = label.name,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = labelColor
+                                )
+                            }
+                        }
+                    }
+                    if (attachedLabels.size > 3) {
+                        Text(
+                            text = "+${attachedLabels.size - 3}",
+                            fontSize = 10.sp,
+                            color = Color(0xFF64748B),
+                            fontWeight = FontWeight.Medium
                         )
                     }
                 }

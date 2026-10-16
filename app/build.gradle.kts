@@ -64,7 +64,6 @@ secrets {
   propertiesFileName = ".env"
   defaultPropertiesFileName = ".env.example"
   ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
-  ignoreList.add("GEMINI_API_KEY")
   ignoreList.add("R2_PRESIGN_URL")
   ignoreList.add("R2_PUBLIC_BASE")
 }

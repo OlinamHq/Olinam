@@ -49,6 +49,9 @@ class FirebaseChatRepository {
 
     private val defaultLabels = listOf(
         ChatLabel(id = "direct", name = "Chats", colorHex = "#0160E3"),
+        ChatLabel(id = "favorites", name = "Favorites", colorHex = "#FFA000"),
+        ChatLabel(id = "family", name = "Family", colorHex = "#FF5722"),
+        ChatLabel(id = "work", name = "Work", colorHex = "#007AFF"),
         ChatLabel(id = "groups", name = "Groups", colorHex = "#0160E3"),
         ChatLabel(id = "sms", name = "SMS", colorHex = "#00A884")
     )
@@ -56,8 +59,132 @@ class FirebaseChatRepository {
     val labels: StateFlow<List<ChatLabel>> = _labels.asStateFlow()
 
     private var localDb: LocalChatDatabase? = null
+    private var appContext: Context? = null
+
+    private fun persistLabels() {
+        val ctx = appContext ?: return
+        try {
+            val prefs = ctx.getSharedPreferences("app_chat_labels_prefs", Context.MODE_PRIVATE)
+            val jsonArray = org.json.JSONArray()
+            for (label in _labels.value) {
+                val obj = org.json.JSONObject().apply {
+                    put("id", label.id)
+                    put("name", label.name)
+                    put("colorHex", label.colorHex)
+                    val chatIdsArray = org.json.JSONArray()
+                    label.chatIds.forEach { chatIdsArray.put(it) }
+                    put("chatIds", chatIdsArray)
+                }
+                jsonArray.put(obj)
+            }
+            prefs.edit().putString("saved_labels_json", jsonArray.toString()).apply()
+        } catch (e: Exception) {
+            Log.e(tag, "Error saving labels: ${e.message}")
+        }
+    }
+
+    private fun loadSavedLabels(context: Context) {
+        try {
+            val prefs = context.getSharedPreferences("app_chat_labels_prefs", Context.MODE_PRIVATE)
+            val jsonStr = prefs.getString("saved_labels_json", null) ?: return
+            val jsonArray = org.json.JSONArray(jsonStr)
+            val loaded = mutableListOf<ChatLabel>()
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                val id = obj.getString("id")
+                val name = obj.getString("name")
+                val colorHex = obj.optString("colorHex", "#0160E3")
+                val chatIdsList = mutableListOf<String>()
+                val chatArray = obj.optJSONArray("chatIds")
+                if (chatArray != null) {
+                    for (j in 0 until chatArray.length()) {
+                        chatIdsList.add(chatArray.getString(j))
+                    }
+                }
+                loaded.add(ChatLabel(id, name, colorHex, chatIdsList))
+            }
+            if (loaded.isNotEmpty()) {
+                val existingIds = loaded.map { it.id }.toSet()
+                val merged = loaded.toMutableList()
+                defaultLabels.forEach { def ->
+                    if (!existingIds.contains(def.id)) {
+                        merged.add(def)
+                    }
+                }
+                _labels.value = merged
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Error loading labels: ${e.message}")
+        }
+    }
+
+    private fun loadSavedCallLogs(context: Context) {
+        try {
+            val prefs = context.getSharedPreferences("app_call_logs_prefs", Context.MODE_PRIVATE)
+            val jsonStr = prefs.getString("saved_call_logs_json", null) ?: return
+            val jsonArray = org.json.JSONArray(jsonStr)
+            val loaded = mutableListOf<CallLog>()
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                val id = obj.optString("id", UUID.randomUUID().toString())
+                val contactName = obj.optString("contactName", "Unknown")
+                val phoneNumber = obj.optString("phoneNumber", "")
+                val subtitleNote = if (obj.has("subtitleNote") && !obj.isNull("subtitleNote")) obj.optString("subtitleNote") else null
+                val callType = try { CallType.valueOf(obj.optString("callType", "VOICE")) } catch (_: Exception) { CallType.VOICE }
+                val direction = try { CallDirection.valueOf(obj.optString("direction", "OUTGOING")) } catch (_: Exception) { CallDirection.OUTGOING }
+                val timestamp = obj.optLong("timestamp", System.currentTimeMillis())
+                val duration = obj.optString("duration", "")
+                val count = obj.optInt("count", 1)
+                loaded.add(
+                    CallLog(
+                        id = id,
+                        contactName = contactName,
+                        phoneNumber = phoneNumber,
+                        subtitleNote = subtitleNote,
+                        callType = callType,
+                        direction = direction,
+                        timestamp = timestamp,
+                        duration = duration,
+                        count = count
+                    )
+                )
+            }
+            if (loaded.isNotEmpty()) {
+                _callLogs.value = loaded
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Error loading call logs: ${e.message}")
+        }
+    }
+
+    fun persistCallLogs(context: Context?, logs: List<CallLog>) {
+        val ctx = context ?: appContext ?: return
+        try {
+            val prefs = ctx.getSharedPreferences("app_call_logs_prefs", Context.MODE_PRIVATE)
+            val array = org.json.JSONArray()
+            for (log in logs.take(150)) {
+                val obj = org.json.JSONObject()
+                obj.put("id", log.id)
+                obj.put("contactName", log.contactName)
+                obj.put("phoneNumber", log.phoneNumber)
+                if (log.subtitleNote != null) obj.put("subtitleNote", log.subtitleNote)
+                obj.put("callType", log.callType.name)
+                obj.put("direction", log.direction.name)
+                obj.put("timestamp", log.timestamp)
+                obj.put("duration", log.duration)
+                obj.put("count", log.count)
+                array.put(obj)
+            }
+            prefs.edit().putString("saved_call_logs_json", array.toString()).apply()
+        } catch (e: Exception) {
+            Log.e(tag, "Error saving call logs: ${e.message}")
+        }
+    }
 
     fun initLocalDb(context: Context) {
+        appContext = context.applicationContext
+        loadSavedLabels(context)
+        loadSavedCallLogs(context)
         if (localDb == null) {
             val db = LocalChatDatabase.getInstance(context)
             localDb = db
@@ -501,11 +628,68 @@ class FirebaseChatRepository {
         if (chatIds.isNotEmpty()) {
             _conversations.value = _conversations.value.map { conv ->
                 if (chatIds.contains(conv.id) && !conv.labelIds.contains(newId)) {
-                    conv.copy(labelIds = conv.labelIds + newId)
+                    val updated = conv.copy(labelIds = conv.labelIds + newId)
+                    localDb?.saveConversation(updated)
+                    updated
                 } else conv
             }
         }
+        persistLabels()
         return newId
+    }
+
+    fun deleteLabel(labelId: String) {
+        _labels.value = _labels.value.filter { it.id != labelId }
+        _conversations.value = _conversations.value.map { conv ->
+            if (conv.labelIds.contains(labelId)) {
+                val updated = conv.copy(labelIds = conv.labelIds - labelId)
+                localDb?.saveConversation(updated)
+                updated
+            } else conv
+        }
+        persistLabels()
+    }
+
+    fun updateLabel(labelId: String, name: String, colorHex: String, chatIds: List<String>) {
+        _labels.value = _labels.value.map { label ->
+            if (label.id == labelId) {
+                label.copy(name = name, colorHex = colorHex, chatIds = chatIds)
+            } else label
+        }
+        _conversations.value = _conversations.value.map { conv ->
+            val hasLabel = conv.labelIds.contains(labelId)
+            val shouldHaveLabel = chatIds.contains(conv.id)
+            if (shouldHaveLabel && !hasLabel) {
+                val updated = conv.copy(labelIds = conv.labelIds + labelId)
+                localDb?.saveConversation(updated)
+                updated
+            } else if (!shouldHaveLabel && hasLabel) {
+                val updated = conv.copy(labelIds = conv.labelIds - labelId)
+                localDb?.saveConversation(updated)
+                updated
+            } else conv
+        }
+        persistLabels()
+    }
+
+    fun updateConversationLabels(conversationId: String, newLabelIds: List<String>) {
+        _conversations.value = _conversations.value.map { conv ->
+            if (conv.id == conversationId) {
+                val updated = conv.copy(labelIds = newLabelIds)
+                localDb?.saveConversation(updated)
+                updated
+            } else conv
+        }
+        _labels.value = _labels.value.map { label ->
+            val isNowInLabel = newLabelIds.contains(label.id)
+            val wasInLabel = label.chatIds.contains(conversationId)
+            if (isNowInLabel && !wasInLabel) {
+                label.copy(chatIds = label.chatIds + conversationId)
+            } else if (!isNowInLabel && wasInLabel) {
+                label.copy(chatIds = label.chatIds - conversationId)
+            } else label
+        }
+        persistLabels()
     }
 
     private fun createEncryptedMessage(
@@ -804,17 +988,27 @@ class FirebaseChatRepository {
 
     fun createNewGroup(
         name: String,
+        avatarUrl: String? = null,
         participantNames: List<String> = emptyList(),
         participantPhones: List<String> = emptyList(),
-        initialMessage: String = ""
+        initialMessage: String = "",
+        disappearingDuration: String = "Off",
+        canEditSettings: Boolean = true,
+        canSendMessages: Boolean = true,
+        canAddOthers: Boolean = true,
+        canInviteViaLink: Boolean = false,
+        requireAdminApproval: Boolean = false
     ): String {
         val newId = "group_${UUID.randomUUID().toString().take(8)}"
         val me = _currentUser.value
-        val allParticipantIds = (listOf(me.id.ifBlank { "user_me" }) + participantPhones).filter { it.isNotBlank() }
+        val myIdentifier = me.phoneNumber.ifBlank { me.id.ifBlank { "user_me" } }
+        val allParticipantIds = (listOf(myIdentifier) + participantPhones).filter { it.isNotBlank() }.distinct()
         val msgText = initialMessage.ifEmpty { "You created group \"$name\"" }
+        val inviteCode = UUID.randomUUID().toString().replace("-", "").take(12)
         val conv = Conversation(
             id = newId,
             title = name,
+            avatarUrl = avatarUrl,
             isGroup = true,
             participantIds = allParticipantIds,
             lastMessageText = msgText,
@@ -822,7 +1016,17 @@ class FirebaseChatRepository {
             unreadCount = 0,
             iconType = "GROUP",
             labelIds = listOf("groups", "direct"),
-            isE2EE = true
+            isE2EE = true,
+            groupAdminIds = listOf(myIdentifier),
+            groupCreatedBy = me.name.ifBlank { myIdentifier },
+            groupCreatedAt = System.currentTimeMillis(),
+            disappearingMessagesDuration = disappearingDuration,
+            canMembersEditSettings = canEditSettings,
+            canMembersSendMessages = canSendMessages,
+            canMembersAddOthers = canAddOthers,
+            canMembersInviteViaLink = canInviteViaLink,
+            requireAdminApprovalToJoin = requireAdminApproval,
+            groupInviteCode = inviteCode
         )
 
         val updated = _conversations.value.toMutableList()
@@ -863,7 +1067,8 @@ class FirebaseChatRepository {
                             "lastMessageTimestamp" to conv.lastMessageTimestamp,
                             "unreadCount" to 0,
                             "iconType" to "GROUP",
-                            "labelIds" to listOf("groups", "direct")
+                            "labelIds" to listOf("groups", "direct"),
+                            "groupInviteCode" to inviteCode
                         )
                     )
                     db.collection("conversations")
@@ -909,6 +1114,128 @@ class FirebaseChatRepository {
                 }
             }
         }
+    }
+
+    fun updateGroupDescription(conversationId: String, description: String) {
+        val updated = _conversations.value.map { conv ->
+            if (conv.id == conversationId && conv.isGroup) conv.copy(groupDescription = description) else conv
+        }
+        _conversations.value = updated
+        updated.find { it.id == conversationId }?.let { localDb?.saveConversation(it) }
+        firestore?.let { db ->
+            scope.launch {
+                try {
+                    db.collection("conversations").document(conversationId).set(
+                        mapOf("groupDescription" to description),
+                        com.google.firebase.firestore.SetOptions.merge()
+                    )
+                } catch (e: Exception) {
+                    Log.w(tag, "Firestore group description update note: ${e.message}")
+                }
+            }
+        }
+    }
+
+    fun updateGroupPermissions(
+        conversationId: String,
+        canEditSettings: Boolean,
+        canSendMessages: Boolean,
+        canAddOthers: Boolean,
+        canInviteViaLink: Boolean,
+        requireAdminApproval: Boolean
+    ) {
+        val updated = _conversations.value.map { conv ->
+            if (conv.id == conversationId && conv.isGroup) {
+                conv.copy(
+                    canMembersEditSettings = canEditSettings,
+                    canMembersSendMessages = canSendMessages,
+                    canMembersAddOthers = canAddOthers,
+                    canMembersInviteViaLink = canInviteViaLink,
+                    requireAdminApprovalToJoin = requireAdminApproval
+                )
+            } else conv
+        }
+        _conversations.value = updated
+        updated.find { it.id == conversationId }?.let { localDb?.saveConversation(it) }
+        firestore?.let { db ->
+            scope.launch {
+                try {
+                    db.collection("conversations").document(conversationId).set(
+                        mapOf(
+                            "canMembersEditSettings" to canEditSettings,
+                            "canMembersSendMessages" to canSendMessages,
+                            "canMembersAddOthers" to canAddOthers,
+                            "canMembersInviteViaLink" to canInviteViaLink,
+                            "requireAdminApprovalToJoin" to requireAdminApproval
+                        ),
+                        com.google.firebase.firestore.SetOptions.merge()
+                    )
+                } catch (e: Exception) {
+                    Log.w(tag, "Firestore group permissions update note: ${e.message}")
+                }
+            }
+        }
+    }
+
+    fun updateGroupDisappearingDuration(conversationId: String, duration: String) {
+        val updated = _conversations.value.map { conv ->
+            if (conv.id == conversationId && conv.isGroup) conv.copy(disappearingMessagesDuration = duration) else conv
+        }
+        _conversations.value = updated
+        updated.find { it.id == conversationId }?.let { localDb?.saveConversation(it) }
+    }
+
+    fun toggleGroupAdmin(conversationId: String, participantId: String) {
+        val updated = _conversations.value.map { conv ->
+            if (conv.id == conversationId && conv.isGroup) {
+                val currentAdmins = conv.groupAdminIds.toMutableList()
+                if (currentAdmins.contains(participantId)) {
+                    currentAdmins.remove(participantId)
+                } else {
+                    currentAdmins.add(participantId)
+                }
+                conv.copy(groupAdminIds = currentAdmins)
+            } else conv
+        }
+        _conversations.value = updated
+        updated.find { it.id == conversationId }?.let { localDb?.saveConversation(it) }
+    }
+
+    fun removeGroupParticipant(conversationId: String, participantId: String) {
+        val updated = _conversations.value.map { conv ->
+            if (conv.id == conversationId && conv.isGroup) {
+                conv.copy(participantIds = conv.participantIds.filter { it != participantId })
+            } else conv
+        }
+        _conversations.value = updated
+        updated.find { it.id == conversationId }?.let { localDb?.saveConversation(it) }
+    }
+
+    fun addGroupParticipants(conversationId: String, newParticipants: List<String>) {
+        val updated = _conversations.value.map { conv ->
+            if (conv.id == conversationId && conv.isGroup) {
+                val combined = (conv.participantIds + newParticipants).filter { it.isNotBlank() }.distinct()
+                conv.copy(participantIds = combined)
+            } else conv
+        }
+        _conversations.value = updated
+        updated.find { it.id == conversationId }?.let { localDb?.saveConversation(it) }
+    }
+
+    fun toggleChatLock(conversationId: String, isLocked: Boolean) {
+        val updated = _conversations.value.map { conv ->
+            if (conv.id == conversationId) conv.copy(isChatLocked = isLocked) else conv
+        }
+        _conversations.value = updated
+        updated.find { it.id == conversationId }?.let { localDb?.saveConversation(it) }
+    }
+
+    fun toggleFavourite(conversationId: String, isFav: Boolean) {
+        val updated = _conversations.value.map { conv ->
+            if (conv.id == conversationId) conv.copy(isFavourite = isFav) else conv
+        }
+        _conversations.value = updated
+        updated.find { it.id == conversationId }?.let { localDb?.saveConversation(it) }
     }
 
     fun updateGroupParticipants(conversationId: String, participantIds: List<String>) {
@@ -1116,6 +1443,7 @@ class FirebaseChatRepository {
         val list = _callLogs.value.toMutableList()
         list.add(0, newCall)
         _callLogs.value = list
+        persistCallLogs(appContext, list)
 
         val db = firestore
         if (db != null) {
@@ -1140,6 +1468,13 @@ class FirebaseChatRepository {
 
     fun clearCallHistory() {
         _callLogs.value = emptyList()
+        persistCallLogs(appContext, emptyList())
+    }
+
+    fun deleteCallLog(callId: String) {
+        val list = _callLogs.value.filter { it.id != callId }
+        _callLogs.value = list
+        persistCallLogs(appContext, list)
     }
 
     fun saveUserToFirestore(profile: UserProfile) {

@@ -201,6 +201,10 @@ class OjAiAgentManager(private val context: Context) {
         saveDelegatedContacts()
     }
 
+    fun setMasterEnabled(enabled: Boolean) {
+        updateSettings(_settings.value.copy(isAgentMasterEnabled = enabled))
+    }
+
     fun updateSettings(newSettings: AiAgentSettings) {
         _settings.value = newSettings
         prefs.edit()

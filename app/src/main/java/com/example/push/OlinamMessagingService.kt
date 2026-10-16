@@ -105,8 +105,19 @@ class OlinamMessagingService : FirebaseMessagingService() {
             intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
+        val largeIconBitmap = try {
+            android.graphics.BitmapFactory.decodeResource(resources, com.example.R.drawable.ic_notification_large)
+        } catch (_: Exception) {
+            null
+        }
         val notification = NotificationCompat.Builder(this, channelId)
-            .setSmallIcon(android.R.drawable.stat_notify_chat)
+            .setSmallIcon(com.example.R.drawable.ic_notification)
+            .setColor(androidx.core.content.ContextCompat.getColor(this, com.example.R.color.notification_accent))
+            .apply {
+                if (largeIconBitmap != null) {
+                    setLargeIcon(largeIconBitmap)
+                }
+            }
             .setContentTitle(title)
             .setContentText(body)
             .setAutoCancel(true)

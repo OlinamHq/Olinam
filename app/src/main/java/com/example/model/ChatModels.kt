@@ -59,6 +59,15 @@ data class ChatLabel(
 )
 
 @Immutable
+data class GroupPermissions(
+    val canMembersEditSettings: Boolean = true,
+    val canMembersSendMessages: Boolean = true,
+    val canMembersAddOthers: Boolean = true,
+    val canMembersInviteViaLink: Boolean = false,
+    val requireAdminApprovalToJoin: Boolean = false
+)
+
+@Immutable
 data class Conversation(
     val id: String = "",
     val title: String = "",
@@ -83,7 +92,21 @@ data class Conversation(
     val isReadOnlyBusiness: Boolean = false,
     val businessCategory: String? = null,
     val businessJoinedDate: String? = null,
-    val countryOrigin: String? = null
+    val countryOrigin: String? = null,
+    val groupDescription: String? = null,
+    val groupAdminIds: List<String> = emptyList(),
+    val groupCreatedBy: String? = null,
+    val groupCreatedAt: Long = System.currentTimeMillis(),
+    val disappearingMessagesDuration: String = "Off",
+    val canMembersEditSettings: Boolean = true,
+    val canMembersSendMessages: Boolean = true,
+    val canMembersAddOthers: Boolean = true,
+    val canMembersInviteViaLink: Boolean = false,
+    val requireAdminApprovalToJoin: Boolean = false,
+    val isChatLocked: Boolean = false,
+    val isMuted: Boolean = false,
+    val isFavourite: Boolean = false,
+    val groupInviteCode: String = ""
 )
 
 enum class CallType {
