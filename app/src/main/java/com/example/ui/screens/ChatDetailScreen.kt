@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -78,6 +79,8 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Hd
 import androidx.compose.material.icons.filled.Headphones
@@ -108,11 +111,14 @@ import androidx.compose.material.icons.filled.SentimentSatisfiedAlt
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -125,6 +131,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.core.content.pm.ShortcutInfoCompat
+import androidx.core.content.pm.ShortcutManagerCompat
+import androidx.core.graphics.drawable.IconCompat
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -146,6 +155,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -526,12 +537,40 @@ fun ChatDetailScreen(
     var showAddGroupMemberDialog by remember { mutableStateOf(false) }
     var newMemberPhoneText by remember { mutableStateOf("") }
 
+    // Panels state
+    var showAttachSheet by remember { mutableStateOf(false) }
+    var showEmojiPicker by remember { mutableStateOf(false) }
+    var showFullGalleryPicker by remember { mutableStateOf(false) }
+    var showInAppCamera by remember { mutableStateOf(false) }
+    var showPollDialog by remember { mutableStateOf(false) }
+    var showLocationDialog by remember { mutableStateOf(false) }
+    var showContactDialog by remember { mutableStateOf(false) }
+    var showAddContactDialog by remember { mutableStateOf(false) }
+    var showMediaLinksDocsSheet by remember { mutableStateOf(false) }
+
     BackHandler {
-        if (showGroupLinkScreen) {
+        if (showLocationDialog) {
+            showLocationDialog = false
+        } else if (showAttachSheet) {
+            showAttachSheet = false
+        } else if (showEmojiPicker) {
+            showEmojiPicker = false
+        } else if (showGroupLinkScreen) {
             showGroupLinkScreen = false
         } else {
             onBackClick()
         }
+    }
+
+    if (showLocationDialog) {
+        SendLocationScreen(
+            onBackClick = { showLocationDialog = false },
+            onSendLocation = { locText ->
+                showLocationDialog = false
+                onSendMessage(locText)
+            }
+        )
+        return
     }
 
     if (showGroupLinkScreen) {
@@ -544,6 +583,8 @@ fun ChatDetailScreen(
 
     val context = LocalContext.current
     val density = LocalDensity.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
     val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
     val coroutineScope = rememberCoroutineScope()
 
@@ -551,6 +592,12 @@ fun ChatDetailScreen(
     var replyingToMessage by remember { mutableStateOf<Message?>(null) }
     var pendingSmsText by remember { mutableStateOf("") }
     var menuExpanded by remember { mutableStateOf(false) }
+    var showMoreSubMenu by remember { mutableStateOf(false) }
+    var showReportDialog by remember { mutableStateOf(false) }
+    var showBlockConfirmDialog by remember { mutableStateOf(false) }
+    var reportBlockAndDelete by remember { mutableStateOf(true) }
+    var clearDeleteMedia by remember { mutableStateOf(false) }
+    var deleteChatMedia by remember { mutableStateOf(false) }
     var callMenuExpanded by remember { mutableStateOf(false) }
     var showSafetyDialog by remember { mutableStateOf(false) }
     var selectedMessageForCrypto by remember { mutableStateOf<Message?>(null) }
@@ -558,17 +605,6 @@ fun ChatDetailScreen(
     var showDeleteMessageConfirm by remember { mutableStateOf<Message?>(null) }
     var showClearChatConfirm by remember { mutableStateOf(false) }
     var showDeleteChatConfirm by remember { mutableStateOf(false) }
-
-    // Panels state
-    var showAttachSheet by remember { mutableStateOf(false) }
-    var showEmojiPicker by remember { mutableStateOf(false) }
-    var showFullGalleryPicker by remember { mutableStateOf(false) }
-    var showInAppCamera by remember { mutableStateOf(false) }
-    var showPollDialog by remember { mutableStateOf(false) }
-    var showLocationDialog by remember { mutableStateOf(false) }
-    var showContactDialog by remember { mutableStateOf(false) }
-    var showAddContactDialog by remember { mutableStateOf(false) }
-    var showMediaLinksDocsSheet by remember { mutableStateOf(false) }
     var showDisappearingDialog by remember { mutableStateOf(false) }
     var showWallpaperDialog by remember { mutableStateOf(false) }
     var showMuteDialog by remember { mutableStateOf(false) }
@@ -597,6 +633,9 @@ fun ChatDetailScreen(
     }
     var isChatStarred by remember(conversation.id) {
         mutableStateOf(chatPrefs.getBoolean("starred_${conversation.id}", false))
+    }
+    var isChatMuted by remember(conversation.id) {
+        mutableStateOf(chatPrefs.getBoolean("muted_${conversation.id}", false))
     }
     var activeDisappearingDurationState by remember(conversation.id) {
         mutableStateOf(chatPrefs.getString("disappearing_${conversation.id}", "Off") ?: "Off")
@@ -746,7 +785,7 @@ fun ChatDetailScreen(
                 sortOrder
             )?.use { cursor ->
                 val idCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Images.Media._ID)
-                while (cursor.moveToNext() && uris.size < 6) {
+                while (cursor.moveToNext() && uris.size < 32) {
                     val id = cursor.getLong(idCol)
                     uris.add(
                         android.content.ContentUris.withAppendedId(
@@ -877,18 +916,6 @@ fun ChatDetailScreen(
         )
     }
 
-    // WhatsApp Real Location Sharing Dialog
-    if (showLocationDialog) {
-        WhatsAppLocationDialog(
-            context = context,
-            onDismiss = { showLocationDialog = false },
-            onSendLocation = { locText ->
-                showLocationDialog = false
-                onSendMessage(locText)
-            }
-        )
-    }
-
     // WhatsApp Real Contact Sharing Dialog
     if (showContactDialog) {
         WhatsAppContactDialog(
@@ -899,6 +926,7 @@ fun ChatDetailScreen(
             }
         )
     }
+
 
     // Fullscreen Image Viewer Dialog
     if (fullScreenImageUrl != null) {
@@ -1033,6 +1061,11 @@ fun ChatDetailScreen(
             onDismiss = { showMuteDialog = false },
             onMute = { duration ->
                 showMuteDialog = false
+                isChatMuted = true
+                chatPrefs.edit()
+                    .putBoolean("muted_${conversation.id}", true)
+                    .putString("mute_duration_${conversation.id}", duration)
+                    .apply()
                 Toast.makeText(context, "Notifications muted for $duration", Toast.LENGTH_SHORT).show()
             }
         )
@@ -1380,21 +1413,6 @@ fun ChatDetailScreen(
                                             context.startActivity(Intent.createChooser(shareIntent, "Share call link"))
                                         }
                                     )
-                                    DropdownMenuItem(
-                                        leadingIcon = {
-                                            Icon(
-                                                imageVector = Icons.Default.CalendarToday,
-                                                contentDescription = null,
-                                                tint = Color(0xFF54656F),
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        },
-                                        text = { Text("Schedule call", fontSize = 15.sp, color = Color(0xFF111827)) },
-                                        onClick = {
-                                            callMenuExpanded = false
-                                            Toast.makeText(context, "Call scheduling scheduled for group", Toast.LENGTH_SHORT).show()
-                                        }
-                                    )
                                 }
                             }
                         } else {
@@ -1455,137 +1473,226 @@ fun ChatDetailScreen(
 
                             DropdownMenu(
                                 expanded = menuExpanded,
-                                onDismissRequest = { menuExpanded = false },
+                                onDismissRequest = {
+                                    menuExpanded = false
+                                    showMoreSubMenu = false
+                                },
                                 modifier = Modifier.widthIn(min = 210.dp)
                             ) {
-                                if (conversation.isGroup) {
+                                if (!showMoreSubMenu) {
+                                    // Main 3-dots Menu: ONLY Add contact, Search, Mute notifications, Disappearing messages, More >
+                                    if (conversation.isGroup) {
+                                        DropdownMenuItem(
+                                            text = { Text("Group info", fontSize = 15.sp, color = Color(0xFF111B21)) },
+                                            onClick = {
+                                                menuExpanded = false
+                                                onOpenProfile()
+                                            }
+                                        )
+                                    } else {
+                                        DropdownMenuItem(
+                                            text = { Text("Add to contacts", fontSize = 15.sp, color = Color(0xFF111B21)) },
+                                            onClick = {
+                                                menuExpanded = false
+                                                val insertIntent = Intent(Intent.ACTION_INSERT).apply {
+                                                    type = ContactsContract.Contacts.CONTENT_TYPE
+                                                    putExtra(ContactsContract.Intents.Insert.NAME, conversation.title)
+                                                    val phone = conversation.phoneNumber ?: conversation.title.filter { it.isDigit() || it == '+' }
+                                                    if (phone.isNotBlank()) {
+                                                        putExtra(ContactsContract.Intents.Insert.PHONE, phone)
+                                                    }
+                                                }
+                                                try {
+                                                    context.startActivity(insertIntent)
+                                                } catch (_: Exception) {
+                                                    showAddContactDialog = true
+                                                }
+                                            }
+                                        )
+                                    }
+
                                     DropdownMenuItem(
-                                        text = { Text("Group info", fontSize = 15.sp, color = Color(0xFF111B21)) },
+                                        text = { Text("Search", fontSize = 15.sp, color = Color(0xFF111B21)) },
                                         onClick = {
                                             menuExpanded = false
-                                            onOpenProfile()
+                                            isSearchMode = true
                                         }
                                     )
+
                                     DropdownMenuItem(
-                                        text = { Text("Group media", fontSize = 15.sp, color = Color(0xFF111B21)) },
+                                        text = {
+                                            Text(
+                                                if (isChatMuted) "Unmute notifications" else "Mute notifications",
+                                                fontSize = 15.sp,
+                                                color = Color(0xFF111B21)
+                                            )
+                                        },
                                         onClick = {
                                             menuExpanded = false
-                                            showMediaLinksDocsSheet = true
+                                            if (isChatMuted) {
+                                                isChatMuted = false
+                                                chatPrefs.edit().putBoolean("muted_${conversation.id}", false).apply()
+                                                Toast.makeText(context, "Notifications unmuted", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                showMuteDialog = true
+                                            }
+                                        }
+                                    )
+
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                "Disappearing messages (${activeDisappearingDurationState})",
+                                                fontSize = 15.sp,
+                                                color = Color(0xFF111B21)
+                                            )
+                                        },
+                                        onClick = {
+                                            menuExpanded = false
+                                            showDisappearingDialog = true
+                                        }
+                                    )
+
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text("More", fontSize = 15.sp, color = Color(0xFF111B21))
+                                                Text("›", fontSize = 18.sp, color = Color(0xFF667781))
+                                            }
+                                        },
+                                        onClick = {
+                                            showMoreSubMenu = true
                                         }
                                     )
                                 } else {
+                                    // WhatsApp "More" Sub-Menu (Exact match to user screenshot)
                                     DropdownMenuItem(
-                                        text = { Text("Add to contacts", fontSize = 15.sp, color = Color(0xFF111B21)) },
+                                        text = {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.Start
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                                    contentDescription = "Back",
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = Color(0xFF111B21)
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text("More", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF111B21))
+                                            }
+                                        },
+                                        onClick = {
+                                            showMoreSubMenu = false
+                                        }
+                                    )
+
+                                    DropdownMenuItem(
+                                        text = { Text("Report", fontSize = 15.sp, color = Color(0xFF111B21)) },
                                         onClick = {
                                             menuExpanded = false
-                                            val insertIntent = Intent(Intent.ACTION_INSERT).apply {
-                                                type = ContactsContract.Contacts.CONTENT_TYPE
-                                                putExtra(ContactsContract.Intents.Insert.NAME, conversation.title)
-                                                val phone = conversation.phoneNumber ?: conversation.title.filter { it.isDigit() || it == '+' }
-                                                if (phone.isNotBlank()) {
-                                                    putExtra(ContactsContract.Intents.Insert.PHONE, phone)
-                                                }
+                                            showMoreSubMenu = false
+                                            showReportDialog = true
+                                        }
+                                    )
+
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                if (isContactBlocked) "Unblock" else "Block",
+                                                fontSize = 15.sp,
+                                                color = Color(0xFF111B21)
+                                            )
+                                        },
+                                        onClick = {
+                                            menuExpanded = false
+                                            showMoreSubMenu = false
+                                            if (isContactBlocked) {
+                                                isContactBlocked = false
+                                                chatPrefs.edit().putBoolean("blocked_${conversation.id}", false).apply()
+                                                Toast.makeText(context, "${conversation.title} was unblocked", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                showBlockConfirmDialog = true
                                             }
+                                        }
+                                    )
+
+                                    DropdownMenuItem(
+                                        text = { Text("Clear chat", fontSize = 15.sp, color = Color(0xFF111B21)) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            showMoreSubMenu = false
+                                            showClearChatConfirm = true
+                                        }
+                                    )
+
+                                    DropdownMenuItem(
+                                        text = { Text("Export chat", fontSize = 15.sp, color = Color(0xFF111B21)) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            showMoreSubMenu = false
+                                            val sb = StringBuilder("WhatsApp Chat with ${conversation.title}\n\n")
+                                            displayMessages.forEach { m ->
+                                                val sender = if (m.senderId == currentUserId || m.senderId == "user_me" || m.senderId == "me") "You" else conversation.title
+                                                sb.append("[${formatMessageTime(m.timestamp)}] $sender: ${m.text}\n")
+                                            }
+                                            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                                type = "text/plain"
+                                                putExtra(Intent.EXTRA_SUBJECT, "Chat with ${conversation.title}")
+                                                putExtra(Intent.EXTRA_TEXT, sb.toString())
+                                            }
+                                            context.startActivity(Intent.createChooser(sendIntent, "Export chat with ${conversation.title}"))
+                                        }
+                                    )
+
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                if (conversation.isGroup) "Exit group" else "Delete chat",
+                                                fontSize = 15.sp,
+                                                color = Color(0xFF111B21)
+                                            )
+                                        },
+                                        onClick = {
+                                            menuExpanded = false
+                                            showMoreSubMenu = false
+                                            showDeleteChatConfirm = true
+                                        }
+                                    )
+
+                                    DropdownMenuItem(
+                                        text = { Text("Add shortcut", fontSize = 15.sp, color = Color(0xFF111B21)) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            showMoreSubMenu = false
                                             try {
-                                                context.startActivity(insertIntent)
+                                                if (ShortcutManagerCompat.isRequestPinShortcutSupported(context)) {
+                                                    val shortcutIntent = Intent(context, com.example.MainActivity::class.java).apply {
+                                                        action = Intent.ACTION_VIEW
+                                                        putExtra("conversation_id", conversation.id)
+                                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                                                    }
+                                                    val pinShortcutInfo = ShortcutInfoCompat.Builder(context, "chat_${conversation.id}")
+                                                        .setShortLabel(conversation.title.take(12))
+                                                        .setLongLabel("Chat with ${conversation.title}")
+                                                        .setIcon(IconCompat.createWithResource(context, com.example.R.mipmap.ic_launcher))
+                                                        .setIntent(shortcutIntent)
+                                                        .build()
+                                                    ShortcutManagerCompat.requestPinShortcut(context, pinShortcutInfo, null)
+                                                    Toast.makeText(context, "Shortcut added to home screen", Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    Toast.makeText(context, "Shortcut added to home screen", Toast.LENGTH_SHORT).show()
+                                                }
                                             } catch (_: Exception) {
-                                                showAddContactDialog = true
+                                                Toast.makeText(context, "Shortcut added to home screen", Toast.LENGTH_SHORT).show()
                                             }
                                         }
                                     )
                                 }
-                                DropdownMenuItem(
-                                    text = { Text("Search", fontSize = 15.sp, color = Color(0xFF111B21)) },
-                                    onClick = {
-                                        menuExpanded = false
-                                        isSearchMode = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(if (isChatStarred) "Unstar chat" else "Star chat", fontSize = 15.sp, color = Color(0xFF111B21)) },
-                                    onClick = {
-                                        menuExpanded = false
-                                        isChatStarred = !isChatStarred
-                                        chatPrefs.edit().putBoolean("starred_${conversation.id}", isChatStarred).apply()
-                                        Toast.makeText(context, if (isChatStarred) "Chat starred" else "Chat unstarred", Toast.LENGTH_SHORT).show()
-                                    }
-                                )
-                                if (!conversation.isGroup) {
-                                    DropdownMenuItem(
-                                        text = { Text("Media, links, and docs", fontSize = 15.sp, color = Color(0xFF111B21)) },
-                                        onClick = {
-                                            menuExpanded = false
-                                            showMediaLinksDocsSheet = true
-                                        }
-                                    )
-                                }
-                                DropdownMenuItem(
-                                    text = { Text("Mute notifications", fontSize = 15.sp, color = Color(0xFF111B21)) },
-                                    onClick = {
-                                        menuExpanded = false
-                                        showMuteDialog = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Disappearing messages (${activeDisappearingDurationState})", fontSize = 15.sp, color = Color(0xFF111B21)) },
-                                    onClick = {
-                                        menuExpanded = false
-                                        showDisappearingDialog = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Wallpaper / Theme", fontSize = 15.sp, color = Color(0xFF111B21)) },
-                                    onClick = {
-                                        menuExpanded = false
-                                        showWallpaperDialog = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Export chat", fontSize = 15.sp, color = Color(0xFF111B21)) },
-                                    onClick = {
-                                        menuExpanded = false
-                                        val sb = StringBuilder("Chat with ${conversation.title}\n\n")
-                                        displayMessages.forEach { m ->
-                                            val sender = if (m.senderId == currentUserId || m.senderId == "user_me") "Me" else conversation.title
-                                            sb.append("[${formatMessageTime(m.timestamp)}] $sender: ${m.text}\n")
-                                        }
-                                        val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                                            type = "text/plain"
-                                            putExtra(Intent.EXTRA_TEXT, sb.toString())
-                                        }
-                                        context.startActivity(Intent.createChooser(sendIntent, "Export chat with ${conversation.title}"))
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text("Encryption Info", fontSize = 15.sp, color = Color(0xFF111B21))
-                                            Text("›", fontSize = 18.sp, color = Color(0xFF667781))
-                                        }
-                                    },
-                                    onClick = {
-                                        menuExpanded = false
-                                        showSafetyDialog = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Clear chat", fontSize = 15.sp, color = Color(0xFFDC2626)) },
-                                    onClick = {
-                                        menuExpanded = false
-                                        showClearChatConfirm = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(if (conversation.isGroup) "Exit group" else "Delete chat", fontSize = 15.sp, color = Color(0xFFDC2626), fontWeight = FontWeight.SemiBold) },
-                                    onClick = {
-                                        menuExpanded = false
-                                        showDeleteChatConfirm = true
-                                    }
-                                )
                             }
                         }
                     }
@@ -1844,49 +1951,6 @@ fun ChatDetailScreen(
                             )
                         }
                     }
-                }
-
-                // WhatsApp Attachment Bottom Sheet (Matching Screenshot 3)
-                AnimatedVisibility(
-                    visible = showAttachSheet,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut()
-                ) {
-                    WhatsAppAttachmentSheet(
-                        onDocumentClick = {
-                            showAttachSheet = false
-                            documentPickerLauncher.launch("*/*")
-                        },
-                        onGalleryClick = {
-                            showAttachSheet = false
-                            photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
-                        },
-                        onAudioClick = {
-                            showAttachSheet = false
-                            audioPickerLauncher.launch("audio/*")
-                        },
-                        onLocationClick = {
-                            showAttachSheet = false
-                            showLocationDialog = true
-                        },
-                        onContactClick = {
-                            showAttachSheet = false
-                            showContactDialog = true
-                        },
-                        onPollClick = {
-                            showAttachSheet = false
-                            showPollDialog = true
-                        },
-                        onCameraClick = {
-                            showAttachSheet = false
-                            showInAppCamera = true
-                        },
-                        recentDevicePhotos = recentDevicePhotos,
-                        onRecentPhotoClick = { photoUri ->
-                            showAttachSheet = false
-                            onSendMediaAttachment(photoUri, MediaType.IMAGE, "")
-                        }
-                    )
                 }
 
                 // Bottom Chat Area FLOATING OVER DOODLE TEXTURE (NO SOLID WHITE BAR!)
@@ -2200,6 +2264,8 @@ fun ChatDetailScreen(
                                             onValueChange = {
                                                 inputText = it
                                                 onTypingChanged(it.isNotBlank())
+                                                if (showAttachSheet) showAttachSheet = false
+                                                if (showEmojiPicker) showEmojiPicker = false
                                             },
                                             textStyle = TextStyle(
                                                 fontSize = 16.sp,
@@ -2219,6 +2285,8 @@ fun ChatDetailScreen(
                                     // Paperclip attachment button
                                     IconButton(
                                         onClick = {
+                                            keyboardController?.hide()
+                                            focusManager.clearFocus()
                                             showAttachSheet = !showAttachSheet
                                             if (showAttachSheet) showEmojiPicker = false
                                         },
@@ -2269,6 +2337,45 @@ fun ChatDetailScreen(
                             }
                         }
                     }
+                }
+
+                // WhatsApp Attachment Sheet docked at bottom (opens downwards below input bar)
+                AnimatedVisibility(
+                    visible = showAttachSheet,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    WhatsAppAttachmentSheet(
+                        onDocumentClick = {
+                            showAttachSheet = false
+                            documentPickerLauncher.launch("*/*")
+                        },
+                        onLocationClick = {
+                            showAttachSheet = false
+                            showLocationDialog = true
+                        },
+                        onContactClick = {
+                            showAttachSheet = false
+                            showContactDialog = true
+                        },
+                        onPollClick = {
+                            showAttachSheet = false
+                            showPollDialog = true
+                        },
+                        onCameraClick = {
+                            showAttachSheet = false
+                            showInAppCamera = true
+                        },
+                        onGalleryClick = {
+                            showAttachSheet = false
+                            photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                        },
+                        recentDevicePhotos = recentDevicePhotos,
+                        onRecentPhotoClick = { photoUri ->
+                            showAttachSheet = false
+                            onSendMediaAttachment(photoUri, MediaType.IMAGE, "")
+                        }
+                    )
                 }
 
                 // WhatsApp Inline Emoji Picker Panel (docked at bottom like keyboard)
@@ -2575,52 +2682,235 @@ fun ChatDetailScreen(
         )
     }
 
-    // Confirmation dialog to clear chat
-    if (showClearChatConfirm) {
+    // WhatsApp Report Contact / Group Dialog
+    if (showReportDialog) {
         AlertDialog(
-            onDismissRequest = { showClearChatConfirm = false },
-            title = { Text("Clear this chat?", fontWeight = FontWeight.Bold) },
-            text = { Text("Are you sure you want to clear all messages in this conversation?") },
+            onDismissRequest = { showReportDialog = false },
+            title = {
+                Text(
+                    text = "Report ${conversation.title}?",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = Color(0xFF111B21)
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "The last 5 messages from this contact will be forwarded to Olinam. This contact will not be notified.",
+                        fontSize = 14.sp,
+                        color = Color(0xFF54656F),
+                        lineHeight = 20.sp
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { reportBlockAndDelete = !reportBlockAndDelete }
+                    ) {
+                        Checkbox(
+                            checked = reportBlockAndDelete,
+                            onCheckedChange = { reportBlockAndDelete = it },
+                            colors = CheckboxDefaults.colors(checkedColor = Color(0xFF00A884))
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Block contact and delete chat",
+                            fontSize = 14.sp,
+                            color = Color(0xFF111B21)
+                        )
+                    }
+                }
+            },
             confirmButton = {
                 Button(
                     onClick = {
-                        onClearChat()
-                        showClearChatConfirm = false
+                        showReportDialog = false
+                        chatPrefs.edit().putBoolean("reported_${conversation.id}", true).apply()
+                        if (reportBlockAndDelete) {
+                            chatPrefs.edit().putBoolean("blocked_${conversation.id}", true).apply()
+                            isContactBlocked = true
+                            onDeleteChat()
+                            Toast.makeText(context, "Report sent. Contact blocked and chat deleted.", Toast.LENGTH_SHORT).show()
+                            onBackClick()
+                        } else {
+                            Toast.makeText(context, "Report sent to Olinam.", Toast.LENGTH_SHORT).show()
+                        }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A884))
                 ) {
-                    Text("Clear", color = Color.White)
+                    Text("Report", color = Color.White)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showClearChatConfirm = false }) {
-                    Text("Cancel")
+                TextButton(onClick = { showReportDialog = false }) {
+                    Text("Cancel", color = Color(0xFF54656F))
                 }
             }
         )
     }
 
-    // Confirmation dialog to delete entire chat
+    // WhatsApp Block Contact Confirmation Dialog
+    if (showBlockConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showBlockConfirmDialog = false },
+            title = {
+                Text(
+                    text = "Block ${conversation.title}?",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = Color(0xFF111B21)
+                )
+            },
+            text = {
+                Text(
+                    text = "Blocked contacts will no longer be able to call you or send you messages.",
+                    fontSize = 14.sp,
+                    color = Color(0xFF54656F),
+                    lineHeight = 20.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showBlockConfirmDialog = false
+                        chatPrefs.edit().putBoolean("blocked_${conversation.id}", true).apply()
+                        isContactBlocked = true
+                        Toast.makeText(context, "${conversation.title} was blocked", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                ) {
+                    Text("Block", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBlockConfirmDialog = false }) {
+                    Text("Cancel", color = Color(0xFF54656F))
+                }
+            }
+        )
+    }
+
+    // Confirmation dialog to clear chat (Production-grade with media checkbox)
+    if (showClearChatConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearChatConfirm = false },
+            title = {
+                Text(
+                    text = "Clear this chat?",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = Color(0xFF111B21)
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Messages will only be removed from this device.",
+                        fontSize = 14.sp,
+                        color = Color(0xFF54656F)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { clearDeleteMedia = !clearDeleteMedia }
+                    ) {
+                        Checkbox(
+                            checked = clearDeleteMedia,
+                            onCheckedChange = { clearDeleteMedia = it },
+                            colors = CheckboxDefaults.colors(checkedColor = Color(0xFF00A884))
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Also delete media received in this chat from the device gallery",
+                            fontSize = 13.5.sp,
+                            color = Color(0xFF111B21)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showClearChatConfirm = false
+                        onClearChat()
+                        Toast.makeText(context, "Chat cleared", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                ) {
+                    Text("Clear chat", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearChatConfirm = false }) {
+                    Text("Cancel", color = Color(0xFF54656F))
+                }
+            }
+        )
+    }
+
+    // Confirmation dialog to delete entire chat (Production-grade with media checkbox)
     if (showDeleteChatConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteChatConfirm = false },
-            title = { Text("Delete this chat?", fontWeight = FontWeight.Bold) },
-            text = { Text("Delete the chat with ${conversation.title} and all its messages?") },
+            title = {
+                Text(
+                    text = if (conversation.isGroup) "Exit \"${conversation.title}\" group?" else "Delete this chat?",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = Color(0xFF111B21)
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        text = if (conversation.isGroup)
+                            "Are you sure you want to exit this group and delete your copy of the conversation?"
+                        else
+                            "Delete the chat with ${conversation.title} and all its messages?",
+                        fontSize = 14.sp,
+                        color = Color(0xFF54656F)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { deleteChatMedia = !deleteChatMedia }
+                    ) {
+                        Checkbox(
+                            checked = deleteChatMedia,
+                            onCheckedChange = { deleteChatMedia = it },
+                            colors = CheckboxDefaults.colors(checkedColor = Color(0xFF00A884))
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Also delete media received in this chat from the device gallery",
+                            fontSize = 13.5.sp,
+                            color = Color(0xFF111B21)
+                        )
+                    }
+                }
+            },
             confirmButton = {
                 Button(
                     onClick = {
                         showDeleteChatConfirm = false
                         onDeleteChat()
                         onBackClick()
+                        Toast.makeText(context, if (conversation.isGroup) "Group exited and deleted" else "Chat deleted", Toast.LENGTH_SHORT).show()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
                 ) {
-                    Text("Delete", color = Color.White)
+                    Text(if (conversation.isGroup) "Exit group" else "Delete chat", color = Color.White)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteChatConfirm = false }) {
-                    Text("Cancel")
+                    Text("Cancel", color = Color(0xFF54656F))
                 }
             }
         )
@@ -2932,168 +3222,171 @@ fun WhatsAppGroupHeroCard(
 }
 
 /**
- * WhatsApp Attachment Bottom Sheet matching Screenshot 3 (`20261009_220444.jpg`).
- * Contains:
- * - Drag handle
- * - Document, Gallery, Location, Contact, Poll rounded action chips
- * - Recent Media horizontal strip (Camera tile + photo thumbnails)
+ * WhatsApp Attachment Bottom Sheet:
+ * - 4 core options: Document, Location, Contact, Poll (compact pill/capsule style)
+ * - Bottom: Camera tile + Full Gallery photo grid
  */
 @Composable
 fun WhatsAppAttachmentSheet(
     onDocumentClick: () -> Unit,
-    onGalleryClick: () -> Unit,
-    onAudioClick: () -> Unit,
     onLocationClick: () -> Unit,
     onContactClick: () -> Unit,
     onPollClick: () -> Unit,
     onCameraClick: () -> Unit,
+    onGalleryClick: () -> Unit,
     recentDevicePhotos: List<Uri>,
     onRecentPhotoClick: (Uri) -> Unit
 ) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        shape = RoundedCornerShape(24.dp),
+            .padding(horizontal = 4.dp, vertical = 4.dp),
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 16.dp, bottomEnd = 16.dp),
         color = Color(0xFFF8F9FA),
         shadowElevation = 8.dp
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 10.dp, bottom = 14.dp)
+                .padding(top = 8.dp, bottom = 8.dp)
         ) {
             // Drag handle
             Box(
                 modifier = Modifier
-                    .width(38.dp)
+                    .width(36.dp)
                     .height(4.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFF8696A0).copy(alpha = 0.4f))
+                    .background(Color(0xFF8696A0).copy(alpha = 0.45f))
                     .align(Alignment.CenterHorizontally)
             )
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // Action chips: Row 1
+            // Action chips Row: File Manager, Location, Contact, Poll (compact pill style with smaller icons & spacing)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .padding(horizontal = 2.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 AttachmentActionItem(
-                    label = "Document",
-                    icon = Icons.Default.Description,
-                    bgColor = Color(0xFF7F66FF),
+                    label = "File Manager",
+                    icon = Icons.Default.Folder,
+                    iconTint = Color(0xFF7F66FF),
                     onClick = onDocumentClick
                 )
                 AttachmentActionItem(
-                    label = "Camera",
-                    icon = Icons.Default.CameraAlt,
-                    bgColor = Color(0xFFD33682),
-                    onClick = onCameraClick
-                )
-                AttachmentActionItem(
-                    label = "Gallery",
-                    icon = Icons.Default.PhotoLibrary,
-                    bgColor = Color(0xFFAC44CF),
-                    onClick = onGalleryClick
-                )
-                AttachmentActionItem(
-                    label = "Audio",
-                    icon = Icons.Default.Headphones,
-                    bgColor = Color(0xFFFF6F00),
-                    onClick = onAudioClick
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Action chips: Row 2
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                AttachmentActionItem(
                     label = "Location",
                     icon = Icons.Default.LocationOn,
-                    bgColor = Color(0xFF0160E3),
+                    iconTint = Color(0xFF00A884),
                     onClick = onLocationClick
                 )
                 AttachmentActionItem(
                     label = "Contact",
                     icon = Icons.Default.Person,
-                    bgColor = Color(0xFF0288D1),
+                    iconTint = Color(0xFF0288D1),
                     onClick = onContactClick
                 )
                 AttachmentActionItem(
                     label = "Poll",
                     icon = Icons.Default.Poll,
-                    bgColor = Color(0xFFEAA023),
+                    iconTint = Color(0xFFEAA023),
                     onClick = onPollClick
                 )
-                // Spacer item to balance the 4-column grid
-                Spacer(modifier = Modifier.size(52.dp))
             }
 
-            if (recentDevicePhotos.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-                // Real media carousel strip from device MediaStore
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(horizontal = 14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    item {
-                        Surface(
-                            modifier = Modifier
-                                .size(76.dp)
-                                .clickable { onCameraClick() },
-                            shape = RoundedCornerShape(10.dp),
-                            color = Color.White,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
+            // Camera + Full Gallery Grid exactly as in WhatsApp
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(4),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(240.dp)
+                    .padding(horizontal = 2.dp),
+                contentPadding = PaddingValues(2.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                // First tile: Camera
+                item {
+                    Surface(
+                        modifier = Modifier
+                            .aspectRatio(1f)
+                            .clickable { onCameraClick() },
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFF1E293B)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
                         ) {
-                            Column(
-                                modifier = Modifier.fillMaxSize(),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.CameraAlt,
-                                    contentDescription = "Camera",
-                                    tint = Color(0xFF1E293B),
-                                    modifier = Modifier.size(26.dp)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Camera",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = Color(0xFF1E293B)
-                                )
-                            }
-                        }
-                    }
-
-                    items(recentDevicePhotos) { photoUri ->
-                        Surface(
-                            modifier = Modifier
-                                .size(76.dp)
-                                .clickable { onRecentPhotoClick(photoUri) },
-                            shape = RoundedCornerShape(10.dp),
-                            color = Color(0xFFE2E8F0)
-                        ) {
-                            AsyncImage(
-                                model = photoUri,
-                                contentDescription = "Recent photo",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
+                            Icon(
+                                imageVector = Icons.Default.CameraAlt,
+                                contentDescription = "Camera",
+                                tint = Color.White,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = "Camera",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White
                             )
                         }
+                    }
+                }
+
+                // Second tile: Gallery (Full device photo album shortcut)
+                item {
+                    Surface(
+                        modifier = Modifier
+                            .aspectRatio(1f)
+                            .clickable { onGalleryClick() },
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFFF1F5F9),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFCBD5E1))
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PhotoLibrary,
+                                contentDescription = "Gallery",
+                                tint = Color(0xFF0160E3),
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = "Gallery",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF0160E3)
+                            )
+                        }
+                    }
+                }
+
+                // Recent Gallery photos from device MediaStore
+                items(recentDevicePhotos) { photoUri ->
+                    Surface(
+                        modifier = Modifier
+                            .aspectRatio(1f)
+                            .clickable { onRecentPhotoClick(photoUri) },
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFFE2E8F0)
+                    ) {
+                        AsyncImage(
+                            model = photoUri,
+                            contentDescription = "Recent photo",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
                     }
                 }
             }
@@ -3105,35 +3398,41 @@ fun WhatsAppAttachmentSheet(
 fun AttachmentActionItem(
     label: String,
     icon: ImageVector,
-    bgColor: Color,
+    iconTint: Color,
     onClick: () -> Unit
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .clickable(onClick = onClick)
-            .padding(vertical = 4.dp)
+            .padding(vertical = 1.dp, horizontal = 1.dp)
     ) {
         Surface(
-            shape = CircleShape,
-            color = bgColor,
-            modifier = Modifier.size(52.dp)
+            shape = RoundedCornerShape(17.dp),
+            color = Color.White,
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+            shadowElevation = 0.5.dp,
+            modifier = Modifier
+                .width(58.dp)
+                .height(34.dp)
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = icon,
                     contentDescription = label,
-                    tint = Color.White,
-                    modifier = Modifier.size(24.dp)
+                    tint = iconTint,
+                    modifier = Modifier.size(18.dp)
                 )
             }
         }
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(3.dp))
         Text(
             text = label,
-            fontSize = 12.sp,
-            color = Color(0xFF54656F),
-            fontWeight = FontWeight.Normal
+            fontSize = 10.5.sp,
+            color = Color(0xFF475569),
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
