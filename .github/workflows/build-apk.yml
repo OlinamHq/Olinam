@@ -40,12 +40,17 @@ jobs:
 
       - name: Setup Environment Files
         run: |
-          if [ ! -f ".env.example" ]; then
-            echo 'GEMINI_API_KEY=""' > .env.example
+          KEY_VAL="${{ secrets.GEMINI_API_KEY }}"
+          if [ -z "$KEY_VAL" ]; then
+            KEY_VAL="DEFAULT_GEMINI_API_KEY"
           fi
-          if [ ! -f ".env" ]; then
-            echo 'GEMINI_API_KEY=""' > .env
-          fi
+          cat <<EOF > .env
+          FIREBASE_APPCHECK_DEBUG_TOKEN=DEBUG_TOKEN_PLACEHOLDER
+          R2_PRESIGN_URL=https://olinam-r2-media.olinamhq.workers.dev/
+          R2_PUBLIC_BASE=https://olinam-r2-media.olinamhq.workers.dev/file/
+          GEMINI_API_KEY=$KEY_VAL
+          EOF
+          cp .env .env.example
 
       - name: Setup Debug Keystore
         run: |
