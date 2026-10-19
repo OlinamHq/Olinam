@@ -48,9 +48,9 @@ object OjAiService {
      */
     fun getApiKey(): String {
         return try {
-            val buildKey = BuildConfig.GEMINI_API_KEY
-            if (!buildKey.isNullOrBlank()) buildKey
-            else System.getenv("GEMINI_API_KEY") ?: ""
+            val field = BuildConfig::class.java.getDeclaredField("GEMINI_API_KEY")
+            val key = field.get(null) as? String
+            if (!key.isNullOrBlank()) key else (System.getenv("GEMINI_API_KEY") ?: "")
         } catch (_: Throwable) {
             System.getenv("GEMINI_API_KEY") ?: ""
         }
