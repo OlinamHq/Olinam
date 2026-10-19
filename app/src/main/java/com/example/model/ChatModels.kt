@@ -171,6 +171,7 @@ enum class AppTab {
     CHATS,
     STORIES,
     OJ_AI,
+    MORPH,
     CALLS
 }
 

@@ -17,6 +17,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -558,14 +559,6 @@ fun HomeScreen(
         return
     }
 
-    // Dedicated Full-Screen Chat for Oj AI (Hides bottom navigation bar completely)
-    if (currentTab == AppTab.OJ_AI) {
-        OjAiScreen(
-            viewModel = viewModel,
-            onBackClick = { viewModel.setTab(AppTab.CHATS) }
-        )
-        return
-    }
 
     // If a conversation is opened, show ChatDetailScreen
     if (selectedConv != null) {
@@ -918,8 +911,14 @@ fun HomeScreen(
                     )
                 }
                 AppTab.OJ_AI -> {
-                    // Handled above before Scaffold for dedicated full-screen experience
-                    Box(modifier = Modifier.fillMaxSize())
+                    OjAiScreen(
+                        viewModel = viewModel,
+                        onBackClick = { viewModel.setTab(AppTab.CHATS) },
+                        onOpenMorph = { viewModel.setTab(AppTab.MORPH) }
+                    )
+                }
+                AppTab.MORPH -> {
+                    MorphScreen()
                 }
                 AppTab.CALLS -> {
                     CallsScreen(

@@ -74,6 +74,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SentimentSatisfiedAlt
@@ -162,7 +163,8 @@ private val WhatsAppTickBlue = Color(0xFF53BDEB)
 @Composable
 fun OjAiScreen(
     viewModel: ChatViewModel,
-    onBackClick: () -> Unit = { viewModel.setTab(AppTab.CHATS) }
+    onBackClick: () -> Unit = { viewModel.setTab(AppTab.CHATS) },
+    onOpenMorph: () -> Unit = { viewModel.setTab(AppTab.MORPH) }
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -183,6 +185,7 @@ fun OjAiScreen(
     var showProfileScreen by remember { mutableStateOf(false) }
     var showAgentToolsSheet by remember { mutableStateOf(false) }
     var showEmojiQuickPicker by remember { mutableStateOf(false) }
+    var showAttachMenu by remember { mutableStateOf(false) }
 
     // When profile/settings is opened, show full-screen OjAiProfileScreen (matching ContactProfileScreen)
     if (showProfileScreen) {
@@ -315,32 +318,18 @@ fun OjAiScreen(
                             }
                         }
 
-                        // Action Icons: Video Call, Voice Call, Overflow Menu
-                        IconButton(
-                            onClick = {
-                                Toast.makeText(context, "Oj AI Vision assistant ready", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Videocam,
-                                contentDescription = "Video Call",
-                                tint = WhatsAppSubText,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
+                        // Action Icons: Overflow Menu
 
+                        // Omkun Morph Shortcut Button
                         IconButton(
-                            onClick = {
-                                Toast.makeText(context, "Voice call: Oj AI listening...", Toast.LENGTH_SHORT).show()
-                            },
+                            onClick = onOpenMorph,
                             modifier = Modifier.size(38.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Call,
-                                contentDescription = "Voice Call",
-                                tint = WhatsAppSubText,
-                                modifier = Modifier.size(20.dp)
+                                painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.ic_morph_notes),
+                                contentDescription = "Omkun Morph Notes",
+                                tint = GeminiBlue,
+                                modifier = Modifier.size(22.dp)
                             )
                         }
 
@@ -361,6 +350,21 @@ fun OjAiScreen(
                                 expanded = showMenu,
                                 onDismissRequest = { showMenu = false }
                             ) {
+                                DropdownMenuItem(
+                                    text = { Text("Omkun Morph Notes") },
+                                    leadingIcon = {
+                                        Icon(
+                                            painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.ic_morph_notes),
+                                            contentDescription = null,
+                                            tint = GeminiBlue,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        onOpenMorph()
+                                    }
+                                )
                                 DropdownMenuItem(
                                     text = { Text("Profile & Settings") },
                                     leadingIcon = {
@@ -693,18 +697,79 @@ fun OjAiScreen(
                         }
 
                         // Paperclip Attachment Button
-                        IconButton(
-                            onClick = {
-                                Toast.makeText(context, "Attach doc, photo or audio for Oj AI", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AttachFile,
-                                contentDescription = "Attach",
-                                tint = WhatsAppSubText,
-                                modifier = Modifier.size(22.dp)
-                            )
+                        Box {
+                            IconButton(
+                                onClick = { showAttachMenu = true },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AttachFile,
+                                    contentDescription = "Attach",
+                                    tint = WhatsAppSubText,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = showAttachMenu,
+                                onDismissRequest = { showAttachMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Open Omkun Morph") },
+                                    leadingIcon = {
+                                        Icon(
+                                            painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.ic_morph_notes),
+                                            contentDescription = null,
+                                            tint = GeminiBlue,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    },
+                                    onClick = {
+                                        showAttachMenu = false
+                                        onOpenMorph()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Insert Omkun Morph Note") },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.Description,
+                                            contentDescription = null,
+                                            tint = GeminiPurple,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    },
+                                    onClick = {
+                                        showAttachMenu = false
+                                        val morphRepo = com.example.data.MorphRepository.getInstance(context)
+                                        val latestNote = morphRepo.notesFlow.value.firstOrNull()
+                                        if (latestNote != null) {
+                                            inputPrompt = if (inputPrompt.isBlank()) {
+                                                "Note: ${latestNote.title}\n${latestNote.content}"
+                                            } else {
+                                                "$inputPrompt\n\n[Note: ${latestNote.title}]\n${latestNote.content}"
+                                            }
+                                        } else {
+                                            Toast.makeText(context, "No notes found in Morph", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Attach Document / File") },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.AttachFile,
+                                            contentDescription = null,
+                                            tint = WhatsAppDarkText,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    },
+                                    onClick = {
+                                        showAttachMenu = false
+                                        Toast.makeText(context, "Attach doc, photo or audio for Oj AI", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                            }
                         }
 
                         // Camera Button
@@ -1196,18 +1261,28 @@ private fun OjAiAgentBottomSheetContent(
                             .background(Color(0xFFEFF6FF)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = when (plugin.iconType) {
-                                "GMAIL" -> Icons.Default.Email
-                                "DRIVE" -> Icons.Default.Description
-                                "CALENDAR" -> Icons.Default.CalendarMonth
-                                "SMS" -> Icons.Default.SimCard
-                                else -> Icons.Default.Lightbulb
-                            },
-                            contentDescription = plugin.name,
-                            tint = GeminiBlue,
-                            modifier = Modifier.size(18.dp)
-                        )
+                        if (plugin.iconType == "MORPH") {
+                            Icon(
+                                painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.ic_morph_notes),
+                                contentDescription = plugin.name,
+                                tint = GeminiBlue,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        } else {
+                            Icon(
+                                imageVector = when (plugin.iconType) {
+                                    "GMAIL" -> Icons.Default.Email
+                                    "DRIVE" -> Icons.Default.Description
+                                    "CALENDAR" -> Icons.Default.CalendarMonth
+                                    "PHOTOS" -> Icons.Default.PhotoLibrary
+                                    "SMS" -> Icons.Default.SimCard
+                                    else -> Icons.Default.Lightbulb
+                                },
+                                contentDescription = plugin.name,
+                                tint = GeminiBlue,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                     Spacer(modifier = Modifier.width(10.dp))
                     Column {

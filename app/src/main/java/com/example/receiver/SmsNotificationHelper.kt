@@ -99,20 +99,9 @@ object SmsNotificationHelper {
                 val notificationManager =
                     context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-                val largeIconBitmap = try {
-                    android.graphics.BitmapFactory.decodeResource(context.resources, com.example.R.drawable.ic_notification_large)
-                } catch (_: Exception) {
-                    null
-                }
-
                 val notification = NotificationCompat.Builder(context, CHANNEL_ID)
                     .setSmallIcon(com.example.R.drawable.ic_notification)
                     .setColor(ContextCompat.getColor(context, com.example.R.color.notification_accent))
-                    .apply {
-                        if (largeIconBitmap != null) {
-                            setLargeIcon(largeIconBitmap)
-                        }
-                    }
                     .setContentTitle(contactName)
                     .setContentText(body)
                     .setStyle(NotificationCompat.BigTextStyle().bigText(body))

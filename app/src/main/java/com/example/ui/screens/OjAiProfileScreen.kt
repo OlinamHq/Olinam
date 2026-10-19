@@ -5,6 +5,9 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import com.example.ai.AiPlugin
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -40,6 +43,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
@@ -126,6 +130,7 @@ fun OjAiProfileScreen(
     var showCustomBioDialog by remember { mutableStateOf(false) }
     var showDelegatedContactsDialog by remember { mutableStateOf(false) }
     var showAddContactDialog by remember { mutableStateOf(false) }
+    var configuringPlugin by remember { mutableStateOf<AiPlugin?>(null) }
 
     var newContactName by remember { mutableStateOf("") }
     var newContactPhone by remember { mutableStateOf("") }
@@ -293,41 +298,17 @@ fun OjAiProfileScreen(
 
                     Spacer(modifier = Modifier.height(18.dp))
 
-                    // 4 Functional Action Buttons (Message, Audio, Video, Share)
+                    // Functional Action Buttons (Message & Share)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp),
+                            .padding(horizontal = 32.dp),
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
                         OjAiActionButton(
                             icon = Icons.AutoMirrored.Filled.Chat,
                             label = "Message",
                             onClick = onBackClick
-                        )
-
-                        OjAiActionButton(
-                            icon = Icons.Default.Call,
-                            label = "Audio",
-                            onClick = {
-                                Toast.makeText(
-                                    context,
-                                    "Oj AI Voice Assistant: Speak your query in chat",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            }
-                        )
-
-                        OjAiActionButton(
-                            icon = Icons.Default.Videocam,
-                            label = "Video",
-                            onClick = {
-                                Toast.makeText(
-                                    context,
-                                    "Oj AI Vision: Attach a photo or document in chat for AI analysis",
-                                    Toast.LENGTH_LONG
-                                ).show()
-                            }
                         )
 
                         OjAiActionButton(
@@ -444,21 +425,21 @@ fun OjAiProfileScreen(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // 4. Workspace Integrations & Plugins Section
+            // 4. Daily Work Integrations & Tools Section
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 color = Color.White
             ) {
                 Column(modifier = Modifier.padding(vertical = 12.dp)) {
                     Text(
-                        text = "Workspace Integrations & Plugins",
+                        text = "Work Integrations & Tools",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         color = GeminiBlue,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
                     )
                     Text(
-                        text = "Connect Google Workspace and device tools for deep context retrieval.",
+                        text = "Connect Gmail, Drive, Calendar, Photos, and Morph notes for daily tasks.",
                         fontSize = 12.5.sp,
                         color = Color(0xFF6B7280),
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)
@@ -471,16 +452,37 @@ fun OjAiProfileScreen(
                             "GMAIL" -> Icons.Default.Email
                             "DRIVE" -> Icons.Default.Description
                             "CALENDAR" -> Icons.Default.CalendarMonth
+                            "PHOTOS" -> Icons.Default.PhotoLibrary
                             "SMS" -> Icons.Default.SimCard
+                            "MORPH" -> null
                             else -> Icons.Default.Lightbulb
                         }
+                        val painter = if (plugin.iconType == "MORPH") {
+                            androidx.compose.ui.res.painterResource(id = com.example.R.drawable.ic_morph_notes)
+                        } else null
 
                         OjAiSwitchRow(
                             icon = icon,
+                            iconPainter = painter,
                             title = plugin.name,
-                            subtitle = if (plugin.isConnected) plugin.syncSummary.ifBlank { plugin.description } else "Disconnected • Tap to enable",
+                            subtitle = plugin.syncSummary.ifBlank { plugin.description },
                             checked = plugin.isConnected,
-                            onCheckedChange = { agentManager.togglePlugin(plugin.id, it) }
+                            onCheckedChange = { isChecked ->
+                                if (isChecked && plugin.id in listOf("gmail_plugin", "drive_plugin", "calendar_plugin", "photos_plugin", "morph_plugin")) {
+                                    configuringPlugin = plugin
+                                } else if (plugin.id == "knowledge_base_plugin" && isChecked) {
+                                    showCustomBioDialog = true
+                                } else {
+                                    agentManager.togglePlugin(plugin.id, isChecked)
+                                }
+                            },
+                            onClick = {
+                                if (plugin.id in listOf("gmail_plugin", "drive_plugin", "calendar_plugin", "photos_plugin", "morph_plugin")) {
+                                    configuringPlugin = plugin
+                                } else if (plugin.id == "knowledge_base_plugin") {
+                                    showCustomBioDialog = true
+                                }
+                            }
                         )
 
                         if (index < plugins.size - 1) {
@@ -579,6 +581,82 @@ fun OjAiProfileScreen(
 
             Spacer(modifier = Modifier.height(28.dp))
         }
+    }
+
+
+    // Dialog: Configure Plugin API Key / Credentials
+    val activePlugin = configuringPlugin
+    if (activePlugin != null) {
+        var apiKeyInput by remember(activePlugin.id) { mutableStateOf(agentManager.getPluginApiKey(activePlugin.id)) }
+        var endpointInput by remember(activePlugin.id) { mutableStateOf(agentManager.getPluginEndpoint(activePlugin.id)) }
+
+        AlertDialog(
+            onDismissRequest = { configuringPlugin = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val icon = when (activePlugin.iconType) {
+                        "GMAIL" -> Icons.Default.Email
+                        "DRIVE" -> Icons.Default.Description
+                        "CALENDAR" -> Icons.Default.CalendarMonth
+                        "PHOTOS" -> Icons.Default.PhotoLibrary
+                        else -> Icons.Default.Tune
+                    }
+                    Icon(icon, contentDescription = null, tint = GeminiBlue)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(activePlugin.name, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        activePlugin.description,
+                        fontSize = 13.sp,
+                        color = Color(0xFF6B7280)
+                    )
+
+                    OutlinedTextField(
+                        value = apiKeyInput,
+                        onValueChange = { apiKeyInput = it },
+                        label = { Text("API Key / OAuth Token") },
+                        placeholder = { Text("Paste your API key or token here") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = endpointInput,
+                        onValueChange = { endpointInput = it },
+                        label = { Text("Custom Endpoint URL (Optional)") },
+                        placeholder = { Text("https://api.example.com/v1") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Text(
+                        "You can paste your API key here or send it in chat, and Oj AI will immediately connect and enable production access.",
+                        fontSize = 11.5.sp,
+                        color = Color(0xFF9CA3AF)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        agentManager.setPluginApiKey(activePlugin.id, apiKeyInput, endpointInput)
+                        configuringPlugin = null
+                        Toast.makeText(context, "${activePlugin.name} API saved", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = GeminiBlue)
+                ) {
+                    Text("Save API Key", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { configuringPlugin = null }) {
+                    Text("Cancel", color = Color(0xFF6B7280))
+                }
+            }
+        )
     }
 
     // Dialog: Clear Chat History Confirmation
@@ -956,24 +1034,36 @@ private fun OjAiInfoRow(
  */
 @Composable
 private fun OjAiSwitchRow(
-    icon: ImageVector,
+    icon: ImageVector? = null,
+    iconPainter: androidx.compose.ui.graphics.painter.Painter? = null,
     title: String,
     subtitle: String? = null,
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    onCheckedChange: (Boolean) -> Unit,
+    onClick: (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
             .padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = if (checked) GeminiBlue else Color(0xFF9CA3AF),
-            modifier = Modifier.size(22.dp)
-        )
+        if (iconPainter != null) {
+            Icon(
+                painter = iconPainter,
+                contentDescription = null,
+                tint = if (checked) GeminiBlue else Color(0xFF9CA3AF),
+                modifier = Modifier.size(22.dp)
+            )
+        } else if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (checked) GeminiBlue else Color(0xFF9CA3AF),
+                modifier = Modifier.size(22.dp)
+            )
+        }
 
         Spacer(modifier = Modifier.width(20.dp))
 

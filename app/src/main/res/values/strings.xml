@@ -4,5 +4,7 @@
     <string name="chats">Chats</string>
     <string name="stories">Stories</string>
     <string name="oj_ai">Oj Ai</string>
+    <string name="morph">Morph</string>
+    <string name="omkun_morph">Omkun Morph</string>
     <string name="calls">Calls</string>
 </resources>

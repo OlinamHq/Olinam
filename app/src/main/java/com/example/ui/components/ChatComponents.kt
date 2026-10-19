@@ -988,7 +988,7 @@ fun OlinamBottomNavBar(
                 testTag = "nav_item_stories"
             )
 
-            // 3. Oj Ai
+            // 3. Oj AI (In Center)
             BottomNavItem(
                 selected = currentTab == AppTab.OJ_AI,
                 label = stringResource(R.string.oj_ai),
@@ -997,14 +997,30 @@ fun OlinamBottomNavBar(
                         painter = painterResource(id = R.drawable.ic_oj_ai),
                         contentDescription = stringResource(R.string.oj_ai),
                         tint = tint,
-                        modifier = Modifier.size(23.dp)
+                        modifier = Modifier.size(24.dp)
                     )
                 },
                 onClick = { onTabSelected(AppTab.OJ_AI) },
                 testTag = "nav_item_oj_ai"
             )
 
-            // 4. Calls
+            // 4. Morph (Omkun Morph notes)
+            BottomNavItem(
+                selected = currentTab == AppTab.MORPH,
+                label = stringResource(R.string.morph),
+                icon = { tint ->
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_morph_notes),
+                        contentDescription = stringResource(R.string.morph),
+                        tint = tint,
+                        modifier = Modifier.size(23.dp)
+                    )
+                },
+                onClick = { onTabSelected(AppTab.MORPH) },
+                testTag = "nav_item_morph"
+            )
+
+            // 5. Calls
             BottomNavItem(
                 selected = currentTab == AppTab.CALLS,
                 label = stringResource(R.string.calls),
@@ -1052,7 +1068,7 @@ private fun androidx.compose.foundation.layout.RowScope.BottomNavItem(
                     .height(32.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(if (selected) Color(0xFFE9EBEA) else Color.Transparent)
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
                 contentAlignment = Alignment.Center
             ) {
                 val iconTint = if (selected) Color(0xFF111B21) else Color(0xFF54656F)
