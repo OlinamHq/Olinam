@@ -1,12 +1,13 @@
 package com.example.push
 
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
-import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.example.MainActivity
+import com.example.ui.screens.notifications.ChannelCategory
+import com.example.ui.screens.notifications.NotificationPreferences
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 
@@ -22,7 +23,6 @@ class OlinamMessagingService : FirebaseMessagingService() {
                         }
                     }
                     .addOnFailureListener {
-                        // Suppress hard failure log when FCM is not registered on the current backend/device
                         android.util.Log.d("OlinamPush", "FCM token registration deferred: ${it.message}")
                     }
             } catch (t: Throwable) {
@@ -46,26 +46,29 @@ class OlinamMessagingService : FirebaseMessagingService() {
         val type = message.data["type"] ?: "message"
         val title = message.data["title"] ?: message.notification?.title ?: "Olinam"
         val body = message.data["body"] ?: message.notification?.body ?: "New message"
+        val isGroup = message.data["isGroup"] == "true"
+
+        val privacyPrefs = com.example.ui.screens.privacy.PrivacyPreferences(this)
+        val senderId = message.data["senderId"] ?: message.data["sender"] ?: ""
+        if (privacyPrefs.isBlocked(senderId) || privacyPrefs.isBlocked(title)) {
+            // Silently drop messages and calls from blocked contacts
+            return
+        }
 
         if (type == "INCOMING_CALL") {
             val callerName = message.data["callerName"] ?: title
             val isVideo = message.data["isVideo"] == "true"
             showCallNotification(callerName, isVideo)
         } else {
-            showNotification(title, body)
+            showNotification(title, body, isGroup)
         }
     }
 
     private fun showCallNotification(callerName: String, isVideo: Boolean) {
-        val manager = getSystemService(NotificationManager::class.java)
-        val channelId = "olinam_calls"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(channelId, "Calls", NotificationManager.IMPORTANCE_MAX).apply {
-                description = "Incoming voice & video calls"
-                enableVibration(true)
-            }
-            manager.createNotificationChannel(channel)
-        }
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        val prefs = NotificationPreferences(this)
+        val channelId = prefs.syncChannel(ChannelCategory.CALLS)
+
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
@@ -76,26 +79,25 @@ class OlinamMessagingService : FirebaseMessagingService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         val callType = if (isVideo) "Incoming Video Call" else "Incoming Voice Call"
-        val notification = NotificationCompat.Builder(this, channelId)
+        val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(android.R.drawable.stat_sys_phone_call)
             .setContentTitle(callType)
             .setContentText(callerName)
             .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
             .setAutoCancel(true)
             .setContentIntent(pending)
-            .build()
-        manager.notify(7777, notification)
+            .setFullScreenIntent(pending, true)
+
+        prefs.applyNotificationPreferences(builder, ChannelCategory.CALLS)
+        manager.notify(7777, builder.build())
     }
 
-    private fun showNotification(title: String, body: String) {
-        val manager = getSystemService(NotificationManager::class.java)
-        val channelId = "olinam_messages"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            manager.createNotificationChannel(
-                NotificationChannel(channelId, "Messages", NotificationManager.IMPORTANCE_HIGH)
-            )
-        }
+    private fun showNotification(title: String, body: String, isGroup: Boolean = false) {
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        val prefs = NotificationPreferences(this)
+        val category = if (isGroup) ChannelCategory.GROUPS else ChannelCategory.MESSAGES
+        val channelId = prefs.syncChannel(category)
+
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
@@ -105,15 +107,17 @@ class OlinamMessagingService : FirebaseMessagingService() {
             intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        val notification = NotificationCompat.Builder(this, channelId)
+        val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(com.example.R.drawable.ic_notification)
-            .setColor(androidx.core.content.ContextCompat.getColor(this, com.example.R.color.notification_accent))
+            .setColor(ContextCompat.getColor(this, com.example.R.color.notification_accent))
             .setContentTitle(title)
             .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setAutoCancel(true)
             .setContentIntent(pending)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .build()
-        manager.notify(body.hashCode(), notification)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+
+        prefs.applyNotificationPreferences(builder, category)
+        manager.notify(body.hashCode(), builder.build())
     }
 }

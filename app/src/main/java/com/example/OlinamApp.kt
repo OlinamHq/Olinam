@@ -2,6 +2,8 @@ package com.example
 
 import android.app.Application
 import android.util.Log
+import com.example.ui.screens.notifications.ChannelCategory
+import com.example.ui.screens.notifications.NotificationPreferences
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 
@@ -24,6 +26,13 @@ class OlinamApp : Application() {
         } catch (t: Throwable) {
             Log.e("OlinamApp", "FirebaseApp initialization exception: ${t.message}", t)
         }
-        com.example.receiver.SmsNotificationHelper.createNotificationChannel(this)
+
+        // Initialize production notification channels on app startup
+        try {
+            val prefs = NotificationPreferences(this)
+            ChannelCategory.values().forEach { prefs.syncChannel(it) }
+        } catch (e: Exception) {
+            Log.e("OlinamApp", "Failed to sync notification channels: ${e.message}")
+        }
     }
 }

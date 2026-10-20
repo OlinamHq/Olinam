@@ -135,6 +135,7 @@ import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -529,7 +530,8 @@ fun ChatDetailScreen(
     onAddGroupMember: (String) -> Unit = {},
     labels: List<ChatLabel> = emptyList(),
     onSaveConversationLabels: (List<String>) -> Unit = {},
-    onCreateLabel: (String, String) -> Unit = { _, _ -> }
+    onCreateLabel: (String, String) -> Unit = { _, _ -> },
+    onToggleReaction: (messageId: String, emoji: String) -> Unit = { _, _ -> }
 ) {
     var showGroupLinkScreen by remember { mutableStateOf(false) }
     var showEditGroupDescDialog by remember { mutableStateOf(false) }
@@ -582,6 +584,9 @@ fun ChatDetailScreen(
     }
 
     val context = LocalContext.current
+    val privacyPrefs = remember { com.example.ui.screens.privacy.PrivacyPreferences(context) }
+    val privacyState by privacyPrefs.state.collectAsState()
+    val isReadReceiptsEnabled = privacyState.readReceiptsEnabled
     val density = LocalDensity.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
@@ -640,8 +645,13 @@ fun ChatDetailScreen(
     var activeDisappearingDurationState by remember(conversation.id) {
         mutableStateOf(chatPrefs.getString("disappearing_${conversation.id}", "Off") ?: "Off")
     }
-    var currentWallpaperTheme by remember(conversation.id) {
-        mutableStateOf(chatPrefs.getString("wallpaper_${conversation.id}", "default") ?: "default")
+    val chatSettingsPrefs = remember { com.example.ui.screens.chats.ChatSettingsPreferences(context) }
+    val chatSettingsState by chatSettingsPrefs.state.collectAsState()
+    var showVoiceConfirmDialog by remember { mutableStateOf(false) }
+
+    var currentWallpaperTheme by remember(conversation.id, chatSettingsState.chatWallpaper) {
+        val convWall = chatPrefs.getString("wallpaper_${conversation.id}", null)
+        mutableStateOf(convWall ?: chatSettingsState.chatWallpaper.ifBlank { "default" })
     }
 
     // Google Messages Shortcode / Business Read-only states
@@ -802,8 +812,11 @@ fun ChatDetailScreen(
     fun handleSendAction() {
         val textToSend = inputText.trim()
         if (textToSend.isBlank()) {
-            // Voice note simulation
-            onSendMessage("🎙️ Voice message (0:04)")
+            if (chatSettingsState.voiceMessageConfirmation) {
+                showVoiceConfirmDialog = true
+            } else {
+                onSendMessage("🎙️ Voice message (0:04)")
+            }
             return
         }
 
@@ -1713,34 +1726,6 @@ fun ChatDetailScreen(
             Column(
                 modifier = Modifier.fillMaxSize()
             ) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-                    color = if (isOjAiAutoEnabled) Color(0xFFE8F3FF) else Color.White.copy(alpha = 0.94f),
-                    shape = RoundedCornerShape(14.dp),
-                    shadowElevation = 1.dp
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Oj AI for this chat", color = Color(0xFF173B70), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                if (isOjAiAutoEnabled) "Enabled for this conversation on this device" else "Off · enable only for contacts you choose",
-                                color = Color(0xFF667085),
-                                fontSize = 11.sp
-                            )
-                        }
-                        Switch(
-                            checked = isOjAiAutoEnabled,
-                            onCheckedChange = { enabled ->
-                                isOjAiAutoEnabled = enabled
-                                chatPrefs.edit().putBoolean("oj_ai_auto_${conversation.id}", enabled).apply()
-                                Toast.makeText(context, if (enabled) "Oj AI preference enabled for this chat" else "Oj AI preference disabled for this chat", Toast.LENGTH_SHORT).show()
-                            }
-                        )
-                    }
-                }
 
                 // Messages list filling the available space above the input
                 LazyColumn(
@@ -1934,8 +1919,14 @@ fun ChatDetailScreen(
                                 message = msg,
                                 isMe = isMe,
                                 isHighlighted = isHighlighted,
+                                isReadReceiptsEnabled = isReadReceiptsEnabled,
+                                quickReactionEnabled = chatSettingsState.quickReaction,
+                                quickReactionEmoji = chatSettingsState.quickReactionEmoji,
                                 onClick = { selectedMessageForCrypto = msg },
                                 onLongClick = { messageForAction = msg },
+                                onReactionClick = { emoji ->
+                                    onToggleReaction(msg.id, emoji)
+                                },
                                 onImageClick = { url -> fullScreenImageUrl = url },
                                 onReplyClick = { replyTargetId ->
                                     if (!replyTargetId.isNullOrBlank()) {
@@ -1990,15 +1981,15 @@ fun ChatDetailScreen(
                         }
                     }
                 } else if (isShortCodeOrAlphanumeric && !enableManualReplyTest) {
-                    // Google Messages Style: Read-only shortcode/company banner floating directly over doodle wallpaper!
+                    // Sleek, minimal read-only banner matching Google Messages production UX
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
                             .testTag("chat_shortcode_readonly_banner"),
-                        shape = RoundedCornerShape(22.dp),
-                        color = Color.White.copy(alpha = 0.96f),
-                        shadowElevation = 1.5.dp,
+                        shape = RoundedCornerShape(18.dp),
+                        color = Color.White.copy(alpha = 0.98f),
+                        shadowElevation = 1.dp,
                         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
                     ) {
                         Column(
@@ -2010,74 +2001,40 @@ fun ChatDetailScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Info,
-                                    contentDescription = "Read only",
+                                    contentDescription = null,
                                     tint = Color(0xFF64748B),
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = "Can't reply to this short code",
-                                    fontSize = 14.sp,
+                                    fontSize = 13.5.sp,
                                     fontWeight = FontWeight.Medium,
-                                    color = Color(0xFF1E293B)
+                                    color = Color(0xFF334155),
+                                    modifier = Modifier.weight(1f)
                                 )
-                                Spacer(modifier = Modifier.weight(1f))
                                 Text(
                                     text = "Learn more",
                                     fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
+                                    fontWeight = FontWeight.SemiBold,
                                     color = Color(0xFF0160E3),
                                     modifier = Modifier.clickable { showShortCodeInfoDialog = true }
                                 )
                             }
 
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            // Google Messages Quick Action Chips row
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(top = 8.dp)
                             ) {
                                 if (detectedOtpCode != null) {
-                                    item {
-                                        Surface(
-                                            shape = RoundedCornerShape(16.dp),
-                                            color = Color(0xFFE8F5E9),
-                                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFA5D6A7)),
-                                            modifier = Modifier.clickable {
-                                                clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(detectedOtpCode))
-                                                Toast.makeText(context, "Copied OTP: $detectedOtpCode", Toast.LENGTH_SHORT).show()
-                                            }
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.ContentCopy,
-                                                    contentDescription = null,
-                                                    tint = Color(0xFF2E7D32),
-                                                    modifier = Modifier.size(13.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text(
-                                                    text = "Copy $detectedOtpCode",
-                                                    fontSize = 12.sp,
-                                                    color = Color(0xFF1B5E20),
-                                                    fontWeight = FontWeight.SemiBold
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-
-                                item {
                                     Surface(
-                                        shape = RoundedCornerShape(16.dp),
-                                        color = Color(0xFFF1F5F9),
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = Color(0xFFE8F5E9),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFA5D6A7)),
                                         modifier = Modifier.clickable {
-                                            chatPrefs.edit().putBoolean("blocked_${conversation.id}", true).apply()
-                                            isContactBlocked = true
-                                            Toast.makeText(context, "${conversation.title} blocked", Toast.LENGTH_SHORT).show()
+                                            clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(detectedOtpCode))
+                                            Toast.makeText(context, "Copied OTP: $detectedOtpCode", Toast.LENGTH_SHORT).show()
                                         }
                                     ) {
                                         Row(
@@ -2085,32 +2042,47 @@ fun ChatDetailScreen(
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.Block,
+                                                imageVector = Icons.Default.ContentCopy,
                                                 contentDescription = null,
-                                                tint = Color(0xFF64748B),
+                                                tint = Color(0xFF2E7D32),
                                                 modifier = Modifier.size(13.dp)
                                             )
                                             Spacer(modifier = Modifier.width(4.dp))
                                             Text(
-                                                text = "Block & report spam",
+                                                text = "Copy OTP $detectedOtpCode",
                                                 fontSize = 12.sp,
-                                                color = Color(0xFF475569)
+                                                color = Color(0xFF1B5E20),
+                                                fontWeight = FontWeight.SemiBold
                                             )
                                         }
                                     }
                                 }
 
-                                item {
-                                    Surface(
-                                        shape = RoundedCornerShape(16.dp),
-                                        color = Color(0xFFF1F5F9),
-                                        modifier = Modifier.clickable { enableManualReplyTest = true }
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color(0xFFF8FAFC),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                    modifier = Modifier.clickable {
+                                        chatPrefs.edit().putBoolean("blocked_${conversation.id}", true).apply()
+                                        isContactBlocked = true
+                                        Toast.makeText(context, "${conversation.title} blocked", Toast.LENGTH_SHORT).show()
+                                    }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Block,
+                                            contentDescription = null,
+                                            tint = Color(0xFF64748B),
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
                                         Text(
-                                            text = "Test reply input",
+                                            text = "Block sender",
                                             fontSize = 12.sp,
-                                            color = Color(0xFF475569),
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                            color = Color(0xFF475569)
                                         )
                                     }
                                 }
@@ -2262,17 +2234,24 @@ fun ChatDetailScreen(
                                         BasicTextField(
                                             value = inputText,
                                             onValueChange = {
-                                                inputText = it
-                                                onTypingChanged(it.isNotBlank())
-                                                if (showAttachSheet) showAttachSheet = false
-                                                if (showEmojiPicker) showEmojiPicker = false
+                                                if (chatSettingsState.enterToSend && it.endsWith("\n")) {
+                                                    inputText = it.removeSuffix("\n")
+                                                    handleSendAction()
+                                                } else {
+                                                    inputText = it
+                                                    onTypingChanged(it.isNotBlank())
+                                                    if (showAttachSheet) showAttachSheet = false
+                                                    if (showEmojiPicker) showEmojiPicker = false
+                                                }
                                             },
                                             textStyle = TextStyle(
                                                 fontSize = 16.sp,
                                                 color = Color(0xFF111B21)
                                             ),
                                             cursorBrush = SolidColor(Color(0xFF0160E3)),
-                                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                            keyboardOptions = KeyboardOptions(
+                                                imeAction = if (chatSettingsState.enterToSend) ImeAction.Send else ImeAction.Default
+                                            ),
                                             keyboardActions = KeyboardActions(
                                                 onSend = { handleSendAction() }
                                             ),
@@ -2581,6 +2560,37 @@ fun ChatDetailScreen(
         )
     }
 
+    // Confirmation dialog before sending voice message (when enabled in Chats settings)
+    if (showVoiceConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showVoiceConfirmDialog = false },
+            title = { Text("Send voice message?", fontWeight = FontWeight.Bold, fontSize = 17.sp) },
+            text = {
+                Text(
+                    text = "Voice message confirmation is turned on in Chats settings. Do you want to send this voice note now?",
+                    fontSize = 14.sp,
+                    color = Color(0xFF4B5563)
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showVoiceConfirmDialog = false
+                        onSendMessage("🎙️ Voice message (0:04)")
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3))
+                ) {
+                    Text("Send")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showVoiceConfirmDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     // Context menu / action dialog for a long-pressed message
     messageForAction?.let { msg ->
         AlertDialog(
@@ -2590,6 +2600,36 @@ fun ChatDetailScreen(
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Quick Emoji Reaction Bar (Production-grade WhatsApp style)
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color(0xFFF1F5F9),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp, horizontal = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            listOf("❤️", "👍", "😂", "😮", "😢", "🙏", "🔥").forEach { emoji ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(if (msg.reaction == emoji) Color(0xFFDBEAFE) else Color.Transparent)
+                                        .clickable {
+                                            onToggleReaction(msg.id, emoji)
+                                            messageForAction = null
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(text = emoji, fontSize = 20.sp)
+                                }
+                            }
+                        }
+                    }
                     Text(
                         text = "\"${msg.text.take(60)}${if (msg.text.length > 60) "..." else ""}\"",
                         fontSize = 13.sp,
@@ -4222,8 +4262,12 @@ fun WhatsAppMessageBubble(
     message: Message,
     isMe: Boolean,
     isHighlighted: Boolean = false,
+    isReadReceiptsEnabled: Boolean = true,
+    quickReactionEnabled: Boolean = true,
+    quickReactionEmoji: String = "❤️",
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
+    onReactionClick: (String) -> Unit = {},
     onImageClick: (String) -> Unit = {},
     onReplyClick: (String?) -> Unit = {},
     onActionClick: (String) -> Unit = {}
@@ -4242,20 +4286,26 @@ fun WhatsAppMessageBubble(
             .padding(vertical = 1.5.dp, horizontal = 4.dp),
         horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start
     ) {
-        Surface(
-            modifier = Modifier
-                .widthIn(min = 60.dp, max = 320.dp)
-                .shadow(0.8.dp, bubbleShape)
-                .combinedClickable(
-                    onClick = onClick,
-                    onLongClick = onLongClick
-                )
-                .testTag("message_bubble_${message.id}"),
-            shape = bubbleShape,
-            border = if (isHighlighted) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFF59E0B))
-                     else null,
-            color = if (isHighlighted) Color(0xFFFEF3C7) else if (isMe) Color(0xFFDCEBFC) else Color.White
-        ) {
+        Column(horizontalAlignment = if (isMe) Alignment.End else Alignment.Start) {
+            Surface(
+                modifier = Modifier
+                    .widthIn(min = 60.dp, max = 320.dp)
+                    .shadow(0.8.dp, bubbleShape)
+                    .combinedClickable(
+                        onClick = onClick,
+                        onLongClick = onLongClick,
+                        onDoubleClick = {
+                            if (quickReactionEnabled) {
+                                onReactionClick(quickReactionEmoji)
+                            }
+                        }
+                    )
+                    .testTag("message_bubble_${message.id}"),
+                shape = bubbleShape,
+                border = if (isHighlighted) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFF59E0B))
+                         else null,
+                color = if (isHighlighted) Color(0xFFFEF3C7) else if (isMe) Color(0xFFDCEBFC) else Color.White
+            ) {
             Column(
                 modifier = Modifier.padding(start = 9.dp, end = 9.dp, top = 6.dp, bottom = 5.dp)
             ) {
@@ -4355,8 +4405,8 @@ fun WhatsAppMessageBubble(
                                             Spacer(modifier = Modifier.width(3.dp))
                                             Icon(
                                                 imageVector = Icons.Default.DoneAll,
-                                                contentDescription = "Read",
-                                                tint = Color(0xFF93C5FD),
+                                                contentDescription = if (isReadReceiptsEnabled) "Read" else "Delivered",
+                                                tint = if (isReadReceiptsEnabled) Color(0xFF93C5FD) else Color(0xFFCBD5E1),
                                                 modifier = Modifier.size(14.dp)
                                             )
                                         }
@@ -4925,8 +4975,8 @@ fun WhatsAppMessageBubble(
                                         Spacer(modifier = Modifier.width(3.dp))
                                         Icon(
                                             imageVector = Icons.Default.DoneAll,
-                                            contentDescription = "Read",
-                                            tint = Color(0xFF0284C7),
+                                            contentDescription = if (isReadReceiptsEnabled) "Read" else "Delivered",
+                                            tint = if (isReadReceiptsEnabled) Color(0xFF0284C7) else Color(0xFF94A3B8),
                                             modifier = Modifier.size(15.dp)
                                         )
                                     }
@@ -5035,8 +5085,8 @@ fun WhatsAppMessageBubble(
                                     Spacer(modifier = Modifier.width(3.dp))
                                     Icon(
                                         imageVector = Icons.Default.DoneAll,
-                                        contentDescription = "Read",
-                                        tint = Color(0xFF0284C7),
+                                        contentDescription = if (isReadReceiptsEnabled) "Read" else "Delivered",
+                                        tint = if (isReadReceiptsEnabled) Color(0xFF0284C7) else Color(0xFF94A3B8),
                                         modifier = Modifier.size(15.dp)
                                     )
                                 }
@@ -5064,8 +5114,8 @@ fun WhatsAppMessageBubble(
                             Spacer(modifier = Modifier.width(3.dp))
                             Icon(
                                 imageVector = Icons.Default.DoneAll,
-                                contentDescription = "Read",
-                                tint = Color(0xFF0284C7),
+                                contentDescription = if (isReadReceiptsEnabled) "Read" else "Delivered",
+                                tint = if (isReadReceiptsEnabled) Color(0xFF0284C7) else Color(0xFF94A3B8),
                                 modifier = Modifier.size(15.dp)
                             )
                         }
@@ -5073,7 +5123,28 @@ fun WhatsAppMessageBubble(
                 }
             }
         }
+
+        if (!message.reaction.isNullOrBlank()) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color.White,
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                shadowElevation = 1.5.dp,
+                modifier = Modifier
+                    .offset(y = (-6).dp, x = if (isMe) (-6).dp else 6.dp)
+                    .clickable { onReactionClick(message.reaction) }
+                    .testTag("message_reaction_${message.id}")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(text = message.reaction, fontSize = 13.sp)
+                }
+            }
+        }
     }
+}
 }
 
 /**

@@ -70,6 +70,8 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.data.ContactHelper
 import com.example.data.DeviceContact
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -91,8 +93,15 @@ fun SelectContactScreen(
     var isSearching by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
 
+    val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+
     fun reloadContacts() {
-        contacts = ContactHelper.getDeviceContacts(context)
+        coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val loaded = ContactHelper.getDeviceContacts(context)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                contacts = loaded
+            }
+        }
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -109,10 +118,8 @@ fun SelectContactScreen(
             Manifest.permission.READ_CONTACTS
         ) == PackageManager.PERMISSION_GRANTED
 
-        if (hasPermission) {
-            reloadContacts()
-        } else {
-            reloadContacts() // Load defaults first, then prompt
+        reloadContacts()
+        if (!hasPermission) {
             permissionLauncher.launch(Manifest.permission.READ_CONTACTS)
         }
     }
@@ -386,7 +393,7 @@ fun SelectContactScreen(
 
                 items(
                     items = olinamContacts,
-                    key = { "olinam_" + it.id + it.phoneNumber },
+                    key = { it.id },
                     contentType = { "contact_item" }
                 ) { contact ->
                     ContactRowItem(
@@ -456,7 +463,7 @@ fun SelectContactScreen(
 
                 items(
                     items = nonAppContacts,
-                    key = { "sms_" + it.id + it.phoneNumber },
+                    key = { it.id },
                     contentType = { "contact_item" }
                 ) { contact ->
                     ContactRowItem(

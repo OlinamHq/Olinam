@@ -759,16 +759,37 @@ class FirebaseChatRepository {
                     if (snapshot != null && !snapshot.isEmpty) {
                         val remoteList = snapshot.documents.mapNotNull { doc ->
                             try {
+                                val title = doc.getString("title") ?: "Chat"
+                                val lastMsg = doc.getString("lastMessageText") ?: ""
+                                val isSmsDoc = doc.getBoolean("isSmsContact") ?: false
+                                val phone = doc.getString("phoneNumber")
+                                val rawLabels = doc.get("labelIds") as? List<*>
+                                val labelIds = rawLabels?.mapNotNull { it?.toString() } ?: emptyList()
+                                val isSms = isSmsDoc ||
+                                        doc.id.startsWith("sms_") ||
+                                        labelIds.contains("sms") ||
+                                        lastMsg.contains("SMS Chat", ignoreCase = true) ||
+                                        title.matches(Regex("""^[A-Z]{2}-[A-Za-z0-9\-]+$"""))
+
                                 Conversation(
                                     id = doc.id,
-                                    title = doc.getString("title") ?: "Chat",
+                                    title = title,
                                     isGroup = doc.getBoolean("isGroup") ?: false,
-                                    lastMessageText = doc.getString("lastMessageText") ?: "",
+                                    lastMessageText = lastMsg,
                                     lastMessageTimestamp = doc.getLong("lastMessageTimestamp") ?: System.currentTimeMillis(),
                                     unreadCount = doc.getLong("unreadCount")?.toInt() ?: 0,
+                                    avatarUrl = doc.getString("avatarUrl"),
                                     isVerified = doc.getBoolean("isVerified") ?: false,
                                     isSystemAlert = doc.getBoolean("isSystemAlert") ?: false,
-                                    iconType = doc.getString("iconType") ?: "USER"
+                                    isPinned = doc.getBoolean("isPinned") ?: false,
+                                    isE2EE = if (isSms) false else (doc.getBoolean("isE2EE") ?: true),
+                                    onlineStatus = doc.getString("onlineStatus") ?: (if (isSms) "Cellular SMS (Non-app contact)" else null),
+                                    iconType = doc.getString("iconType") ?: "USER",
+                                    labelIds = if (isSms) listOf("sms") else labelIds,
+                                    isSmsContact = isSms,
+                                    phoneNumber = phone,
+                                    isBusinessAccount = doc.getBoolean("isBusinessAccount") ?: false,
+                                    isShortCode = isSms && (phone?.length ?: 0) in 1..8
                                 )
                             } catch (e: Exception) {
                                 null
@@ -824,7 +845,8 @@ class FirebaseChatRepository {
                                     status = MessageStatus.valueOf(doc.getString("status") ?: "SENT"),
                                     replyToMessageId = doc.getString("replyToMessageId"),
                                     replyToSenderName = doc.getString("replyToSenderName"),
-                                    replyToText = doc.getString("replyToText")
+                                    replyToText = doc.getString("replyToText"),
+                                    reaction = doc.getString("reaction")
                                 )
                             } catch (e: Exception) {
                                 null
@@ -941,7 +963,12 @@ class FirebaseChatRepository {
         }
     }
 
-    fun createNewConversation(title: String, isGroup: Boolean, initialMessage: String = ""): String {
+    fun createNewConversation(
+        title: String,
+        isGroup: Boolean,
+        initialMessage: String = "",
+        disappearingDuration: String = "Off"
+    ): String {
         val newId = if (isGroup) "group_${UUID.randomUUID().toString().take(8)}" else "conv_${UUID.randomUUID().toString().take(8)}"
         val conv = Conversation(
             id = newId,
@@ -951,7 +978,8 @@ class FirebaseChatRepository {
             lastMessageTimestamp = System.currentTimeMillis(),
             unreadCount = 0,
             iconType = if (isGroup) "GROUP" else "USER",
-            labelIds = if (isGroup) listOf("groups", "direct") else listOf("direct")
+            labelIds = if (isGroup) listOf("groups", "direct") else listOf("direct"),
+            disappearingMessagesDuration = disappearingDuration
         )
 
         val updated = _conversations.value.toMutableList()
@@ -1744,5 +1772,47 @@ class FirebaseChatRepository {
         }
         _conversations.value = updatedConversations
         localDb?.saveConversations(updatedConversations)
+    }
+
+    fun toggleMessageReaction(conversationId: String, messageId: String, emoji: String) {
+        val msgs = _messages.value.toMutableMap()
+        val list = (msgs[conversationId] ?: emptyList()).map { msg ->
+            if (msg.id == messageId) {
+                val newReaction = if (msg.reaction == emoji) null else emoji
+                localDb?.updateMessageReaction(conversationId, messageId, newReaction)
+                msg.copy(reaction = newReaction)
+            } else msg
+        }
+        msgs[conversationId] = list
+        _messages.value = msgs
+
+        val db = firestore
+        if (db != null) {
+            scope.launch {
+                try {
+                    val targetMsg = list.find { it.id == messageId }
+                    db.collection("conversations")
+                        .document(conversationId)
+                        .collection("messages")
+                        .document(messageId)
+                        .update("reaction", targetMsg?.reaction)
+                } catch (e: Exception) {
+                    Log.w(tag, "Failed to update reaction in Firestore: ${e.message}")
+                }
+            }
+        }
+    }
+
+    fun clearAllChats() {
+        localDb?.clearAllChats()
+        _messages.value = emptyMap()
+        val updated = _conversations.value.map { it.copy(lastMessageText = "Chat cleared", unreadCount = 0) }
+        _conversations.value = updated
+    }
+
+    fun deleteAllChats() {
+        localDb?.deleteAllChats()
+        _messages.value = emptyMap()
+        _conversations.value = emptyList()
     }
 }

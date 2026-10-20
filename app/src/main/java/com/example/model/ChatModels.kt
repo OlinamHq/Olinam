@@ -47,7 +47,8 @@ data class Message(
     val otpCode: String? = null,
     val replyToMessageId: String? = null,
     val replyToSenderName: String? = null,
-    val replyToText: String? = null
+    val replyToText: String? = null,
+    val reaction: String? = null
 )
 
 @Immutable

@@ -18,16 +18,27 @@ object PresenceManager {
         null
     }
 
-    fun setOnline(userId: String, online: Boolean) {
+    fun setOnline(userId: String, online: Boolean, context: android.content.Context? = null) {
         if (userId.isBlank()) return
         val database = db() ?: return
-        database.collection("users").document(userId).set(
+        val shouldHidePresence = if (context != null) {
+            try {
+                val privacy = com.example.ui.screens.privacy.PrivacyPreferences(context).state.value
+                privacy.lastSeenAudience == com.example.ui.screens.privacy.PrivacyAudience.NOBODY
+            } catch (_: Throwable) {
+                false
+            }
+        } else false
+
+        val data = if (shouldHidePresence) {
+            mapOf("isOnline" to false)
+        } else {
             mapOf(
                 "isOnline" to online,
                 "lastSeen" to System.currentTimeMillis()
-            ),
-            SetOptions.merge()
-        )
+            )
+        }
+        database.collection("users").document(userId).set(data, SetOptions.merge())
     }
 
     fun setTyping(conversationId: String, userId: String, isTyping: Boolean) {
@@ -103,8 +114,16 @@ object PresenceManager {
         }
     }
 
-    fun formatLastSeen(lastSeen: Long?): String {
+    fun formatLastSeen(lastSeen: Long?, context: android.content.Context? = null): String {
         if (lastSeen == null || lastSeen <= 0L) return "last seen recently"
+        if (context != null) {
+            try {
+                val privacy = com.example.ui.screens.privacy.PrivacyPreferences(context).state.value
+                if (privacy.lastSeenAudience == com.example.ui.screens.privacy.PrivacyAudience.NOBODY) {
+                    return "last seen recently"
+                }
+            } catch (_: Throwable) {}
+        }
         val now = System.currentTimeMillis()
         val diff = now - lastSeen
         if (diff < 60_000L) return "last seen just now"

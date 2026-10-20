@@ -172,8 +172,16 @@ fun ChatLockPrivacyScreen(
 
                 Switch(
                     checked = state.isChatLockBiometricEnabled,
-                    onCheckedChange = {
-                        privacyPrefs.setChatLockBiometric(it)
+                    onCheckedChange = { enabled ->
+                        if (enabled && !privacyPrefs.canUseBiometrics(context)) {
+                            Toast.makeText(context, "Please set up a screen lock (fingerprint, face, or PIN) in Android Settings first", Toast.LENGTH_LONG).show()
+                            privacyPrefs.setChatLockBiometric(false)
+                        } else {
+                            privacyPrefs.setChatLockBiometric(enabled)
+                            if (enabled) {
+                                Toast.makeText(context, "Biometric unlock enabled for locked chats", Toast.LENGTH_SHORT).show()
+                            }
+                        }
                     },
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = Color.White,

@@ -72,7 +72,8 @@ class LocalChatDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_N
                 mediaType TEXT,
                 replyToMessageId TEXT,
                 replyToSenderName TEXT,
-                replyToText TEXT
+                replyToText TEXT,
+                reaction TEXT
             )
             """.trimIndent()
         )
@@ -95,6 +96,7 @@ class LocalChatDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_N
         ensureColumnExists(db, TABLE_MESSAGES, "replyToMessageId", "TEXT")
         ensureColumnExists(db, TABLE_MESSAGES, "replyToSenderName", "TEXT")
         ensureColumnExists(db, TABLE_MESSAGES, "replyToText", "TEXT")
+        ensureColumnExists(db, TABLE_MESSAGES, "reaction", "TEXT")
     }
 
     private fun ensureColumnExists(db: SQLiteDatabase, tableName: String, columnName: String, columnType: String) {
@@ -257,6 +259,7 @@ class LocalChatDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_N
             put("replyToMessageId", msg.replyToMessageId ?: "")
             put("replyToSenderName", msg.replyToSenderName ?: "")
             put("replyToText", msg.replyToText ?: "")
+            put("reaction", msg.reaction ?: "")
         }
         db.insertWithOnConflict(TABLE_MESSAGES, null, cv, SQLiteDatabase.CONFLICT_REPLACE)
     }
@@ -281,6 +284,7 @@ class LocalChatDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_N
                     put("replyToMessageId", msg.replyToMessageId ?: "")
                     put("replyToSenderName", msg.replyToSenderName ?: "")
                     put("replyToText", msg.replyToText ?: "")
+                    put("reaction", msg.reaction ?: "")
                 }
                 db.insertWithOnConflict(TABLE_MESSAGES, null, cv, SQLiteDatabase.CONFLICT_REPLACE)
             }
@@ -310,6 +314,7 @@ class LocalChatDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_N
             val replyIdIdx = it.getColumnIndex("replyToMessageId")
             val replySenderIdx = it.getColumnIndex("replyToSenderName")
             val replyTextIdx = it.getColumnIndex("replyToText")
+            val reactionIdx = it.getColumnIndex("reaction")
 
             while (it.moveToNext()) {
                 val id = it.getString(idIdx)
@@ -331,6 +336,7 @@ class LocalChatDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_N
                 val replyToMsgId = if (replyIdIdx >= 0) it.getString(replyIdIdx).ifBlank { null } else null
                 val replyToSender = if (replySenderIdx >= 0) it.getString(replySenderIdx).ifBlank { null } else null
                 val replyToContent = if (replyTextIdx >= 0) it.getString(replyTextIdx).ifBlank { null } else null
+                val reaction = if (reactionIdx >= 0) it.getString(reactionIdx).ifBlank { null } else null
 
                 result.add(
                     Message(
@@ -346,12 +352,21 @@ class LocalChatDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_N
                         mediaType = mediaType,
                         replyToMessageId = replyToMsgId,
                         replyToSenderName = replyToSender,
-                        replyToText = replyToContent
+                        replyToText = replyToContent,
+                        reaction = reaction
                     )
                 )
             }
         }
         return result
+    }
+
+    fun updateMessageReaction(conversationId: String, messageId: String, reaction: String?) {
+        val db = writableDatabase
+        val cv = ContentValues().apply {
+            put("reaction", reaction ?: "")
+        }
+        db.update(TABLE_MESSAGES, cv, "id = ?", arrayOf(messageId))
     }
 
     fun deleteMessage(convId: String, messageId: String): Message? {
@@ -393,6 +408,22 @@ class LocalChatDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_N
             put("lastMessageText", "Chat cleared")
         }
         db.update(TABLE_CONVERSATIONS, cv, "id = ?", arrayOf(convId))
+    }
+
+    fun clearAllChats() {
+        val db = writableDatabase
+        db.delete(TABLE_MESSAGES, null, null)
+        val cv = ContentValues().apply {
+            put("lastMessageText", "Chat cleared")
+            put("unreadCount", 0)
+        }
+        db.update(TABLE_CONVERSATIONS, cv, null, null)
+    }
+
+    fun deleteAllChats() {
+        val db = writableDatabase
+        db.delete(TABLE_MESSAGES, null, null)
+        db.delete(TABLE_CONVERSATIONS, null, null)
     }
 
     // --- DELETED ITEMS TRACKING ---

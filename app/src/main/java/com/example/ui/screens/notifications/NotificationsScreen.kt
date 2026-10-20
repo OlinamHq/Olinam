@@ -1,5 +1,6 @@
 package com.example.ui.screens.notifications
 
+import android.media.RingtoneManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -20,7 +21,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -99,16 +102,23 @@ fun NotificationsScreen(
             ActiveToneTarget.CALL -> state.callRingtone
             ActiveToneTarget.STATUS -> state.statusTone
         }
+        val ringtoneType = if (target == ActiveToneTarget.CALL) {
+            RingtoneManager.TYPE_RINGTONE
+        } else {
+            RingtoneManager.TYPE_NOTIFICATION
+        }
+
         NotificationToneDialog(
             title = dialogTitle,
-            currentTone = currentTone,
+            currentToneTitle = currentTone,
+            ringtoneType = ringtoneType,
             notificationPrefs = notificationPrefs,
-            onToneSelected = { newTone ->
+            onToneSelected = { newToneTitle, uriString ->
                 when (target) {
-                    ActiveToneTarget.MESSAGE -> notificationPrefs.setMessageTone(newTone)
-                    ActiveToneTarget.GROUP -> notificationPrefs.setGroupTone(newTone)
-                    ActiveToneTarget.CALL -> notificationPrefs.setCallRingtone(newTone)
-                    ActiveToneTarget.STATUS -> notificationPrefs.setStatusTone(newTone)
+                    ActiveToneTarget.MESSAGE -> notificationPrefs.setMessageTone(newToneTitle, uriString)
+                    ActiveToneTarget.GROUP -> notificationPrefs.setGroupTone(newToneTitle, uriString)
+                    ActiveToneTarget.CALL -> notificationPrefs.setCallRingtone(newToneTitle, uriString)
+                    ActiveToneTarget.STATUS -> notificationPrefs.setStatusTone(newToneTitle, uriString)
                 }
             },
             onDismiss = { activeToneTarget = null }
@@ -165,7 +175,7 @@ fun NotificationsScreen(
             title = { Text("Popup notification", fontWeight = FontWeight.SemiBold) },
             text = {
                 Text(
-                    "Popup notifications are no longer supported in Android 10 and above. Modern Android versions automatically display high-priority previews (heads-up notifications) at the top of your screen.",
+                    "Popup notifications are managed via Android high-priority heads-up notification channels. High-priority previews will slide in at the top of your screen when messages arrive.",
                     fontSize = 14.sp,
                     lineHeight = 20.sp,
                     color = Color(0xFF475569)
@@ -191,7 +201,7 @@ fun NotificationsScreen(
             title = { Text("Reset notification settings?", fontWeight = FontWeight.SemiBold) },
             text = {
                 Text(
-                    "Reset all notification settings, including custom notification settings for chats?",
+                    "Reset all notification settings, including sounds, vibrations, and custom notification channels to factory defaults?",
                     fontSize = 14.sp,
                     lineHeight = 20.sp,
                     color = Color(0xFF475569)
@@ -260,6 +270,13 @@ fun NotificationsScreen(
                             onDismissRequest = { showMenu = false }
                         ) {
                             DropdownMenuItem(
+                                text = { Text("Open OS Notification Settings") },
+                                onClick = {
+                                    showMenu = false
+                                    notificationPrefs.openSystemNotificationSettings(context)
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Reset notification settings") },
                                 onClick = {
                                     showMenu = false
@@ -293,7 +310,7 @@ fun NotificationsScreen(
                     // Conversation tones
                     NotificationSwitchRow(
                         title = "Conversation tones",
-                        subtitle = "Play sounds for incoming and outgoing messages.",
+                        subtitle = "Play sounds for incoming and outgoing messages inside active chats.",
                         checked = state.conversationTones,
                         onCheckedChange = { notificationPrefs.setConversationTones(it) }
                     )
@@ -348,8 +365,8 @@ fun NotificationsScreen(
 
                     NotificationItemRow(
                         title = "Popup notification",
-                        subtitle = "Not available",
-                        subtitleColor = Color(0xFF94A3B8),
+                        subtitle = if (state.messageHighPriority) "Heads-up preview enabled" else "Disabled",
+                        subtitleColor = if (state.messageHighPriority) OlinamPrimary else Color(0xFF94A3B8),
                         onClick = { showPopupInfoDialog = true }
                     )
 
@@ -527,7 +544,53 @@ fun NotificationsScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            // System OS Channel Settings Card
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { notificationPrefs.openSystemNotificationSettings(context) },
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFF0FDF4)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                border = BorderStroke(1.dp, Color(0xFFDCFCE7))
+            ) {
+                Row(
+                    modifier = Modifier.padding(18.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Tune,
+                        contentDescription = null,
+                        tint = OlinamPrimary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Android System Notification Settings",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF101828)
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Manage DND bypass, lock screen content, and app icon badges directly in Android OS settings.",
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp,
+                            color = Color(0xFF475569)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                        contentDescription = "Open OS settings",
+                        tint = OlinamPrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }

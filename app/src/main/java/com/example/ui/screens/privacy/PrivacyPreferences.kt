@@ -164,4 +164,20 @@ class PrivacyPreferences(context: Context) {
         prefs.edit().putStringSet("blocked_contacts", updated).apply()
         _state.value = _state.value.copy(blockedContacts = updated)
     }
+
+    fun isBlocked(identifier: String?): Boolean {
+        if (identifier.isNullOrBlank()) return false
+        val clean = identifier.replace(Regex("[^0-9a-zA-Z]"), "").lowercase()
+        return _state.value.blockedContacts.any { blocked ->
+            val cleanBlocked = blocked.replace(Regex("[^0-9a-zA-Z]"), "").lowercase()
+            clean == cleanBlocked || 
+            (clean.length >= 7 && cleanBlocked.length >= 7 && (clean.endsWith(cleanBlocked) || cleanBlocked.endsWith(clean))) ||
+            identifier.equals(blocked, ignoreCase = true)
+        }
+    }
+
+    fun canUseBiometrics(context: Context): Boolean {
+        val km = context.getSystemService(Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
+        return km?.isDeviceSecure == true
+    }
 }

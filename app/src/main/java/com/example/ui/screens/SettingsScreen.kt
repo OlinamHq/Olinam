@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.example.ui.screens.notifications.NotificationsScreen
 import com.example.ui.screens.storage.StorageAndDataScreen
+import com.example.ui.screens.chats.ChatSettingsScreen
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -102,10 +103,19 @@ fun SettingsScreen(
     var showLanguageScreen by remember { mutableStateOf(false) }
     var showStorageScreen by remember { mutableStateOf(false) }
     var showNotificationsScreen by remember { mutableStateOf(false) }
+    var showChatsScreen by remember { mutableStateOf(false) }
 
     val appPrefs = remember { context.getSharedPreferences("olinam_app_prefs", android.content.Context.MODE_PRIVATE) }
     var currentLanguageName by remember {
         mutableStateOf(appPrefs.getString("app_language_name", "English (Device's language)") ?: "English (Device's language)")
+    }
+
+    if (showChatsScreen) {
+        ChatSettingsScreen(
+            viewModel = viewModel,
+            onBackClick = { showChatsScreen = false }
+        )
+        return
     }
 
     if (showAccountScreen) {
@@ -403,10 +413,7 @@ fun SettingsScreen(
                         iconTint = Color(0xFFE11D48),
                         title = "Chats",
                         subtitle = "Theme, wallpapers, chat history, backup",
-                        onClick = {
-                            activeInfoDialogTitle = "Chats"
-                            activeInfoDialogContent = "Customize chat themes, wallpapers, chat font size, cloud backup, and conversation history."
-                        }
+                        onClick = { showChatsScreen = true }
                     )
                     HorizontalDivider(
                         color = Color(0xFFF2F4F7),

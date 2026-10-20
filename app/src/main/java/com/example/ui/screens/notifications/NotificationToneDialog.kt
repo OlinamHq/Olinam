@@ -1,5 +1,6 @@
 package com.example.ui.screens.notifications
 
+import android.media.RingtoneManager
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -7,15 +8,17 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -26,6 +29,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,29 +45,35 @@ import com.example.ui.theme.OlinamPrimary
 @Composable
 fun NotificationToneDialog(
     title: String,
-    currentTone: String,
+    currentToneTitle: String,
+    ringtoneType: Int = RingtoneManager.TYPE_NOTIFICATION,
     notificationPrefs: NotificationPreferences,
-    onToneSelected: (String) -> Unit,
+    onToneSelected: (title: String, uriString: String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val tones = remember {
-        listOf(
-            "Default (Xylophone)",
-            "Aurora (Gentle)",
-            "Chime (Melodic)",
-            "Crystal (Crisp)",
-            "Droplet (Soft)",
-            "Echo (Modern)",
-            "Horizon (Olinam)",
-            "Pulse (Subtle)",
-            "System Default"
-        )
+    val tones = remember(ringtoneType) {
+        notificationPrefs.getAvailableTones(ringtoneType)
     }
 
-    var selectedTone by remember { mutableStateOf(currentTone) }
+    var selectedItem by remember {
+        val initial = tones.find { it.title == currentToneTitle } ?: tones.firstOrNull() ?: ToneItem("Default (System)", "")
+        mutableStateOf(initial)
+    }
+
+    var currentlyPlayingUri by remember { mutableStateOf<String?>(null) }
+
+    // Make sure preview stops when dialog dismisses
+    DisposableEffect(Unit) {
+        onDispose {
+            notificationPrefs.stopTonePreview()
+        }
+    }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            notificationPrefs.stopTonePreview()
+            onDismiss()
+        },
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
@@ -85,51 +95,70 @@ fun NotificationToneDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                    .padding(vertical = 4.dp)
             ) {
-                tones.forEach { tone ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                selectedTone = tone
-                                notificationPrefs.playSampleTone()
-                            }
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        RadioButton(
-                            selected = (tone == selectedTone),
-                            onClick = {
-                                selectedTone = tone
-                                notificationPrefs.playSampleTone()
-                            },
-                            colors = RadioButtonDefaults.colors(
-                                selectedColor = OlinamPrimary
-                            )
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = tone,
-                            fontSize = 15.sp,
-                            color = Color(0xFF1E293B),
-                            modifier = Modifier.weight(1f)
-                        )
-                        IconButton(
-                            onClick = {
-                                selectedTone = tone
-                                notificationPrefs.playSampleTone()
-                            },
-                            modifier = Modifier.size(36.dp)
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 340.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    items(tones, key = { it.title + it.uriString }) { tone ->
+                        val isSelected = (tone.title == selectedItem.title)
+                        val isPlaying = (currentlyPlayingUri == tone.uriString && tone.uriString.isNotBlank() && tone.uriString != "silent")
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    selectedItem = tone
+                                    currentlyPlayingUri = tone.uriString
+                                    notificationPrefs.playTonePreview(tone.uriString, ringtoneType)
+                                }
+                                .padding(vertical = 6.dp, horizontal = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.PlayArrow,
-                                contentDescription = "Play tone preview",
-                                tint = OlinamPrimary,
-                                modifier = Modifier.size(20.dp)
+                            RadioButton(
+                                selected = isSelected,
+                                onClick = {
+                                    selectedItem = tone
+                                    currentlyPlayingUri = tone.uriString
+                                    notificationPrefs.playTonePreview(tone.uriString, ringtoneType)
+                                },
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = OlinamPrimary
+                                )
                             )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = tone.title,
+                                fontSize = 15.sp,
+                                color = if (isSelected) OlinamPrimary else Color(0xFF1E293B),
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (tone.uriString.isNotBlank() && tone.uriString != "silent") {
+                                IconButton(
+                                    onClick = {
+                                        if (isPlaying) {
+                                            notificationPrefs.stopTonePreview()
+                                            currentlyPlayingUri = null
+                                        } else {
+                                            selectedItem = tone
+                                            currentlyPlayingUri = tone.uriString
+                                            notificationPrefs.playTonePreview(tone.uriString, ringtoneType)
+                                        }
+                                    },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isPlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                        contentDescription = if (isPlaying) "Stop preview" else "Play tone preview",
+                                        tint = OlinamPrimary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -138,7 +167,8 @@ fun NotificationToneDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    onToneSelected(selectedTone)
+                    notificationPrefs.stopTonePreview()
+                    onToneSelected(selectedItem.title, selectedItem.uriString)
                     onDismiss()
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = OlinamPrimary),
@@ -149,7 +179,10 @@ fun NotificationToneDialog(
         },
         dismissButton = {
             OutlinedButton(
-                onClick = onDismiss,
+                onClick = {
+                    notificationPrefs.stopTonePreview()
+                    onDismiss()
+                },
                 shape = RoundedCornerShape(10.dp)
             ) {
                 Text("Cancel")

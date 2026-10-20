@@ -98,7 +98,8 @@ class WebRtcCallManager(
         relayOnly: Boolean = false
     ) {
         currentUserId = senderId
-        this.isRelayOnly = relayOnly
+        val privacyPrefs = com.example.ui.screens.privacy.PrivacyPreferences(context)
+        this.isRelayOnly = relayOnly || privacyPrefs.state.value.protectIpInCalls
         activeCallId = "call_${UUID.randomUUID().toString().take(8)}"
         _activeParticipant.value = targetParticipant
         _callType.value = type
@@ -141,18 +142,30 @@ class WebRtcCallManager(
         caller: WebRtcParticipant,
         type: WebRtcCallType
     ) {
+        val privacyPrefs = com.example.ui.screens.privacy.PrivacyPreferences(context)
+        if (privacyPrefs.isBlocked(caller.userId) || privacyPrefs.isBlocked(caller.displayName) || privacyPrefs.isBlocked(caller.phoneNumber)) {
+            googleSignalingClient.sendEndCall(callId, currentUserId, caller.userId)
+            return
+        }
+
         activeCallId = callId
         _activeParticipant.value = caller
         _callType.value = type
         _callState.value = WebRtcCallState.INCOMING_RINGING
         _durationSeconds.value = 0L
 
-        ringtoneManager.startIncomingRinging()
+        val silenceUnknown = privacyPrefs.state.value.silenceUnknownCallers
+        val isUnknown = caller.displayName.isBlank() || caller.displayName.startsWith("+") || caller.phoneNumber.isNullOrBlank()
+        if (!silenceUnknown || !isUnknown) {
+            ringtoneManager.startIncomingRinging()
+        }
         googleSignalingClient.startListeningForCall(callId, currentUserId)
     }
 
     fun answerIncomingCall() {
         ringtoneManager.stopAll()
+        val privacyPrefs = com.example.ui.screens.privacy.PrivacyPreferences(context)
+        this.isRelayOnly = privacyPrefs.state.value.protectIpInCalls
         val type = _callType.value
         _callState.value = WebRtcCallState.CONNECTING
 

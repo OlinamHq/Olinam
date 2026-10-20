@@ -50,6 +50,7 @@ import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Security
@@ -171,6 +172,21 @@ fun HomeScreen(
 
     val chatPrefs = remember {
         context.getSharedPreferences("olinam_chat_prefs", android.content.Context.MODE_PRIVATE)
+    }
+    val privacyPrefs = remember { com.example.ui.screens.privacy.PrivacyPreferences(context) }
+    val privacyState by privacyPrefs.state.collectAsState()
+
+    val biometricLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val conv = lockedConvPrompt
+            if (conv != null) {
+                val cid = conv.id
+                lockedConvPrompt = null
+                viewModel.openConversation(cid, context)
+            }
+        }
     }
     val lockedChatIds = remember(conversations) {
         conversations.filter { conv ->
@@ -622,6 +638,9 @@ fun HomeScreen(
             },
             onCreateLabel = { name, colorHex ->
                 viewModel.createLabel(name, colorHex, listOf(selectedConv.id))
+            },
+            onToggleReaction = { messageId, emoji ->
+                viewModel.toggleMessageReaction(selectedConv.id, messageId, emoji)
             }
         )
         return
@@ -751,9 +770,10 @@ fun HomeScreen(
         },
         bottomBar = {
             if (currentTab != AppTab.OJ_AI) {
+                val activeUnread = unreadCountsByLabel[selectedLabelId] ?: unreadCountsByLabel["direct"] ?: 0
                 OlinamBottomNavBar(
                     currentTab = currentTab,
-                    unreadChatsCount = totalUnreadCount,
+                    unreadChatsCount = activeUnread,
                     onTabSelected = { viewModel.setTab(it) }
                 )
             }
@@ -894,6 +914,16 @@ fun HomeScreen(
                                 lockedConvPrompt = conv
                                 unlockPinInput = ""
                                 unlockPinError = false
+                                if (privacyState.isChatLockBiometricEnabled) {
+                                    val km = context.getSystemService(android.content.Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
+                                    val intent = km?.createConfirmDeviceCredentialIntent(
+                                        "Unlock Chat",
+                                        "Confirm fingerprint, face, or screen lock to open ${conv.title}"
+                                    )
+                                    if (intent != null) {
+                                        try { biometricLauncher.launch(intent) } catch (_: Exception) {}
+                                    }
+                                }
                             } else {
                                 viewModel.openConversation(conv.id, context)
                             }
@@ -1400,6 +1430,35 @@ fun HomeScreen(
                     if (unlockPinError) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text("Incorrect PIN. Try again.", color = Color.Red, fontSize = 12.sp)
+                    }
+
+                    if (privacyState.isChatLockBiometricEnabled) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        androidx.compose.material3.OutlinedButton(
+                            onClick = {
+                                val km = context.getSystemService(android.content.Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
+                                val intent = km?.createConfirmDeviceCredentialIntent(
+                                    "Unlock Chat",
+                                    "Confirm fingerprint, face, or screen lock to open ${targetConv.title}"
+                                )
+                                if (intent != null) {
+                                    try { biometricLauncher.launch(intent) } catch (_: Exception) {}
+                                } else {
+                                    android.widget.Toast.makeText(context, "No screen lock setup on device", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Fingerprint,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = Color(0xFF0160E3)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Use Biometrics / Screen Lock", color = Color(0xFF0160E3), fontSize = 13.sp)
+                        }
                     }
                 }
             },

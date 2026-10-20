@@ -33,7 +33,7 @@ import kotlinx.coroutines.launch
 
 class ChatViewModel @JvmOverloads constructor(
     application: Application,
-    private val repository: FirebaseChatRepository = FirebaseChatRepository()
+    val repository: FirebaseChatRepository = FirebaseChatRepository()
 ) : AndroidViewModel(application) {
 
     init {
@@ -75,7 +75,7 @@ class ChatViewModel @JvmOverloads constructor(
     val allConversations: StateFlow<List<Conversation>> = repository.conversations
 
     val unreadAppChatsCount: StateFlow<Int> = repository.conversations.map { all ->
-        all.filter { !it.isSmsContact && !it.id.startsWith("sms_") && !it.labelIds.contains("sms") }
+        all.filter { !isSmsConversation(it) && !it.isGroup }
             .sumOf { it.unreadCount }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
@@ -83,26 +83,35 @@ class ChatViewModel @JvmOverloads constructor(
         all.sumOf { it.unreadCount }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
+    fun isSmsConversation(conv: Conversation): Boolean {
+        return conv.isSmsContact ||
+                conv.id.startsWith("sms_") ||
+                conv.labelIds.contains("sms") ||
+                conv.lastMessageText.contains("SMS Chat", ignoreCase = true) ||
+                conv.onlineStatus?.contains("Cellular SMS", ignoreCase = true) == true ||
+                conv.title.matches(Regex("""^[A-Z]{2}-[A-Za-z0-9\-]+$"""))
+    }
+
     val unreadCountsByLabel: StateFlow<Map<String, Int>> = combine(
         repository.conversations,
         repository.labels
     ) { all, labelsList ->
-        val directCount = all.filter { !it.isSmsContact && !it.id.startsWith("sms_") && !it.labelIds.contains("sms") && !it.isGroup }
+        val directCount = all.filter { !isSmsConversation(it) && !it.isGroup }
             .sumOf { it.unreadCount }
-        val groupsCount = all.filter { (it.isGroup || it.labelIds.contains("groups")) && !it.isSmsContact }
+        val groupsCount = all.filter { (it.isGroup || it.labelIds.contains("groups")) && !isSmsConversation(it) }
             .sumOf { it.unreadCount }
-        val smsCount = all.filter { it.isSmsContact || it.labelIds.contains("sms") || it.id.startsWith("sms_") }
+        val smsCount = all.filter { isSmsConversation(it) }
             .sumOf { it.unreadCount }
 
         val map = mutableMapOf(
-            "all" to all.sumOf { it.unreadCount },
+            "all" to all.filter { !isSmsConversation(it) }.sumOf { it.unreadCount },
             "direct" to directCount,
             "groups" to groupsCount,
             "sms" to smsCount
         )
         for (label in labelsList) {
             if (!map.containsKey(label.id)) {
-                map[label.id] = all.filter { it.labelIds.contains(label.id) || label.chatIds.contains(it.id) }
+                map[label.id] = all.filter { !isSmsConversation(it) && (it.labelIds.contains(label.id) || label.chatIds.contains(it.id)) }
                     .sumOf { it.unreadCount }
             }
         }
@@ -117,15 +126,15 @@ class ChatViewModel @JvmOverloads constructor(
     ) { allConv, query, labelId, labelsList ->
         allConv.filter { conv ->
             val matchesLabel = when (labelId) {
-                // Chats tab: strictly app-to-app chats only (no text/SMS messages)
-                "direct" -> !conv.isSmsContact && !conv.id.startsWith("sms_") && !conv.labelIds.contains("sms")
+                // Chats tab: strictly app-to-app chats only (no text/SMS messages, no groups)
+                "direct" -> !isSmsConversation(conv) && !conv.isGroup
                 // Groups tab: app groups only
-                "groups" -> (conv.isGroup || conv.labelIds.contains("groups")) && !conv.isSmsContact
+                "groups" -> conv.isGroup && !isSmsConversation(conv)
                 // SMS tab: cellular text messages
-                "sms" -> conv.isSmsContact || conv.labelIds.contains("sms") || conv.id.startsWith("sms_")
+                "sms" -> isSmsConversation(conv)
                 else -> {
                     val target = labelsList.find { it.id == labelId }
-                    target?.chatIds?.contains(conv.id) == true || conv.labelIds.contains(labelId)
+                    !isSmsConversation(conv) && (target?.chatIds?.contains(conv.id) == true || conv.labelIds.contains(labelId))
                 }
             }
             val matchesQuery = if (query.isBlank()) true else {
@@ -306,18 +315,34 @@ class ChatViewModel @JvmOverloads constructor(
     ) {
         if (text.isBlank() && mediaUrl.isNullOrBlank()) return
         val prefs = getApplication<Application>().getSharedPreferences("olinam_chat_prefs", Context.MODE_PRIVATE)
-        if (prefs.getBoolean("blocked_$conversationId", false)) {
+        val privacyPrefs = com.example.ui.screens.privacy.PrivacyPreferences(getApplication())
+        val conv = allConversations.value.find { it.id == conversationId }
+        val targetPhone = conv?.phoneNumber ?: conv?.title ?: conversationId
+        if (prefs.getBoolean("blocked_$conversationId", false) || privacyPrefs.isBlocked(conversationId) || privacyPrefs.isBlocked(targetPhone)) {
             android.widget.Toast.makeText(getApplication(), "Cannot send message to blocked contact", android.widget.Toast.LENGTH_SHORT).show()
             return
         }
+        com.example.ui.screens.notifications.NotificationPreferences(getApplication()).playOutgoingMessageTone()
         repository.sendMessage(conversationId, text, mediaUrl, mediaType, replyToMessageId, replyToSenderName, replyToText)
     }
     fun sendDirectSms(context: Context, conversationId: String, recipientPhone: String, text: String): Boolean {
         if (text.isBlank() || recipientPhone.isBlank()) return false
+        val privacyPrefs = com.example.ui.screens.privacy.PrivacyPreferences(context)
+        if (privacyPrefs.isBlocked(recipientPhone) || privacyPrefs.isBlocked(conversationId)) {
+            android.widget.Toast.makeText(context, "Cannot send SMS to blocked number", android.widget.Toast.LENGTH_SHORT).show()
+            return false
+        }
         return repository.sendDirectSmsMessage(conversationId, text, recipientPhone, context)
     }
     fun createNewChat(name: String, isGroup: Boolean, initialMessage: String = ""): String {
-        val convId = repository.createNewConversation(name, isGroup, initialMessage)
+        val privacyPrefs = com.example.ui.screens.privacy.PrivacyPreferences(getApplication())
+        val defaultTimer = privacyPrefs.state.value.defaultMessageTimer
+        val duration = if (!isGroup && defaultTimer != com.example.ui.screens.privacy.DisappearingTimer.OFF) {
+            defaultTimer.label
+        } else {
+            "Off"
+        }
+        val convId = repository.createNewConversation(name, isGroup, initialMessage, disappearingDuration = duration)
         openConversation(convId)
         return convId
     }
@@ -996,5 +1021,17 @@ class ChatViewModel @JvmOverloads constructor(
                 if (!avatar.isNullOrBlank()) putString("user_avatar", avatar)
             }
             .apply()
+    }
+
+    fun toggleMessageReaction(conversationId: String, messageId: String, emoji: String) {
+        repository.toggleMessageReaction(conversationId, messageId, emoji)
+    }
+
+    fun clearAllChats() {
+        repository.clearAllChats()
+    }
+
+    fun deleteAllChats() {
+        repository.deleteAllChats()
     }
 }
