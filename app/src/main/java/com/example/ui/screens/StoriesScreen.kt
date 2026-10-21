@@ -1,8 +1,10 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,52 +19,154 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.model.Story
 import com.example.ui.ChatViewModel
-import com.example.ui.components.formatMessageTime
-import com.example.ui.theme.OlinamPrimary
+import com.example.ui.screens.status.MyStatusHeaderRow
+import com.example.ui.screens.status.StatusListItem
+import com.example.ui.screens.status.StatusStoryViewerScreen
+import com.example.ui.screens.status.TextStatusComposerScreen
+import com.example.ui.screens.status.UserStatusGroup
 
 @Composable
 fun StoriesScreen(
     viewModel: ChatViewModel,
-    onCameraClick: () -> Unit = {}
+    onCameraClick: () -> Unit = {},
+    onTextStatusClick: () -> Unit = {}
 ) {
     val stories by viewModel.stories.collectAsState()
-    var showAddStatusDialog by remember { mutableStateOf(false) }
-    var selectedStoryToView by remember { mutableStateOf<Story?>(null) }
+    val currentUser by viewModel.currentUser.collectAsState()
 
+    var activeStoryGroupToView by remember { mutableStateOf<UserStatusGroup?>(null) }
+    var isViewingMyStatus by remember { mutableStateOf(false) }
+    var showInternalTextStatusComposer by remember { mutableStateOf(false) }
+    var isViewedSectionExpanded by remember { mutableStateOf(true) }
+
+    // Group stories by userId
+    val statusGroups by remember(stories, currentUser.id) {
+        derivedStateOf {
+            val myId = currentUser.id
+            val myStories = stories.filter { it.userId == myId || it.userId == "me" }
+            val otherStories = stories.filter { it.userId != myId && it.userId != "me" }
+
+            val myGroup = if (myStories.isNotEmpty()) {
+                UserStatusGroup(
+                    userId = myId,
+                    userName = "My Status",
+                    userAvatar = currentUser.avatarUrl,
+                    items = myStories,
+                    hasUnread = myStories.any { !it.viewed },
+                    latestTimestamp = myStories.maxOfOrNull { it.timestamp } ?: 0L
+                )
+            } else null
+
+            val contactGroups = otherStories
+                .groupBy { it.userId }
+                .map { (userId, userItems) ->
+                    val first = userItems.first()
+                    UserStatusGroup(
+                        userId = userId,
+                        userName = first.userName.ifBlank { "Contact" },
+                        userAvatar = first.userAvatar,
+                        items = userItems,
+                        hasUnread = userItems.any { !it.viewed },
+                        latestTimestamp = userItems.maxOfOrNull { it.timestamp } ?: 0L
+                    )
+                }
+                .sortedByDescending { it.latestTimestamp }
+
+            val recentUpdates = contactGroups.filter { it.hasUnread }
+            val viewedUpdates = contactGroups.filter { !it.hasUnread }
+
+            Triple(myGroup, recentUpdates, viewedUpdates)
+        }
+    }
+
+    val (myStatusGroup, recentUpdates, viewedUpdates) = statusGroups
+
+    // 1. Full-screen WhatsApp Status Story Viewer
+    activeStoryGroupToView?.let { group ->
+        StatusStoryViewerScreen(
+            group = group,
+            isMyStatus = isViewingMyStatus,
+            onDismiss = {
+                activeStoryGroupToView = null
+                isViewingMyStatus = false
+            },
+            onStoryViewed = { storyId ->
+                viewModel.markStoryViewed(storyId)
+            },
+            onDeleteStory = { storyId ->
+                viewModel.deleteStory(storyId)
+            },
+            onReplyToStory = { story, replyText ->
+                viewModel.replyToStory(story, replyText)
+            },
+            onNextGroup = {
+                // If there are other recent updates, advance to next
+                if (!isViewingMyStatus) {
+                    val currentIndex = recentUpdates.indexOfFirst { it.userId == group.userId }
+                    if (currentIndex != -1 && currentIndex < recentUpdates.size - 1) {
+                        activeStoryGroupToView = recentUpdates[currentIndex + 1]
+                    } else {
+                        activeStoryGroupToView = null
+                    }
+                } else {
+                    activeStoryGroupToView = null
+                    isViewingMyStatus = false
+                }
+            },
+            onPrevGroup = {
+                if (!isViewingMyStatus) {
+                    val currentIndex = recentUpdates.indexOfFirst { it.userId == group.userId }
+                    if (currentIndex > 0) {
+                        activeStoryGroupToView = recentUpdates[currentIndex - 1]
+                    }
+                }
+            }
+        )
+        return
+    }
+
+    // 2. Full-screen WhatsApp Text Status Composer
+    if (showInternalTextStatusComposer) {
+        TextStatusComposerScreen(
+            onDismiss = { showInternalTextStatusComposer = false },
+            onPostStatus = { text, colorHex, fontIdx ->
+                viewModel.addStory(
+                    caption = text,
+                    mediaUrl = null,
+                    isImage = false,
+                    backgroundColor = colorHex,
+                    fontIndex = fontIdx
+                )
+                showInternalTextStatusComposer = false
+            }
+        )
+        return
+    }
+
+    // 3. Main Updates / Status Screen
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -71,8 +175,7 @@ fun StoriesScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
             item {
                 Text(
@@ -80,131 +183,106 @@ fun StoriesScreen(
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(bottom = 6.dp)
+                    modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
                 )
             }
 
-            // My Status Card
+            // My Status Row
             item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onCameraClick() }
-                        .padding(vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(contentAlignment = Alignment.BottomEnd) {
-                        Box(
-                            modifier = Modifier
-                                .size(56.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "You",
-                                fontWeight = FontWeight.Bold,
-                                color = OlinamPrimary
-                            )
+                MyStatusHeaderRow(
+                    myGroup = myStatusGroup,
+                    onViewMyStatus = {
+                        if (myStatusGroup != null && myStatusGroup.items.isNotEmpty()) {
+                            isViewingMyStatus = true
+                            activeStoryGroupToView = myStatusGroup
+                        } else {
+                            onCameraClick()
                         }
+                    },
+                    onAddCameraStatus = onCameraClick,
+                    onAddTextStatus = { showInternalTextStatusComposer = true }
+                )
+            }
 
-                        Box(
-                            modifier = Modifier
-                                .size(20.dp)
-                                .clip(CircleShape)
-                                .background(OlinamPrimary),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Add,
-                                contentDescription = "Add status",
-                                tint = Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
+            // Divider below My Status
+            item {
+                Spacer(modifier = Modifier.height(6.dp))
+                HorizontalDivider(
+                    thickness = 0.5.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+
+            // Recent Updates Section
+            if (recentUpdates.isNotEmpty()) {
+                item {
+                    Text(
+                        text = "Recent updates",
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 6.dp, bottom = 4.dp)
+                    )
+                }
+
+                items(recentUpdates, key = { it.userId }) { group ->
+                    StatusListItem(
+                        group = group,
+                        onClick = {
+                            isViewingMyStatus = false
+                            activeStoryGroupToView = group
                         }
-                    }
-
-                    Spacer(modifier = Modifier.width(16.dp))
-
-                    Column {
-                        Text(
-                            text = "My Status",
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = "Tap to add status update",
-                            fontSize = 13.5.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    )
                 }
             }
 
-            item {
-                Text(
-                    text = "Recent Updates",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            }
-
-            items(stories.filter { it.userId != "me" }, key = { it.id }) { story ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { selectedStoryToView = story }
-                        .padding(vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Story Ring
-                    Box(
+            // Viewed Updates Section (Collapsible)
+            if (viewedUpdates.isNotEmpty()) {
+                item {
+                    Row(
                         modifier = Modifier
-                            .size(58.dp)
-                            .border(
-                                width = 2.5.dp,
-                                color = if (story.viewed) Color.LightGray else OlinamPrimary,
-                                shape = CircleShape
-                            )
-                            .padding(3.dp)
-                            .clip(CircleShape)
-                            .background(OlinamPrimary.copy(alpha = 0.2f)),
-                        contentAlignment = Alignment.Center
+                            .fillMaxWidth()
+                            .clickable { isViewedSectionExpanded = !isViewedSectionExpanded }
+                            .padding(top = 16.dp, bottom = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = story.userName.take(1).uppercase(),
-                            color = OlinamPrimary,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp
+                            text = "Viewed updates",
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Icon(
+                            imageVector = if (isViewedSectionExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = if (isViewedSectionExpanded) "Collapse" else "Expand",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
+                }
 
-                    Spacer(modifier = Modifier.width(16.dp))
-
-                    Column {
-                        Text(
-                            text = story.userName,
-                            fontSize = 16.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = formatMessageTime(story.timestamp),
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                if (isViewedSectionExpanded) {
+                    items(viewedUpdates, key = { it.userId }) { group ->
+                        StatusListItem(
+                            group = group,
+                            onClick = {
+                                isViewingMyStatus = false
+                                activeStoryGroupToView = group
+                            }
                         )
                     }
                 }
             }
 
-            // E2EE Notice for stories
+            // WhatsApp E2EE Encryption Notice
             item {
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(28.dp))
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 24.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -218,88 +296,10 @@ fun StoriesScreen(
                     Text(
                         text = "Your status updates are end-to-end encrypted",
                         fontSize = 11.5.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
                     )
                 }
             }
         }
-    }
-
-    if (showAddStatusDialog) {
-        var statusText by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { showAddStatusDialog = false },
-            title = { Text("Add Status Update", fontWeight = FontWeight.Bold) },
-            text = {
-                OutlinedTextField(
-                    value = statusText,
-                    onValueChange = { statusText = it },
-                    label = { Text("What's on your mind?") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (statusText.isNotBlank()) {
-                            viewModel.addStory(statusText.trim())
-                            showAddStatusDialog = false
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = OlinamPrimary)
-                ) {
-                    Text("Post")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddStatusDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
-
-    selectedStoryToView?.let { story ->
-        AlertDialog(
-            onDismissRequest = { selectedStoryToView = null },
-            title = {
-                Text(text = story.userName, fontWeight = FontWeight.Bold)
-            },
-            text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(220.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(OlinamPrimary),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = story.caption,
-                            color = Color.White,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Medium,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(20.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = "Posted " + formatMessageTime(story.timestamp),
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { selectedStoryToView = null }) {
-                    Text("Close")
-                }
-            }
-        )
     }
 }

@@ -79,17 +79,21 @@ class ChatViewModel @JvmOverloads constructor(
             .sumOf { it.unreadCount }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
+    companion object {
+        private val SMS_HEADER_REGEX = Regex("^[A-Z]{2}-[A-Za-z0-9\\-]+$")
+    }
+
     val totalUnreadCount: StateFlow<Int> = repository.conversations.map { all ->
         all.sumOf { it.unreadCount }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     fun isSmsConversation(conv: Conversation): Boolean {
-        return conv.isSmsContact ||
-                conv.id.startsWith("sms_") ||
-                conv.labelIds.contains("sms") ||
-                conv.lastMessageText.contains("SMS Chat", ignoreCase = true) ||
-                conv.onlineStatus?.contains("Cellular SMS", ignoreCase = true) == true ||
-                conv.title.matches(Regex("""^[A-Z]{2}-[A-Za-z0-9\-]+$"""))
+        if (conv.isSmsContact || conv.id.startsWith("sms_") || conv.labelIds.contains("sms")) return true
+        if (conv.isGroup) return false
+        val status = conv.onlineStatus
+        if (status != null && status.contains("Cellular SMS", ignoreCase = true)) return true
+        if (conv.lastMessageText.contains("SMS Chat", ignoreCase = true)) return true
+        return SMS_HEADER_REGEX.matches(conv.title)
     }
 
     val unreadCountsByLabel: StateFlow<Map<String, Int>> = combine(
@@ -104,7 +108,7 @@ class ChatViewModel @JvmOverloads constructor(
             .sumOf { it.unreadCount }
 
         val map = mutableMapOf(
-            "all" to all.filter { !isSmsConversation(it) }.sumOf { it.unreadCount },
+            "all" to directCount,
             "direct" to directCount,
             "groups" to groupsCount,
             "sms" to smsCount
@@ -777,7 +781,37 @@ class ChatViewModel @JvmOverloads constructor(
     fun toggleSpeaker() { _activeCallState.value = _activeCallState.value?.let { it.copy(isSpeakerOn = !it.isSpeakerOn) } }
     fun toggleVideo() { _activeCallState.value = _activeCallState.value?.let { it.copy(isVideoEnabled = !it.isVideoEnabled) } }
     fun toggleCameraFacing() { _activeCallState.value = _activeCallState.value?.let { it.copy(isFrontCamera = !it.isFrontCamera) } }
-    fun addStory(caption: String, mediaUrl: String? = null, isImage: Boolean = false) { repository.addStory(caption, mediaUrl, isImage) }
+    fun addStory(
+        caption: String,
+        mediaUrl: String? = null,
+        isImage: Boolean = false,
+        backgroundColor: String? = null,
+        fontIndex: Int = 0,
+        isVideo: Boolean = false,
+        videoDuration: String? = null
+    ) {
+        repository.addStory(caption, mediaUrl, isImage, backgroundColor, fontIndex, isVideo, videoDuration)
+    }
+
+    fun markStoryViewed(storyId: String) {
+        repository.markStoryViewed(storyId)
+    }
+
+    fun deleteStory(storyId: String) {
+        repository.deleteStory(storyId)
+    }
+
+    fun replyToStory(story: Story, replyText: String) {
+        val conv = conversations.value.find { 
+            it.participantIds.contains(story.userId) || it.title.equals(story.userName, ignoreCase = true)
+        }
+        val convId = conv?.id ?: "conv_${story.userId}"
+        val quote = if (story.caption.isNotBlank()) "Replying to story: \"${story.caption.take(35)}\"\n$replyText" else "Replying to story: $replyText"
+        sendMessage(
+            conversationId = convId,
+            text = quote
+        )
+    }
     fun initiateCall(contactName: String, type: CallType, context: Context? = null) {
         val ctx = context ?: getApplication<Application>()
         val conv = conversations.value.find { it.title.equals(contactName, ignoreCase = true) }

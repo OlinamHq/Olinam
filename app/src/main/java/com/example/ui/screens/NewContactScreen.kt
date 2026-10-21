@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.content.Intent
 import android.provider.ContactsContract
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -340,6 +341,7 @@ fun NewContactScreen(
                                 } catch (_: Exception) {}
                             }
 
+                            Toast.makeText(context, "Contact saved: $fullName", Toast.LENGTH_SHORT).show()
                             onContactSaved(fullName, fullPhone)
                         }
                     },

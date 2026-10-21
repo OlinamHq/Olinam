@@ -57,7 +57,9 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Mood
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -152,6 +154,12 @@ fun CameraScreen(
 
     // Photo captured / selected state (transition to Screenshot 3)
     var capturedImageUri by remember { mutableStateOf<Uri?>(null) }
+    var selectedMediaIsVideo by remember { mutableStateOf(false) }
+    var recentMediaList by remember { mutableStateOf<List<com.example.ui.screens.camera.RecentMediaItem>>(emptyList()) }
+
+    LaunchedEffect(Unit) {
+        recentMediaList = com.example.ui.screens.camera.RecentMediaHelper.getRecentMedia(context)
+    }
 
     // Screen 2 Editor states (Screenshot 3)
     var captionText by remember { mutableStateOf("") }
@@ -171,6 +179,9 @@ fun CameraScreen(
     ) { uri: Uri? ->
         if (uri != null) {
             capturedImageUri = uri
+            selectedMediaIsVideo = false
+            com.example.ui.screens.camera.RecentMediaHelper.registerCapturedMedia(uri, false)
+            recentMediaList = com.example.ui.screens.camera.RecentMediaHelper.getRecentMedia(context)
         }
     }
 
@@ -195,6 +206,23 @@ fun CameraScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Fit
                 )
+
+                if (selectedMediaIsVideo) {
+                    Box(
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.5f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Video preview",
+                            tint = Color.White,
+                            modifier = Modifier.size(46.dp)
+                        )
+                    }
+                }
 
                 // Drawing Canvas Overlay (allows user to draw with finger)
                 Canvas(
@@ -752,56 +780,66 @@ fun CameraScreen(
                 .padding(bottom = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Real Recent Media Thumbnails Strip from device MediaStore
-            val recentDevicePhotos = remember(context) {
-                val uris = mutableListOf<Uri>()
-                try {
-                    val projection = arrayOf(android.provider.MediaStore.Images.Media._ID)
-                    val sortOrder = "${android.provider.MediaStore.Images.Media.DATE_ADDED} DESC"
-                    context.contentResolver.query(
-                        android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                        projection,
-                        null,
-                        null,
-                        sortOrder
-                    )?.use { cursor ->
-                        val idCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Images.Media._ID)
-                        while (cursor.moveToNext() && uris.size < 6) {
-                            val id = cursor.getLong(idCol)
-                            uris.add(
-                                android.content.ContentUris.withAppendedId(
-                                    android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                                    id
-                                )
-                            )
-                        }
-                    }
-                } catch (_: Exception) {}
-                uris
-            }
-            if (recentDevicePhotos.isNotEmpty()) {
+            // WhatsApp-style Recent Media Carousel (Recent Images & Videos from MediaStore)
+            if (recentMediaList.isNotEmpty()) {
                 LazyRow(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 20.dp, start = 16.dp, end = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        .padding(bottom = 18.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    items(recentDevicePhotos) { photoUri ->
+                    items(recentMediaList, key = { it.id }) { mediaItem ->
                         Box(
                             modifier = Modifier
-                                .size(width = 54.dp, height = 54.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .border(1.dp, Color.White.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+                                .size(width = 68.dp, height = 68.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .border(1.5.dp, Color.White.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
                                 .clickable {
-                                    capturedImageUri = photoUri
+                                    capturedImageUri = mediaItem.uri
+                                    selectedMediaIsVideo = mediaItem.isVideo
                                 }
+                                .testTag("recent_media_${mediaItem.id}")
                         ) {
                             AsyncImage(
-                                model = photoUri,
-                                contentDescription = "Recent photo",
+                                model = mediaItem.uri,
+                                contentDescription = if (mediaItem.isVideo) "Recent video" else "Recent photo",
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize()
                             )
+
+                            // Video Duration Badge and Play Icon overlay
+                            if (mediaItem.isVideo) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .align(Alignment.BottomStart)
+                                        .background(
+                                            androidx.compose.ui.graphics.Brush.verticalGradient(
+                                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
+                                            )
+                                        )
+                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.PlayArrow,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                        Text(
+                                            text = mediaItem.duration ?: "0:15",
+                                            color = Color.White,
+                                            fontSize = 10.5.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -855,7 +893,11 @@ fun CameraScreen(
                                     ContextCompat.getMainExecutor(context),
                                     object : ImageCapture.OnImageSavedCallback {
                                         override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                                            capturedImageUri = Uri.fromFile(photoFile)
+                                            val photoUri = Uri.fromFile(photoFile)
+                                            capturedImageUri = photoUri
+                                            selectedMediaIsVideo = false
+                                            com.example.ui.screens.camera.RecentMediaHelper.registerCapturedMedia(photoUri, false)
+                                            recentMediaList = com.example.ui.screens.camera.RecentMediaHelper.getRecentMedia(context)
                                         }
                                         override fun onError(exc: androidx.camera.core.ImageCaptureException) {
                                             photoPickerLauncher.launch(

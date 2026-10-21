@@ -32,6 +32,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import com.example.model.ChatLabel
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -44,10 +48,23 @@ fun LabelChipsRow(
     onLabelLongClick: (ChatLabel) -> Unit = {},
     onAddLabelClick: () -> Unit
 ) {
+    val listState = rememberLazyListState()
+    val selectedIndex = remember(labels, selectedLabelId) {
+        labels.indexOfFirst { it.id == selectedLabelId }
+    }
+
+    LaunchedEffect(selectedIndex) {
+        if (selectedIndex >= 0) {
+            listState.animateScrollToItem(selectedIndex)
+        }
+    }
+
     LazyRow(
+        state = listState,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 4.dp),
+            .padding(vertical = 4.dp),
+        contentPadding = PaddingValues(horizontal = 14.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -79,14 +96,23 @@ fun LabelChipsRow(
                 Color(0xFF54656F)
             }
 
-            Surface(
-                modifier = Modifier
+            val chipModifier = if (isCustomLabel) {
+                Modifier
                     .clip(RoundedCornerShape(16.dp))
                     .combinedClickable(
                         onClick = { onLabelClick(label) },
                         onLongClick = { onLabelLongClick(label) }
                     )
-                    .testTag("label_chip_${label.id}"),
+                    .testTag("label_chip_${label.id}")
+            } else {
+                Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable(onClick = { onLabelClick(label) })
+                    .testTag("label_chip_${label.id}")
+            }
+
+            Surface(
+                modifier = chipModifier,
                 shape = RoundedCornerShape(16.dp),
                 color = chipBgColor,
                 border = chipBorder

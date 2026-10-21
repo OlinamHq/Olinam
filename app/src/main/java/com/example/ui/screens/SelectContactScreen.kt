@@ -7,6 +7,13 @@ import android.provider.ContactsContract
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import android.widget.Toast
+import com.example.ui.screens.contacts.ContactActions
+import com.example.ui.screens.contacts.ContactNameFormat
+import com.example.ui.screens.contacts.ContactSettingsBottomSheet
+import com.example.ui.screens.contacts.ContactSettingsPreferences
+import com.example.ui.screens.contacts.ContactSortOrder
+import kotlinx.coroutines.delay
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -92,7 +99,10 @@ fun SelectContactScreen(
     var searchQuery by remember { mutableStateOf("") }
     var isSearching by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
+    var showContactSettingsSheet by remember { mutableStateOf(false) }
+    var prefsVersion by remember { mutableStateOf(0) }
 
+    val contactPrefs = remember { ContactSettingsPreferences(context) }
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
 
     fun reloadContacts() {
@@ -124,21 +134,35 @@ fun SelectContactScreen(
         }
     }
 
-    val filteredContacts = remember(contacts, searchQuery, registeredPhoneNumbers) {
+    val filteredContacts = remember(contacts, searchQuery, registeredPhoneNumbers, prefsVersion) {
         val list = if (searchQuery.isBlank()) contacts
         else contacts.filter {
             it.name.contains(searchQuery, ignoreCase = true) ||
                     it.phoneNumber.contains(searchQuery)
         }
-        list.map { contact ->
+        val mapped = list.map { contact ->
             val clean = contact.phoneNumber.trim()
             val digits = clean.filter { it.isDigit() }
             val last10 = digits.takeLast(10)
             val isReg = registeredPhoneNumbers.contains(clean) ||
                     registeredPhoneNumbers.contains(digits) ||
                     (last10.length >= 7 && registeredPhoneNumbers.contains(last10))
-            if (isReg) contact.copy(hasOlinam = true, status = "Hey there! I am using Olinam 🔒")
-            else contact.copy(hasOlinam = false, status = "Non-App Contact (Chat via SMS)")
+
+            val displayName = if (contactPrefs.nameFormat == ContactNameFormat.LAST_NAME_FIRST && contact.name.contains(" ")) {
+                val parts = contact.name.trim().split(" ")
+                "${parts.last()}, ${parts.dropLast(1).joinToString(" ")}"
+            } else {
+                contact.name
+            }
+
+            if (isReg) contact.copy(name = displayName, hasOlinam = true, status = "Hey there! I am using Olinam 🔒")
+            else contact.copy(name = displayName, hasOlinam = false, status = "Non-App Contact (Chat via SMS)")
+        }
+
+        if (contactPrefs.sortOrder == ContactSortOrder.LAST_NAME) {
+            mapped.sortedBy { it.name.trim().split(" ").last().lowercase() }
+        } else {
+            mapped.sortedBy { it.name.trim().lowercase() }
         }
     }
 
@@ -225,25 +249,36 @@ fun SelectContactScreen(
                         ) {
                             DropdownMenuItem(
                                 text = { Text("Contact settings") },
-                                onClick = { menuExpanded = false }
+                                onClick = {
+                                    menuExpanded = false
+                                    showContactSettingsSheet = true
+                                }
                             )
                             DropdownMenuItem(
                                 text = { Text("Invite a friend via SMS") },
                                 onClick = {
                                     menuExpanded = false
-                                    onInviteContactClick()
+                                    ContactActions.inviteFriendViaSms(context)
                                 }
                             )
                             DropdownMenuItem(
                                 text = { Text("Refresh") },
                                 onClick = {
                                     menuExpanded = false
-                                    reloadContacts()
+                                    coroutineScope.launch {
+                                        Toast.makeText(context, "Refreshing contacts...", Toast.LENGTH_SHORT).show()
+                                        reloadContacts()
+                                        delay(500)
+                                        Toast.makeText(context, "Contacts refreshed (${contacts.size} found)", Toast.LENGTH_SHORT).show()
+                                    }
                                 }
                             )
                             DropdownMenuItem(
                                 text = { Text("Help") },
-                                onClick = { menuExpanded = false }
+                                onClick = {
+                                    menuExpanded = false
+                                    ContactActions.openHelpWebpage(context)
+                                }
                             )
                         }
                     }
@@ -540,6 +575,20 @@ fun SelectContactScreen(
                 }
             }
         }
+    }
+
+    if (showContactSettingsSheet) {
+        ContactSettingsBottomSheet(
+            totalContactsCount = contacts.size,
+            onDismiss = { showContactSettingsSheet = false },
+            onSettingsChanged = {
+                prefsVersion++
+                reloadContacts()
+            },
+            onTriggerSync = {
+                reloadContacts()
+            }
+        )
     }
 }
 

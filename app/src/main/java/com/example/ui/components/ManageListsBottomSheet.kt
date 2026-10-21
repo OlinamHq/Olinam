@@ -177,12 +177,12 @@ fun ManageListsBottomSheet(
                     .fillMaxWidth()
                     .padding(bottom = 20.dp)
             ) {
-                // Preset List: All
+                // System List: Chats
                 item {
                     ListItemRow(
-                        title = "All chats",
+                        title = "Chats",
                         icon = Icons.Default.Chat,
-                        iconTint = Color(0xFF54656F),
+                        iconTint = Color(0xFF0160E3),
                         isSelected = selectedLabelId == "direct" || selectedLabelId == "all",
                         onClick = {
                             onSelectList("direct")
@@ -191,35 +191,7 @@ fun ManageListsBottomSheet(
                     )
                 }
 
-                // Preset List: Unread
-                item {
-                    ListItemRow(
-                        title = "Unread",
-                        icon = Icons.Default.MarkEmailUnread,
-                        iconTint = Color(0xFF0160E3),
-                        isSelected = selectedLabelId == "unread",
-                        onClick = {
-                            onSelectList("unread")
-                            onDismissRequest()
-                        }
-                    )
-                }
-
-                // Preset List: Favorites / Starred
-                item {
-                    ListItemRow(
-                        title = "Favorites",
-                        icon = Icons.Default.Star,
-                        iconTint = Color(0xFFF59E0B),
-                        isSelected = selectedLabelId == "favorites",
-                        onClick = {
-                            onSelectList("favorites")
-                            onDismissRequest()
-                        }
-                    )
-                }
-
-                // Preset List: Groups
+                // System List: Groups
                 item {
                     ListItemRow(
                         title = "Groups",
@@ -233,7 +205,7 @@ fun ManageListsBottomSheet(
                     )
                 }
 
-                // Preset List: SMS
+                // System List: SMS
                 item {
                     ListItemRow(
                         title = "SMS",
@@ -247,8 +219,8 @@ fun ManageListsBottomSheet(
                     )
                 }
 
-                // Custom user-defined labels
-                items(labels.filter { it.id !in listOf("all", "direct", "unread", "favorites", "groups", "sms") }) { label ->
+                // Custom user-defined labels (created by the user)
+                items(labels.filter { it.id !in listOf("all", "direct", "groups", "sms") }) { label ->
                     val color = try {
                         Color(android.graphics.Color.parseColor(label.colorHex))
                     } catch (_: Exception) {

@@ -159,7 +159,12 @@ data class Story(
     val mediaUrl: String? = null,
     val isImageStory: Boolean = false,
     val viewed: Boolean = false,
-    val expiresAt: Long = System.currentTimeMillis() + 24L * 60L * 60L * 1000L
+    val expiresAt: Long = System.currentTimeMillis() + 24L * 60L * 60L * 1000L,
+    val backgroundColor: String? = null,
+    val fontIndex: Int = 0,
+    val viewsCount: Int = 0,
+    val isVideo: Boolean = false,
+    val videoDuration: String? = null
 )
 
 enum class FilterCategory {

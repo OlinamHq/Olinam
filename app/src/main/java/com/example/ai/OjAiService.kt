@@ -26,6 +26,19 @@ object OjAiService {
     private const val GEMINI_MODEL = "gemini-3.5-flash"
     private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/"
 
+    /**
+     * Cloudflare Worker backend URL for Oj AI.
+     * Dummy default URL as requested: https://oj-ai-worker.olinam.workers.dev/api/chat
+     * You can directly change this URL here or via setWorkerUrl(newUrl).
+     */
+    var CLOUDFLARE_WORKER_URL: String = "https://oj-ai-worker.olinam.workers.dev/api/chat"
+
+    fun setWorkerUrl(newUrl: String) {
+        CLOUDFLARE_WORKER_URL = newUrl.trim()
+    }
+
+    fun getWorkerUrl(): String = CLOUDFLARE_WORKER_URL
+
     val initialSuggestions = listOf(
         "✨ Summarize my pending chats",
         "✍️ Draft a polite decline message",
@@ -57,13 +70,29 @@ object OjAiService {
     }
 
     /**
-     * Generates a conversational response using Gemini 3.5 Flash REST API,
-     * with graceful local intelligent fallback if the API is offline or unkeyed.
+     * Generates a conversational response using:
+     * 1. Cloudflare Worker backend (if URL is provided)
+     * 2. Gemini 3.5 Flash REST API fallback
+     * 3. Intelligent local assistant fallback
      */
     suspend fun generateResponse(
         userPrompt: String,
         history: List<OjAiChatMessage> = emptyList()
     ): String = withContext(Dispatchers.IO) {
+        // 1. First Priority: Cloudflare Worker backend
+        if (CLOUDFLARE_WORKER_URL.isNotBlank()) {
+            try {
+                val workerResponse = callCloudflareWorker(CLOUDFLARE_WORKER_URL, userPrompt, history)
+                if (workerResponse.isNotBlank()) {
+                    Log.i(TAG, "Oj AI response successfully received from Cloudflare Worker")
+                    return@withContext workerResponse
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "Cloudflare Worker request note (${t.message}). Falling back to Gemini/intelligent engine.")
+            }
+        }
+
+        // 2. Second Priority: Direct Gemini REST API
         val apiKey = getApiKey()
         if (apiKey.isNotBlank()) {
             try {
@@ -76,8 +105,56 @@ object OjAiService {
             }
         }
 
-        // Context-aware smart assistant fallback
+        // 3. Fallback: Context-aware smart assistant logic
         generateSmartFallback(userPrompt)
+    }
+
+    private fun callCloudflareWorker(
+        workerUrl: String,
+        userPrompt: String,
+        history: List<OjAiChatMessage>
+    ): String {
+        val jsonMediaType = "application/json; charset=utf-8".toMediaType()
+        val payload = JSONObject()
+        payload.put("prompt", userPrompt)
+        payload.put("message", userPrompt)
+        payload.put("model", "oj-ai")
+
+        val historyArray = JSONArray()
+        for (msg in history.takeLast(10)) {
+            val item = JSONObject()
+            item.put("role", if (msg.isUser) "user" else "assistant")
+            item.put("content", msg.text)
+            historyArray.put(item)
+        }
+        payload.put("history", historyArray)
+
+        val request = Request.Builder()
+            .url(workerUrl)
+            .addHeader("Content-Type", "application/json")
+            .post(payload.toString().toRequestBody(jsonMediaType))
+            .build()
+
+        val response = httpClient.newCall(request).execute()
+        val bodyStr = response.body?.string().orEmpty()
+
+        if (!response.isSuccessful) {
+            throw IllegalStateException("Cloudflare Worker HTTP ${response.code}: $bodyStr")
+        }
+
+        return try {
+            val json = JSONObject(bodyStr)
+            when {
+                json.has("response") -> json.getString("response")
+                json.has("text") -> json.getString("text")
+                json.has("message") -> json.getString("message")
+                json.has("output") -> json.getString("output")
+                json.has("result") -> json.getString("result")
+                else -> bodyStr
+            }
+        } catch (_: Exception) {
+            bodyStr
+        }
     }
 
     private fun callGeminiRestApi(

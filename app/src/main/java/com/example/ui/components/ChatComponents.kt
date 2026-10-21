@@ -663,9 +663,13 @@ fun ConversationListItem(
 ) {
     val isItemLocked = isLocked
     val attachedLabels = remember(conversation.labelIds, labels) {
-        labels.filter { label ->
-            label.id !in listOf("all", "direct", "sms") &&
-            (conversation.labelIds.contains(label.id) || label.chatIds.contains(conversation.id))
+        if (labels.size <= 3 && conversation.labelIds.isEmpty()) {
+            emptyList()
+        } else {
+            labels.filter { label ->
+                label.id !in listOf("all", "direct", "groups", "sms") &&
+                (conversation.labelIds.contains(label.id) || label.chatIds.contains(conversation.id))
+            }
         }
     }
 
@@ -1112,13 +1116,16 @@ private fun androidx.compose.foundation.layout.RowScope.BottomNavItem(
 
 private val timeFormat = ThreadLocal.withInitial { SimpleDateFormat("h:mm a", Locale.US) }
 private val dateFormat = ThreadLocal.withInitial { SimpleDateFormat("MMM d", Locale.US) }
-private val formattedTimeCache = java.util.concurrent.ConcurrentHashMap<Long, String>(256)
+private val formattedTimeCache = java.util.concurrent.ConcurrentHashMap<Long, String>(512)
 
 fun formatMessageTime(timestamp: Long): String {
     if (timestamp <= 0L) return ""
-    return formattedTimeCache.getOrPut(timestamp) {
+    val minuteBucket = timestamp / 60000L
+    return formattedTimeCache.getOrPut(minuteBucket) {
+        val now = System.currentTimeMillis()
+        val diff = now - timestamp
+        val isToday = diff in 0..(24 * 3600 * 1000L) && android.text.format.DateUtils.isToday(timestamp)
         val date = Date(timestamp)
-        val isToday = android.text.format.DateUtils.isToday(timestamp)
         if (isToday) {
             val fmt = timeFormat.get() ?: SimpleDateFormat("h:mm a", Locale.US)
             fmt.format(date).lowercase(Locale.US)

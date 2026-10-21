@@ -506,8 +506,7 @@ fun SettingsScreen(
                         title = "Help & support",
                         subtitle = "Get help, contact us, privacy policy",
                         onClick = {
-                            activeInfoDialogTitle = "Help & support"
-                            activeInfoDialogContent = "Olinam Messenger v1.0. End-to-end encrypted chats with live WebRTC calling, group messaging, and Oj AI assistant."
+                            com.example.ui.screens.contacts.ContactActions.openHelpWebpage(context)
                         }
                     )
                 }
@@ -532,7 +531,7 @@ fun SettingsScreen(
                             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                 type = "text/plain"
                                 putExtra(Intent.EXTRA_SUBJECT, "Join me on Olinam")
-                                putExtra(Intent.EXTRA_TEXT, "Hey! Chat with me on Olinam - fast, private messaging: https://olinam.im/download")
+                                putExtra(Intent.EXTRA_TEXT, "Hey! Chat with me on Olinam - fast, private messaging: https://olinam.com/download")
                             }
                             context.startActivity(Intent.createChooser(shareIntent, "Invite friends"))
                         }

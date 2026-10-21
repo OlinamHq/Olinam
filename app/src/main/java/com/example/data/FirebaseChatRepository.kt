@@ -25,14 +25,21 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.UUID
+import com.example.chat.olinam.OlinamChatCoordinator
+import com.example.chat.olinam.OlinamConversationIdGenerator
+import com.example.chat.olinam.OlinamE2EEManager
+import com.example.chat.olinam.PhoneNormalizer
 
 class FirebaseChatRepository {
 
     private val tag = "FirebaseChatRepo"
     private val scope = CoroutineScope(Dispatchers.IO)
+    private val smsHeaderPattern = Regex("^[A-Z]{2}-[A-Za-z0-9\\-]+$")
 
     private var firestore: FirebaseFirestore? = null
     private var auth: FirebaseAuth? = null
+    var olinamCoordinator: OlinamChatCoordinator? = null
+        private set
 
     // In-memory / cache states
     private val _conversations = MutableStateFlow<List<Conversation>>(emptyList())
@@ -49,9 +56,6 @@ class FirebaseChatRepository {
 
     private val defaultLabels = listOf(
         ChatLabel(id = "direct", name = "Chats", colorHex = "#0160E3"),
-        ChatLabel(id = "favorites", name = "Favorites", colorHex = "#FFA000"),
-        ChatLabel(id = "family", name = "Family", colorHex = "#FF5722"),
-        ChatLabel(id = "work", name = "Work", colorHex = "#007AFF"),
         ChatLabel(id = "groups", name = "Groups", colorHex = "#0160E3"),
         ChatLabel(id = "sms", name = "SMS", colorHex = "#00A884")
     )
@@ -89,9 +93,13 @@ class FirebaseChatRepository {
             val jsonStr = prefs.getString("saved_labels_json", null) ?: return
             val jsonArray = org.json.JSONArray(jsonStr)
             val loaded = mutableListOf<ChatLabel>()
+            val legacyPresetIds = setOf("favorites", "family", "work", "unread")
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
                 val id = obj.getString("id")
+                // Do not load legacy presets so only defaultLabels and genuine user-created labels exist
+                if (legacyPresetIds.contains(id)) continue
+
                 val name = obj.getString("name")
                 val colorHex = obj.optString("colorHex", "#0160E3")
                 val chatIdsList = mutableListOf<String>()
@@ -103,16 +111,14 @@ class FirebaseChatRepository {
                 }
                 loaded.add(ChatLabel(id, name, colorHex, chatIdsList))
             }
-            if (loaded.isNotEmpty()) {
-                val existingIds = loaded.map { it.id }.toSet()
-                val merged = loaded.toMutableList()
-                defaultLabels.forEach { def ->
-                    if (!existingIds.contains(def.id)) {
-                        merged.add(def)
-                    }
-                }
-                _labels.value = merged
+            val defaultIds = defaultLabels.map { it.id }.toSet()
+            val merged = defaultLabels.toMutableList()
+            // Add only user-created custom labels (not default and not legacy presets)
+            loaded.filter { it.id !in defaultIds && it.id !in legacyPresetIds }.forEach {
+                merged.add(it)
             }
+            _labels.value = merged
+            persistLabels()
         } catch (e: Exception) {
             Log.e(tag, "Error loading labels: ${e.message}")
         }
@@ -292,6 +298,10 @@ class FirebaseChatRepository {
                     isLoggedIn = true
                 )
             }
+            val ctx = appContext ?: context
+            if (ctx != null && olinamCoordinator == null) {
+                olinamCoordinator = OlinamChatCoordinator(ctx, firestore)
+            }
             listenToConversations()
             listenToRegisteredUsers()
         } catch (e: Exception) {
@@ -334,6 +344,7 @@ class FirebaseChatRepository {
 
     fun isPhoneNumberRegistered(phoneNumber: String): Boolean {
         if (phoneNumber.isBlank()) return false
+        if (olinamCoordinator?.isContactOnOlinam(phoneNumber) == true) return true
         val cleanNumber = phoneNumber.trim()
         val digits = cleanNumber.filter { it.isDigit() }
         val last10 = digits.takeLast(10)
@@ -586,7 +597,49 @@ class FirebaseChatRepository {
             currentMap["conv_bhaiya"] = demoMessages
             _messages.value = currentMap
         }
-        _stories.value = emptyList()
+        val now = System.currentTimeMillis()
+        _stories.value = listOf(
+            Story(
+                id = "story_om_1",
+                userId = "contact_om",
+                userName = "Om Kunwar",
+                caption = "Great meeting today with the engineering team! 🚀 Next release is going to be amazing.",
+                timestamp = now - (35 * 60 * 1000L),
+                backgroundColor = "#005C4B",
+                fontIndex = 1,
+                viewed = false
+            ),
+            Story(
+                id = "story_om_2",
+                userId = "contact_om",
+                userName = "Om Kunwar",
+                caption = "Sunset at the office terrace 🌇",
+                mediaUrl = "https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=800",
+                isImageStory = true,
+                timestamp = now - (20 * 60 * 1000L),
+                viewed = false
+            ),
+            Story(
+                id = "story_priya_1",
+                userId = "contact_priya",
+                userName = "Priya Sharma",
+                caption = "Weekend trip to the hills! ⛰️🌲 Feeling refreshed and energized.",
+                mediaUrl = "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=800",
+                isImageStory = true,
+                timestamp = now - (2 * 60 * 60 * 1000L),
+                viewed = false
+            ),
+            Story(
+                id = "story_rahul_1",
+                userId = "contact_rahul",
+                userName = "Rahul Verma",
+                caption = "Coffee and Kotlin code ☕💻 Perfect combination.",
+                timestamp = now - (4 * 60 * 60 * 1000L),
+                backgroundColor = "#7C3AED",
+                fontIndex = 2,
+                viewed = true
+            )
+        )
     }
 
     fun loginUser(name: String, phoneNumber: String, email: String = "", uid: String? = null) {
@@ -769,7 +822,7 @@ class FirebaseChatRepository {
                                         doc.id.startsWith("sms_") ||
                                         labelIds.contains("sms") ||
                                         lastMsg.contains("SMS Chat", ignoreCase = true) ||
-                                        title.matches(Regex("""^[A-Z]{2}-[A-Za-z0-9\-]+$"""))
+                                        smsHeaderPattern.matches(title)
 
                                 Conversation(
                                     id = doc.id,
@@ -842,7 +895,11 @@ class FirebaseChatRepository {
                                     encryptedPayload = payload,
                                     timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis(),
                                     isEncrypted = doc.getBoolean("isEncrypted") ?: true,
-                                    status = MessageStatus.valueOf(doc.getString("status") ?: "SENT"),
+                                    status = try {
+                                        MessageStatus.valueOf(doc.getString("status") ?: "SENT")
+                                    } catch (_: Exception) {
+                                        MessageStatus.SENT
+                                    },
                                     replyToMessageId = doc.getString("replyToMessageId"),
                                     replyToSenderName = doc.getString("replyToSenderName"),
                                     replyToText = doc.getString("replyToText"),
@@ -856,6 +913,13 @@ class FirebaseChatRepository {
                         val currentMap = _messages.value.toMutableMap()
                         currentMap[conversationId] = remoteMessages
                         _messages.value = currentMap
+
+                        // Real-time automatic delivery acknowledgment
+                        olinamCoordinator?.markMessagesDelivered(
+                            conversationId,
+                            _currentUser.value.id,
+                            remoteMessages.filter { it.senderId != _currentUser.value.id && it.status == MessageStatus.SENT }.map { it.id }
+                        )
                     }
                 }
             messageListeners[conversationId] = listener
@@ -876,6 +940,46 @@ class FirebaseChatRepository {
         val currentUser = _currentUser.value
         val messageId = UUID.randomUUID().toString()
         val timestamp = System.currentTimeMillis()
+
+        // Enterprise routing: If Olinam direct chat, dispatch via OlinamMessageDispatcher
+        val conv = _conversations.value.find { it.id == conversationId }
+        val recipientPhone = conv?.phoneNumber ?: ""
+        if (conv != null && !conv.isGroup && !conv.isSmsContact && recipientPhone.isNotBlank() && olinamCoordinator != null) {
+            olinamCoordinator?.sendDirectMessage(
+                conversationId = conversationId,
+                currentUser = currentUser,
+                recipientPhone = recipientPhone,
+                text = text,
+                mediaUrl = mediaUrl,
+                mediaType = mediaType,
+                replyToMessageId = replyToMessageId,
+                replyToSenderName = replyToSenderName,
+                replyToText = replyToText,
+                onLocalMessageCreated = { localMsg ->
+                    val currentMap = _messages.value.toMutableMap()
+                    val list = (currentMap[conversationId] ?: emptyList()).toMutableList()
+                    list.add(localMsg)
+                    currentMap[conversationId] = list
+                    _messages.value = currentMap
+
+                    val updatedConversations = _conversations.value.map { c ->
+                        if (c.id == conversationId) {
+                            val newLabels = if (!c.labelIds.contains("direct")) c.labelIds + "direct" else c.labelIds
+                            c.copy(
+                                lastMessageText = text,
+                                lastMessageTimestamp = timestamp,
+                                unreadCount = 0,
+                                labelIds = newLabels
+                            )
+                        } else c
+                    }
+                    _conversations.value = updatedConversations
+                    localDb?.saveMessage(localMsg)
+                    localDb?.saveConversations(updatedConversations)
+                }
+            )
+            return
+        }
 
         // 1. Perform client-side End-to-End Encryption
         val encryptedPayload = EncryptionManager.encrypt(text, conversationId)
@@ -905,16 +1009,16 @@ class FirebaseChatRepository {
         _messages.value = currentMap
 
         // Update conversation last message
-        val updatedConversations = _conversations.value.map { conv ->
-            if (conv.id == conversationId) {
-                val newLabels = if (!conv.isGroup && !conv.labelIds.contains("direct")) conv.labelIds + "direct" else conv.labelIds
-                conv.copy(
+        val updatedConversations = _conversations.value.map { c ->
+            if (c.id == conversationId) {
+                val newLabels = if (!c.isGroup && !c.labelIds.contains("direct")) c.labelIds + "direct" else c.labelIds
+                c.copy(
                     lastMessageText = text,
                     lastMessageTimestamp = timestamp,
                     unreadCount = 0,
                     labelIds = newLabels
                 )
-            } else conv
+            } else c
         }
         _conversations.value = updatedConversations
         localDb?.saveMessage(newMessage)
@@ -1401,10 +1505,16 @@ class FirebaseChatRepository {
     }
 
     fun getOrCreateConversationForContact(name: String, phoneNumber: String, isSms: Boolean = false): String {
+        val myPhone = _currentUser.value.phoneNumber.ifBlank { "+91 98765 43210" }
+        val deterministicId = if (phoneNumber.isNotBlank()) {
+            OlinamConversationIdGenerator.generateDirectId(myPhone, phoneNumber)
+        } else ""
+
         val existing = _conversations.value.find {
-            it.title.equals(name, ignoreCase = true) ||
-                    (it.phoneNumber != null && it.phoneNumber == phoneNumber) ||
-                    it.title.contains(phoneNumber)
+            (deterministicId.isNotEmpty() && it.id == deterministicId) ||
+                    it.title.equals(name, ignoreCase = true) ||
+                    (it.phoneNumber != null && PhoneNormalizer.areMatching(it.phoneNumber, phoneNumber)) ||
+                    PhoneNormalizer.areMatching(it.title, phoneNumber)
         }
         if (existing != null) {
             // Ensure this conversation appears in Chats tab by adding "direct" label only if app contact
@@ -1424,10 +1534,25 @@ class FirebaseChatRepository {
             return existing.id
         }
 
+        val coordinator = olinamCoordinator
         val hasApp = isPhoneNumberRegistered(phoneNumber)
         val finalIsSms = isSms && !hasApp
 
-        val newId = "conv_${UUID.randomUUID().toString().take(8)}"
+        if (coordinator != null && !finalIsSms && phoneNumber.isNotBlank()) {
+            val conv = coordinator.getOrCreateDirectConversation(
+                currentUser = _currentUser.value,
+                recipientName = name,
+                recipientPhone = phoneNumber,
+                existingConversations = _conversations.value
+            )
+            val updated = _conversations.value.toMutableList()
+            updated.add(0, conv)
+            _conversations.value = updated
+            localDb?.saveConversation(conv)
+            return conv.id
+        }
+
+        val newId = if (deterministicId.isNotEmpty() && !finalIsSms) deterministicId else "conv_${UUID.randomUUID().toString().take(8)}"
         val conv = Conversation(
             id = newId,
             title = name,
@@ -1457,10 +1582,14 @@ class FirebaseChatRepository {
         if (db != null) {
             scope.launch {
                 try {
+                    val myE164 = PhoneNormalizer.toE164(myPhone)
+                    val recipientE164 = PhoneNormalizer.toE164(phoneNumber)
+                    val participantPhones = listOf(myE164, recipientE164).filter { it.isNotBlank() }.distinct()
                     db.collection("conversations").document(newId).set(
                         mapOf(
                             "title" to name,
                             "phoneNumber" to phoneNumber,
+                            "participantPhones" to participantPhones,
                             "isGroup" to false,
                             "isSmsContact" to finalIsSms,
                             "isE2EE" to !finalIsSms,
@@ -1528,7 +1657,15 @@ class FirebaseChatRepository {
         return success
     }
 
-    fun addStory(caption: String, mediaUrl: String? = null, isImage: Boolean = false) {
+    fun addStory(
+        caption: String,
+        mediaUrl: String? = null,
+        isImage: Boolean = false,
+        backgroundColor: String? = null,
+        fontIndex: Int = 0,
+        isVideo: Boolean = false,
+        videoDuration: String? = null
+    ) {
         val newStory = Story(
             id = UUID.randomUUID().toString(),
             userId = _currentUser.value.id,
@@ -1537,7 +1674,12 @@ class FirebaseChatRepository {
             timestamp = System.currentTimeMillis(),
             mediaUrl = mediaUrl,
             isImageStory = isImage,
-            viewed = false
+            viewed = false,
+            backgroundColor = backgroundColor,
+            fontIndex = fontIndex,
+            viewsCount = 0,
+            isVideo = isVideo,
+            videoDuration = videoDuration
         )
         val list = _stories.value.toMutableList()
         list.add(0, newStory)
@@ -1553,11 +1695,33 @@ class FirebaseChatRepository {
                             "caption" to caption,
                             "timestamp" to newStory.timestamp,
                             "mediaUrl" to (mediaUrl ?: ""),
-                            "isImageStory" to isImage
+                            "isImageStory" to isImage,
+                            "backgroundColor" to (backgroundColor ?: ""),
+                            "fontIndex" to fontIndex
                         )
                     )
                 } catch (e: Exception) {
                     Log.w(tag, "Firestore story note: ${e.message}")
+                }
+            }
+        }
+    }
+
+    fun markStoryViewed(storyId: String) {
+        _stories.value = _stories.value.map { story ->
+            if (story.id == storyId) story.copy(viewed = true) else story
+        }
+    }
+
+    fun deleteStory(storyId: String) {
+        _stories.value = _stories.value.filter { it.id != storyId }
+        val db = firestore
+        if (db != null) {
+            scope.launch {
+                try {
+                    db.collection("stories").document(storyId).delete()
+                } catch (e: Exception) {
+                    Log.w(tag, "Failed to delete story from firestore: ${e.message}")
                 }
             }
         }
@@ -1748,6 +1912,7 @@ class FirebaseChatRepository {
         }
         _conversations.value = updated
         localDb?.saveConversations(updated)
+        olinamCoordinator?.markConversationRead(conversationId, _currentUser.value.id)
     }
 
     fun mergeSmsConversations(personal: List<Conversation>, spam: List<Conversation>, context: android.content.Context? = null) {

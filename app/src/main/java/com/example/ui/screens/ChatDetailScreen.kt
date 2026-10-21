@@ -77,7 +77,9 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Folder
@@ -4408,12 +4410,40 @@ fun WhatsAppMessageBubble(
                                         )
                                         if (isMe) {
                                             Spacer(modifier = Modifier.width(3.dp))
-                                            Icon(
-                                                imageVector = Icons.Default.DoneAll,
-                                                contentDescription = if (isReadReceiptsEnabled) "Read" else "Delivered",
-                                                tint = if (isReadReceiptsEnabled) Color(0xFF93C5FD) else Color(0xFFCBD5E1),
-                                                modifier = Modifier.size(14.dp)
-                                            )
+                                            when (message.status) {
+                                                com.example.model.MessageStatus.SENDING -> {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Schedule,
+                                                        contentDescription = "Sending",
+                                                        tint = Color.White.copy(alpha = 0.7f),
+                                                        modifier = Modifier.size(13.dp)
+                                                    )
+                                                }
+                                                com.example.model.MessageStatus.SENT -> {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Done,
+                                                        contentDescription = "Sent",
+                                                        tint = Color.White.copy(alpha = 0.85f),
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                                com.example.model.MessageStatus.DELIVERED -> {
+                                                    Icon(
+                                                        imageVector = Icons.Default.DoneAll,
+                                                        contentDescription = "Delivered",
+                                                        tint = Color.White.copy(alpha = 0.9f),
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                                com.example.model.MessageStatus.READ -> {
+                                                    Icon(
+                                                        imageVector = Icons.Default.DoneAll,
+                                                        contentDescription = "Read",
+                                                        tint = if (isReadReceiptsEnabled) Color(0xFF60A5FA) else Color.White.copy(alpha = 0.9f),
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -5088,12 +5118,40 @@ fun WhatsAppMessageBubble(
 
                                 if (isMe) {
                                     Spacer(modifier = Modifier.width(3.dp))
-                                    Icon(
-                                        imageVector = Icons.Default.DoneAll,
-                                        contentDescription = if (isReadReceiptsEnabled) "Read" else "Delivered",
-                                        tint = if (isReadReceiptsEnabled) Color(0xFF0284C7) else Color(0xFF94A3B8),
-                                        modifier = Modifier.size(15.dp)
-                                    )
+                                    when (message.status) {
+                                        com.example.model.MessageStatus.SENDING -> {
+                                            Icon(
+                                                imageVector = Icons.Default.Schedule,
+                                                contentDescription = "Sending",
+                                                tint = Color(0xFF94A3B8),
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                        }
+                                        com.example.model.MessageStatus.SENT -> {
+                                            Icon(
+                                                imageVector = Icons.Default.Done,
+                                                contentDescription = "Sent",
+                                                tint = Color(0xFF94A3B8),
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                        }
+                                        com.example.model.MessageStatus.DELIVERED -> {
+                                            Icon(
+                                                imageVector = Icons.Default.DoneAll,
+                                                contentDescription = "Delivered",
+                                                tint = Color(0xFF94A3B8),
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                        }
+                                        com.example.model.MessageStatus.READ -> {
+                                            Icon(
+                                                imageVector = Icons.Default.DoneAll,
+                                                contentDescription = "Read",
+                                                tint = if (isReadReceiptsEnabled) Color(0xFF0284C7) else Color(0xFF94A3B8),
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -5117,12 +5175,40 @@ fun WhatsAppMessageBubble(
 
                         if (isMe) {
                             Spacer(modifier = Modifier.width(3.dp))
-                            Icon(
-                                imageVector = Icons.Default.DoneAll,
-                                contentDescription = if (isReadReceiptsEnabled) "Read" else "Delivered",
-                                tint = if (isReadReceiptsEnabled) Color(0xFF0284C7) else Color(0xFF94A3B8),
-                                modifier = Modifier.size(15.dp)
-                            )
+                            when (message.status) {
+                                com.example.model.MessageStatus.SENDING -> {
+                                    Icon(
+                                        imageVector = Icons.Default.Schedule,
+                                        contentDescription = "Sending",
+                                        tint = Color(0xFF94A3B8),
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                }
+                                com.example.model.MessageStatus.SENT -> {
+                                    Icon(
+                                        imageVector = Icons.Default.Done,
+                                        contentDescription = "Sent",
+                                        tint = Color(0xFF94A3B8),
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                }
+                                com.example.model.MessageStatus.DELIVERED -> {
+                                    Icon(
+                                        imageVector = Icons.Default.DoneAll,
+                                        contentDescription = "Delivered",
+                                        tint = Color(0xFF94A3B8),
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                }
+                                com.example.model.MessageStatus.READ -> {
+                                    Icon(
+                                        imageVector = Icons.Default.DoneAll,
+                                        contentDescription = "Read",
+                                        tint = if (isReadReceiptsEnabled) Color(0xFF0284C7) else Color(0xFF94A3B8),
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }

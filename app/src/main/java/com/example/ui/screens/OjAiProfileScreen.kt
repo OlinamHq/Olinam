@@ -130,6 +130,8 @@ fun OjAiProfileScreen(
     var showCustomBioDialog by remember { mutableStateOf(false) }
     var showDelegatedContactsDialog by remember { mutableStateOf(false) }
     var showAddContactDialog by remember { mutableStateOf(false) }
+    var showWorkerUrlDialog by remember { mutableStateOf(false) }
+    var workerUrlText by remember { mutableStateOf(com.example.ai.OjAiService.getWorkerUrl()) }
     var configuringPlugin by remember { mutableStateOf<AiPlugin?>(null) }
 
     var newContactName by remember { mutableStateOf("") }
@@ -531,6 +533,22 @@ fun OjAiProfileScreen(
                         subtitle = settings.customSystemBio.ifBlank { "Tap to define custom prompt instructions for Oj AI" },
                         onClick = { showCustomBioDialog = true }
                     )
+
+                    HorizontalDivider(
+                        color = Color(0xFFF1F5F9),
+                        thickness = 0.5.dp,
+                        modifier = Modifier.padding(start = 68.dp)
+                    )
+
+                    OjAiClickableRow(
+                        icon = Icons.Default.AutoAwesome,
+                        title = "Cloudflare Worker Endpoint",
+                        subtitle = com.example.ai.OjAiService.getWorkerUrl().ifBlank { "Tap to configure Cloudflare Worker URL" },
+                        onClick = {
+                            workerUrlText = com.example.ai.OjAiService.getWorkerUrl()
+                            showWorkerUrlDialog = true
+                        }
+                    )
                 }
             }
 
@@ -653,6 +671,57 @@ fun OjAiProfileScreen(
             },
             dismissButton = {
                 TextButton(onClick = { configuringPlugin = null }) {
+                    Text("Cancel", color = Color(0xFF6B7280))
+                }
+            }
+        )
+    }
+
+    // Dialog: Cloudflare Worker URL Configuration
+    if (showWorkerUrlDialog) {
+        AlertDialog(
+            onDismissRequest = { showWorkerUrlDialog = false },
+            title = { Text("Cloudflare Worker Endpoint", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text(
+                        text = "Enter your Cloudflare Worker URL for Oj AI backend processing. Requests will be posted to this URL with { prompt, history, model }.",
+                        fontSize = 13.sp,
+                        color = Color(0xFF4B5563)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = workerUrlText,
+                        onValueChange = { workerUrlText = it },
+                        label = { Text("Worker URL") },
+                        placeholder = { Text("https://oj-ai-worker.olinam.workers.dev/api/chat") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextButton(
+                        onClick = {
+                            workerUrlText = "https://oj-ai-worker.olinam.workers.dev/api/chat"
+                        }
+                    ) {
+                        Text("Reset to Default URL", fontSize = 12.sp, color = GeminiBlue)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        com.example.ai.OjAiService.setWorkerUrl(workerUrlText)
+                        showWorkerUrlDialog = false
+                        Toast.makeText(context, "Worker URL updated", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = GeminiBlue)
+                ) {
+                    Text("Save URL", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showWorkerUrlDialog = false }) {
                     Text("Cancel", color = Color(0xFF6B7280))
                 }
             }

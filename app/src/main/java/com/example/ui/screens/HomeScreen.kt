@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.Intent
 import android.os.Build
 import android.widget.Toast
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -20,6 +21,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -124,12 +127,10 @@ fun HomeScreen(
     val labels by viewModel.labels.collectAsState()
     val selectedLabelId by viewModel.selectedLabelId.collectAsState()
     val activeConversationId by viewModel.activeConversationId.collectAsState()
-    val activeMessages by viewModel.activeConversationMessages.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
     val firebaseConnected by viewModel.firebaseConnected.collectAsState()
     val activeCallState by viewModel.activeCallState.collectAsState()
     val registeredPhoneNumbers by viewModel.registeredPhoneNumbers.collectAsState()
-    val livePresenceStatus by viewModel.livePresenceStatus.collectAsState()
     val unreadCountsByLabel by viewModel.unreadCountsByLabel.collectAsState()
     val totalUnreadCount by viewModel.totalUnreadCount.collectAsState()
     val scope = rememberCoroutineScope()
@@ -188,10 +189,12 @@ fun HomeScreen(
             }
         }
     }
-    val lockedChatIds = remember(conversations) {
-        conversations.filter { conv ->
-            chatPrefs.getBoolean("locked_${conv.id}", false)
-        }.map { it.id }.toSet()
+    var lockedChatIds by remember {
+        mutableStateOf(
+            chatPrefs.all.filterKeys { it.startsWith("locked_") && (chatPrefs.all[it] as? Boolean == true) }
+                .map { it.key.removePrefix("locked_") }
+                .toSet()
+        )
     }
 
     // SMS & Contacts Permission handling for auto-syncing real phone messages & notifications
@@ -286,6 +289,24 @@ fun HomeScreen(
                 showCameraScreen = false
                 pendingCapturedMedia = Pair(caption, mediaUri)
                 showShareRecipientDialog = true
+            }
+        )
+        return
+    }
+
+    // 2b. Fullscreen WhatsApp Text Status Composer
+    if (showAddTextStatusDialog) {
+        com.example.ui.screens.status.TextStatusComposerScreen(
+            onDismiss = { showAddTextStatusDialog = false },
+            onPostStatus = { text, colorHex, fontIdx ->
+                viewModel.addStory(
+                    caption = text,
+                    mediaUrl = null,
+                    isImage = false,
+                    backgroundColor = colorHex,
+                    fontIndex = fontIdx
+                )
+                showAddTextStatusDialog = false
             }
         )
         return
@@ -386,7 +407,13 @@ fun HomeScreen(
     if (showQrScreen) {
         ShortLinkQrScreen(
             currentUser = currentUser,
-            onBackClick = { showQrScreen = false }
+            onBackClick = { showQrScreen = false },
+            onOpenScannedChat = { name, phone ->
+                showQrScreen = false
+                val isSms = !registeredPhoneNumbers.contains(phone.trim())
+                val convId = viewModel.getOrCreateConversationForContact(name, phone, isSms = isSms)
+                viewModel.openConversation(convId, context)
+            }
         )
         return
     }
@@ -578,6 +605,8 @@ fun HomeScreen(
 
     // If a conversation is opened, show ChatDetailScreen
     if (selectedConv != null) {
+        val activeMessages by viewModel.activeConversationMessages.collectAsState()
+        val livePresenceStatus by viewModel.livePresenceStatus.collectAsState()
         ChatDetailScreen(
             conversation = selectedConv,
             messages = activeMessages,
@@ -876,68 +905,111 @@ fun HomeScreen(
         ) {
             when (currentTab) {
                 AppTab.CHATS -> {
-                    val distinctConversations = remember(conversations) {
-                        conversations.distinctBy { it.id }
+                    val pagerState = rememberPagerState(
+                        initialPage = 0,
+                        pageCount = { labels.size }
+                    )
+
+                    // Sync when page changes by swiping left/right
+                    LaunchedEffect(pagerState.currentPage) {
+                        if (pagerState.currentPage in labels.indices) {
+                            val targetLabel = labels[pagerState.currentPage]
+                            if (selectedLabelId != targetLabel.id) {
+                                viewModel.selectLabel(targetLabel.id)
+                            }
+                        }
                     }
 
-                    ChatsTabContent(
-                        conversations = distinctConversations,
-                        labels = labels,
-                        selectedLabelId = selectedLabelId,
-                        isDefaultSmsApp = isDefaultSmsApp,
-                        isSmsBannerDismissed = isSmsBannerDismissed,
-                        lockedChatIds = lockedChatIds,
-                        selectedConversationIds = selectedConversationIds,
-                        onToggleSelectConversation = { conv ->
-                            selectedConversationIds = if (selectedConversationIds.contains(conv.id)) {
-                                selectedConversationIds - conv.id
-                            } else {
-                                selectedConversationIds + conv.id
-                            }
-                        },
-                        onLongClickConversation = { conv ->
-                            selectedConversationIds = selectedConversationIds + conv.id
-                        },
-                        onSetDefaultSmsClick = {
-                            val intent = SmsHelper.createDefaultSmsIntent(context)
-                            if (intent != null) {
-                                try {
-                                    defaultSmsLauncher.launch(intent)
-                                } catch (_: Exception) {
-                                    try { context.startActivity(intent) } catch (_: Exception) {}
+                    // Sync when chip is tapped
+                    LaunchedEffect(selectedLabelId) {
+                        val targetIndex = labels.indexOfFirst { it.id == selectedLabelId }
+                        if (targetIndex >= 0 && targetIndex != pagerState.currentPage) {
+                            pagerState.animateScrollToPage(targetIndex)
+                        }
+                    }
+
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier.fillMaxSize(),
+                        beyondViewportPageCount = 1
+                    ) { pageIndex ->
+                        val currentLabel = labels.getOrNull(pageIndex) ?: return@HorizontalPager
+                        val pageConversations = remember(allConversations, currentLabel.id, searchQuery) {
+                            allConversations.filter { conv ->
+                                val matchesLabel = when (currentLabel.id) {
+                                    "all", "direct" -> !viewModel.isSmsConversation(conv) && !conv.isGroup
+                                    "groups" -> conv.isGroup && !viewModel.isSmsConversation(conv)
+                                    "sms" -> viewModel.isSmsConversation(conv)
+                                    else -> !viewModel.isSmsConversation(conv) && (currentLabel.chatIds.contains(conv.id) || conv.labelIds.contains(currentLabel.id))
                                 }
-                            }
-                        },
-                        onDismissSmsBanner = { isSmsBannerDismissed = true },
-                        onConversationClick = { conv ->
-                            if (lockedChatIds.contains(conv.id)) {
-                                lockedConvPrompt = conv
-                                unlockPinInput = ""
-                                unlockPinError = false
-                                if (privacyState.isChatLockBiometricEnabled) {
-                                    val km = context.getSystemService(android.content.Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
-                                    val intent = km?.createConfirmDeviceCredentialIntent(
-                                        "Unlock Chat",
-                                        "Confirm fingerprint, face, or screen lock to open ${conv.title}"
-                                    )
-                                    if (intent != null) {
-                                        try { biometricLauncher.launch(intent) } catch (_: Exception) {}
+                                val matchesQuery = if (searchQuery.isBlank()) true else {
+                                    conv.title.contains(searchQuery, ignoreCase = true) ||
+                                    conv.lastMessageText.contains(searchQuery, ignoreCase = true)
+                                }
+                                matchesLabel && matchesQuery
+                            }.distinctBy { it.id }
+                        }
+
+                        ChatsTabContent(
+                            conversations = pageConversations,
+                            labels = labels,
+                            selectedLabelId = currentLabel.id,
+                            isDefaultSmsApp = isDefaultSmsApp,
+                            isSmsBannerDismissed = isSmsBannerDismissed,
+                            lockedChatIds = lockedChatIds,
+                            selectedConversationIds = selectedConversationIds,
+                            onToggleSelectConversation = { conv ->
+                                selectedConversationIds = if (selectedConversationIds.contains(conv.id)) {
+                                    selectedConversationIds - conv.id
+                                } else {
+                                    selectedConversationIds + conv.id
+                                }
+                            },
+                            onLongClickConversation = { conv ->
+                                selectedConversationIds = selectedConversationIds + conv.id
+                            },
+                            onSetDefaultSmsClick = {
+                                val intent = SmsHelper.createDefaultSmsIntent(context)
+                                if (intent != null) {
+                                    try {
+                                        defaultSmsLauncher.launch(intent)
+                                    } catch (_: Exception) {
+                                        try { context.startActivity(intent) } catch (_: Exception) {}
                                     }
                                 }
-                            } else {
-                                viewModel.openConversation(conv.id, context)
-                            }
-                        },
-                        onAvatarClick = { conv -> quickViewConversation = conv },
-                        onDeleteConversation = { conv -> viewModel.deleteConversation(conv.id) },
-                        onStartChatClick = { showSelectContactScreen = true },
-                        onNewGroupClick = { showNewGroupScreen = true }
-                    )
+                            },
+                            onDismissSmsBanner = { isSmsBannerDismissed = true },
+                            onConversationClick = { conv ->
+                                if (lockedChatIds.contains(conv.id)) {
+                                    lockedConvPrompt = conv
+                                    unlockPinInput = ""
+                                    unlockPinError = false
+                                    if (privacyState.isChatLockBiometricEnabled) {
+                                        val km = context.getSystemService(android.content.Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
+                                        val intent = km?.createConfirmDeviceCredentialIntent(
+                                            "Unlock Chat",
+                                            "Confirm fingerprint, face, or screen lock to open ${conv.title}"
+                                        )
+                                        if (intent != null) {
+                                            try { biometricLauncher.launch(intent) } catch (_: Exception) {}
+                                        }
+                                    }
+                                } else {
+                                    viewModel.openConversation(conv.id, context)
+                                }
+                            },
+                            onAvatarClick = { conv -> quickViewConversation = conv },
+                            onDeleteConversation = { conv -> viewModel.deleteConversation(conv.id) },
+                            onStartChatClick = { showSelectContactScreen = true },
+                            onNewGroupClick = { showNewGroupScreen = true }
+                        )
+                    }
                 }
                 AppTab.STORIES -> {
                     StoriesScreen(
                         viewModel = viewModel,
-                        onCameraClick = { showCameraScreen = true }
+                        onCameraClick = { showCameraScreen = true },
+                        onTextStatusClick = { showAddTextStatusDialog = true }
                     )
                 }
                 AppTab.OJ_AI -> {
@@ -1253,40 +1325,7 @@ fun HomeScreen(
         )
     }
 
-    // Add Text Status Dialog (opened from Status pencil FAB)
-    if (showAddTextStatusDialog) {
-        var statusText by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { showAddTextStatusDialog = false },
-            title = { Text("Add Status Update", fontWeight = FontWeight.Bold) },
-            text = {
-                OutlinedTextField(
-                    value = statusText,
-                    onValueChange = { statusText = it },
-                    label = { Text("What's on your mind?") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (statusText.isNotBlank()) {
-                            viewModel.addStory(statusText.trim())
-                            showAddTextStatusDialog = false
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF007AFF))
-                ) {
-                    Text("Post")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddTextStatusDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
+
 
     // Invite Friends Dialog
     if (showInviteDialog) {
@@ -1937,6 +1976,7 @@ fun InviteFriendsModal(
     currentUser: com.example.model.UserProfile,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
     var copied by remember { mutableStateOf(false) }
 
     AlertDialog(
@@ -1978,7 +2018,21 @@ fun InviteFriendsModal(
         },
         confirmButton = {
             Button(
-                onClick = { copied = true },
+                onClick = {
+                    val link = "https://olinam.com/download?ref=${currentUser.phoneNumber.ifBlank { currentUser.id }}"
+                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                    clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("Olinam Invite", link))
+                    copied = true
+                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_SUBJECT, "Join me on Olinam")
+                        putExtra(Intent.EXTRA_TEXT, "Hey! Chat with me on Olinam - private, fast messaging: $link")
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    context.startActivity(Intent.createChooser(shareIntent, "Invite friends").apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    })
+                },
                 colors = ButtonDefaults.buttonColors(containerColor = OlinamPrimary)
             ) {
                 Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
