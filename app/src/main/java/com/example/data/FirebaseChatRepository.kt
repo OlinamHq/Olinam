@@ -1122,6 +1122,61 @@ class FirebaseChatRepository {
         return newId
     }
 
+    fun addGroupSystemMessage(conversationId: String, text: String) {
+        val sysMsg = Message(
+            id = "sys_${UUID.randomUUID().toString().take(8)}",
+            conversationId = conversationId,
+            senderId = "system",
+            senderName = "System",
+            text = text,
+            timestamp = System.currentTimeMillis(),
+            isEncrypted = false,
+            status = MessageStatus.SENT
+        )
+        val currentMsgs = _messages.value.toMutableMap()
+        val list = (currentMsgs[conversationId] ?: emptyList()).toMutableList()
+        list.add(sysMsg)
+        currentMsgs[conversationId] = list
+        _messages.value = currentMsgs
+        localDb?.saveMessage(sysMsg)
+
+        val updatedConv = _conversations.value.map { conv ->
+            if (conv.id == conversationId) {
+                conv.copy(
+                    lastMessageText = text,
+                    lastMessageTimestamp = sysMsg.timestamp
+                )
+            } else conv
+        }
+        _conversations.value = updatedConv
+        updatedConv.find { it.id == conversationId }?.let { localDb?.saveConversation(it) }
+
+        firestore?.let { db ->
+            scope.launch {
+                try {
+                    db.collection("conversations")
+                        .document(conversationId)
+                        .collection("messages")
+                        .document(sysMsg.id)
+                        .set(
+                            mapOf(
+                                "id" to sysMsg.id,
+                                "conversationId" to conversationId,
+                                "senderId" to "system",
+                                "senderName" to "System",
+                                "text" to text,
+                                "timestamp" to sysMsg.timestamp,
+                                "status" to "SENT",
+                                "isEncrypted" to false
+                            )
+                        )
+                } catch (e: Exception) {
+                    Log.w(tag, "Firestore system msg note: ${e.message}")
+                }
+            }
+        }
+    }
+
     fun updateGroupName(conversationId: String, name: String) {
         val cleanName = name.trim()
         if (cleanName.isBlank()) return
@@ -1130,6 +1185,7 @@ class FirebaseChatRepository {
         }
         _conversations.value = updated
         updated.find { it.id == conversationId }?.let { localDb?.saveConversation(it) }
+        addGroupSystemMessage(conversationId, "Group subject changed to \"$cleanName\"")
         firestore?.let { db ->
             scope.launch {
                 try {
@@ -1150,6 +1206,7 @@ class FirebaseChatRepository {
         }
         _conversations.value = updated
         updated.find { it.id == conversationId }?.let { localDb?.saveConversation(it) }
+        addGroupSystemMessage(conversationId, "Group description was updated")
         firestore?.let { db ->
             scope.launch {
                 try {
@@ -1185,6 +1242,7 @@ class FirebaseChatRepository {
         }
         _conversations.value = updated
         updated.find { it.id == conversationId }?.let { localDb?.saveConversation(it) }
+        addGroupSystemMessage(conversationId, "Group permissions were changed")
         firestore?.let { db ->
             scope.launch {
                 try {
@@ -1211,43 +1269,98 @@ class FirebaseChatRepository {
         }
         _conversations.value = updated
         updated.find { it.id == conversationId }?.let { localDb?.saveConversation(it) }
+        addGroupSystemMessage(conversationId, "Disappearing messages set to $duration")
     }
 
     fun toggleGroupAdmin(conversationId: String, participantId: String) {
+        var isNowAdmin = false
         val updated = _conversations.value.map { conv ->
             if (conv.id == conversationId && conv.isGroup) {
                 val currentAdmins = conv.groupAdminIds.toMutableList()
                 if (currentAdmins.contains(participantId)) {
                     currentAdmins.remove(participantId)
+                    isNowAdmin = false
                 } else {
                     currentAdmins.add(participantId)
+                    isNowAdmin = true
                 }
                 conv.copy(groupAdminIds = currentAdmins)
             } else conv
         }
         _conversations.value = updated
-        updated.find { it.id == conversationId }?.let { localDb?.saveConversation(it) }
+        val updatedConv = updated.find { it.id == conversationId }
+        updatedConv?.let { localDb?.saveConversation(it) }
+        val actionText = if (isNowAdmin) "$participantId is now a group admin" else "$participantId is no longer a group admin"
+        addGroupSystemMessage(conversationId, actionText)
+        firestore?.let { db ->
+            scope.launch {
+                try {
+                    db.collection("conversations").document(conversationId).set(
+                        mapOf("groupAdminIds" to (updatedConv?.groupAdminIds ?: emptyList())),
+                        com.google.firebase.firestore.SetOptions.merge()
+                    )
+                } catch (e: Exception) {
+                    Log.w(tag, "Firestore admin toggle failed: ${e.message}")
+                }
+            }
+        }
     }
 
     fun removeGroupParticipant(conversationId: String, participantId: String) {
         val updated = _conversations.value.map { conv ->
             if (conv.id == conversationId && conv.isGroup) {
-                conv.copy(participantIds = conv.participantIds.filter { it != participantId })
+                conv.copy(
+                    participantIds = conv.participantIds.filter { it != participantId },
+                    groupAdminIds = conv.groupAdminIds.filter { it != participantId }
+                )
             } else conv
         }
         _conversations.value = updated
-        updated.find { it.id == conversationId }?.let { localDb?.saveConversation(it) }
+        val updatedConv = updated.find { it.id == conversationId }
+        updatedConv?.let { localDb?.saveConversation(it) }
+        addGroupSystemMessage(conversationId, "$participantId was removed")
+        firestore?.let { db ->
+            scope.launch {
+                try {
+                    db.collection("conversations").document(conversationId).set(
+                        mapOf(
+                            "participantIds" to (updatedConv?.participantIds ?: emptyList()),
+                            "groupAdminIds" to (updatedConv?.groupAdminIds ?: emptyList())
+                        ),
+                        com.google.firebase.firestore.SetOptions.merge()
+                    )
+                } catch (e: Exception) {
+                    Log.w(tag, "Firestore participant removal failed: ${e.message}")
+                }
+            }
+        }
     }
 
     fun addGroupParticipants(conversationId: String, newParticipants: List<String>) {
+        val cleanNew = newParticipants.filter { it.isNotBlank() }
+        if (cleanNew.isEmpty()) return
         val updated = _conversations.value.map { conv ->
             if (conv.id == conversationId && conv.isGroup) {
-                val combined = (conv.participantIds + newParticipants).filter { it.isNotBlank() }.distinct()
+                val combined = (conv.participantIds + cleanNew).distinct()
                 conv.copy(participantIds = combined)
             } else conv
         }
         _conversations.value = updated
-        updated.find { it.id == conversationId }?.let { localDb?.saveConversation(it) }
+        val updatedConv = updated.find { it.id == conversationId }
+        updatedConv?.let { localDb?.saveConversation(it) }
+        addGroupSystemMessage(conversationId, "Added ${cleanNew.joinToString(", ")}")
+        firestore?.let { db ->
+            scope.launch {
+                try {
+                    db.collection("conversations").document(conversationId).set(
+                        mapOf("participantIds" to (updatedConv?.participantIds ?: emptyList())),
+                        com.google.firebase.firestore.SetOptions.merge()
+                    )
+                } catch (e: Exception) {
+                    Log.w(tag, "Firestore add participant failed: ${e.message}")
+                }
+            }
+        }
     }
 
     fun toggleChatLock(conversationId: String, isLocked: Boolean) {

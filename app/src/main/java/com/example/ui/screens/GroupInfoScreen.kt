@@ -94,6 +94,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.Conversation
 import com.example.model.GroupPermissions
+import com.example.ui.screens.group.*
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -129,7 +130,6 @@ fun GroupInfoScreen(
     var showAddMemberDialog by remember { mutableStateOf(false) }
     var newMemberPhoneInput by remember { mutableStateOf("") }
 
-    var selectedMemberForAction by remember { mutableStateOf<String?>(null) }
     var showRemoveMemberConfirm by remember { mutableStateOf<String?>(null) }
 
     var showClearChatConfirm by remember { mutableStateOf(false) }
@@ -152,6 +152,16 @@ fun GroupInfoScreen(
     val adminIds = remember(conversation.groupAdminIds) {
         conversation.groupAdminIds.toSet()
     }
+    val isCurrentUserAdmin = remember(conversation, currentUserId, adminIds) {
+        adminIds.contains(currentUserId) ||
+        adminIds.contains("user_me") ||
+        adminIds.contains("me") ||
+        conversation.groupCreatedBy == currentUserId ||
+        conversation.groupCreatedBy == "You" ||
+        adminIds.isEmpty()
+    }
+    val canEditGroupSettings = isCurrentUserAdmin || conversation.canMembersEditSettings
+    val canAddMembers = isCurrentUserAdmin || conversation.canMembersAddOthers
 
     val filteredMembers = remember(members, memberSearchQuery) {
         if (memberSearchQuery.isBlank()) members
@@ -458,6 +468,8 @@ fun GroupInfoScreen(
                         totalMembersCount = members.size,
                         adminIds = adminIds,
                         currentUserId = currentUserId,
+                        canAddMembers = canAddMembers,
+                        canManageMembers = isCurrentUserAdmin,
                         isSearching = isSearchingMembers,
                         searchQuery = memberSearchQuery,
                         onSearchQueryChange = { memberSearchQuery = it },
@@ -466,9 +478,8 @@ fun GroupInfoScreen(
                             if (!isSearchingMembers) memberSearchQuery = ""
                         },
                         onAddMemberClick = { showAddMemberDialog = true },
-                        onMemberClick = { member ->
-                            selectedMemberForAction = member
-                        }
+                        onToggleAdmin = onToggleAdmin,
+                        onRemoveMember = { showRemoveMemberConfirm = it }
                     )
                 }
                 1 -> {
@@ -493,7 +504,13 @@ fun GroupInfoScreen(
                             isFavourite = it
                             onToggleFavourite(it)
                         },
-                        onOpenPermissions = { showGroupPermissionsScreen = true },
+                        onOpenPermissions = {
+                            if (isCurrentUserAdmin) {
+                                showGroupPermissionsScreen = true
+                            } else {
+                                Toast.makeText(context, "Only group admins can change group permissions", Toast.LENGTH_SHORT).show()
+                            }
+                        },
                         onExportChat = { exportChat() },
                         onClearChat = { showClearChatConfirm = true },
                         onExitGroup = { showExitGroupConfirm = true },
@@ -506,208 +523,56 @@ fun GroupInfoScreen(
 
     // Edit Name Dialog
     if (showEditNameDialog) {
-        AlertDialog(
-            onDismissRequest = { showEditNameDialog = false },
-            title = { Text("Edit group name", fontWeight = FontWeight.Bold) },
-            text = {
-                OutlinedTextField(
-                    value = editNameInput,
-                    onValueChange = { editNameInput = it.take(30) },
-                    singleLine = true,
-                    placeholder = { Text("Group name") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val clean = editNameInput.trim()
-                        if (clean.isNotBlank()) {
-                            onSaveGroupName(clean)
-                            showEditNameDialog = false
-                            Toast.makeText(context, "Group name updated", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF007AFF))
-                ) {
-                    Text("Save")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showEditNameDialog = false }) {
-                    Text("Cancel", color = Color(0xFF64748B))
-                }
+        EditGroupNameDialog(
+            currentName = conversation.title,
+            onDismiss = { showEditNameDialog = false },
+            onConfirm = { clean ->
+                onSaveGroupName(clean)
+                showEditNameDialog = false
+                Toast.makeText(context, "Group name updated", Toast.LENGTH_SHORT).show()
             }
         )
     }
 
     // Edit Description Dialog
     if (showEditDescriptionDialog) {
-        AlertDialog(
-            onDismissRequest = { showEditDescriptionDialog = false },
-            title = { Text("Group description", fontWeight = FontWeight.Bold) },
-            text = {
-                OutlinedTextField(
-                    value = editDescriptionInput,
-                    onValueChange = { editDescriptionInput = it },
-                    placeholder = { Text("Add group description...") },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 3
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        onSaveGroupDescription(editDescriptionInput.trim())
-                        showEditDescriptionDialog = false
-                        Toast.makeText(context, "Description updated", Toast.LENGTH_SHORT).show()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF007AFF))
-                ) {
-                    Text("Save")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showEditDescriptionDialog = false }) {
-                    Text("Cancel", color = Color(0xFF64748B))
-                }
+        EditGroupDescriptionDialog(
+            currentDescription = conversation.groupDescription ?: "",
+            onDismiss = { showEditDescriptionDialog = false },
+            onConfirm = { clean ->
+                onSaveGroupDescription(clean)
+                showEditDescriptionDialog = false
+                Toast.makeText(context, "Description updated", Toast.LENGTH_SHORT).show()
             }
         )
     }
 
     // Add Member Dialog
     if (showAddMemberDialog) {
-        AlertDialog(
-            onDismissRequest = { showAddMemberDialog = false },
-            title = { Text("Add Member", fontWeight = FontWeight.Bold) },
-            text = {
-                Column {
-                    Text(
-                        text = "Enter phone number or contact ID to add to this group:",
-                        fontSize = 13.5.sp,
-                        color = Color(0xFF64748B)
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = newMemberPhoneInput,
-                        onValueChange = { newMemberPhoneInput = it },
-                        singleLine = true,
-                        placeholder = { Text("+91 98765 43210") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val clean = newMemberPhoneInput.trim()
-                        if (clean.isNotBlank()) {
-                            val updated = (members + clean).distinct()
-                            onUpdateMembers(updated)
-                            newMemberPhoneInput = ""
-                            showAddMemberDialog = false
-                            Toast.makeText(context, "Member added", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF007AFF))
-                ) {
-                    Text("Add")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddMemberDialog = false }) {
-                    Text("Cancel", color = Color(0xFF64748B))
-                }
+        AddGroupMemberDialog(
+            onDismiss = { showAddMemberDialog = false },
+            onConfirm = { clean ->
+                val updated = (members + clean).distinct()
+                onUpdateMembers(updated)
+                showAddMemberDialog = false
+                Toast.makeText(context, "Member added", Toast.LENGTH_SHORT).show()
             }
         )
     }
 
-    // Member Action Bottom Sheet / Dialog
-    val targetMember = selectedMemberForAction
-    if (targetMember != null) {
-        val isTargetAdmin = adminIds.contains(targetMember)
-        AlertDialog(
-            onDismissRequest = { selectedMemberForAction = null },
-            title = { Text(targetMember, fontWeight = FontWeight.Bold) },
-            text = {
-                Column {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                selectedMemberForAction = null
-                                onToggleAdmin(targetMember)
-                                Toast.makeText(
-                                    context,
-                                    if (isTargetAdmin) "Dismissed as admin" else "Made group admin",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            }
-                            .padding(vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Security,
-                            contentDescription = null,
-                            tint = Color(0xFF007AFF)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(if (isTargetAdmin) "Dismiss as admin" else "Make group admin")
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                selectedMemberForAction = null
-                                showRemoveMemberConfirm = targetMember
-                            }
-                            .padding(vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.RemoveCircleOutline,
-                            contentDescription = null,
-                            tint = Color(0xFFDC2626)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text("Remove from group", color = Color(0xFFDC2626))
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { selectedMemberForAction = null }) {
-                    Text("Close", color = Color(0xFF64748B))
-                }
-            }
-        )
-    }
 
     // Remove Member Confirmation
     val removeTarget = showRemoveMemberConfirm
     if (removeTarget != null) {
-        AlertDialog(
-            onDismissRequest = { showRemoveMemberConfirm = null },
-            title = { Text("Remove from group?") },
-            text = { Text("Are you sure you want to remove $removeTarget from ${conversation.title}?") },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val updated = members.filter { it != removeTarget }
-                        onUpdateMembers(updated)
-                        showRemoveMemberConfirm = null
-                        Toast.makeText(context, "$removeTarget removed", Toast.LENGTH_SHORT).show()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
-                ) {
-                    Text("Remove")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showRemoveMemberConfirm = null }) {
-                    Text("Cancel", color = Color(0xFF64748B))
-                }
+        RemoveMemberConfirmDialog(
+            memberName = removeTarget,
+            groupTitle = conversation.title,
+            onDismiss = { showRemoveMemberConfirm = null },
+            onConfirm = {
+                val updated = members.filter { it != removeTarget }
+                onUpdateMembers(updated)
+                showRemoveMemberConfirm = null
+                Toast.makeText(context, "$removeTarget removed", Toast.LENGTH_SHORT).show()
             }
         )
     }
@@ -740,27 +605,14 @@ fun GroupInfoScreen(
 
     // Exit Group Confirm
     if (showExitGroupConfirm) {
-        AlertDialog(
-            onDismissRequest = { showExitGroupConfirm = false },
-            title = { Text("Exit \"${conversation.title}\" group?") },
-            text = { Text("Only group admins will be notified that you left the group.") },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showExitGroupConfirm = false
-                        onExitGroup()
-                        Toast.makeText(context, "You left the group", Toast.LENGTH_SHORT).show()
-                        onBackClick()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
-                ) {
-                    Text("Exit")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showExitGroupConfirm = false }) {
-                    Text("Cancel", color = Color(0xFF64748B))
-                }
+        ExitGroupConfirmDialog(
+            groupTitle = conversation.title,
+            onDismiss = { showExitGroupConfirm = false },
+            onConfirm = {
+                showExitGroupConfirm = false
+                onExitGroup()
+                Toast.makeText(context, "You left the group", Toast.LENGTH_SHORT).show()
+                onBackClick()
             }
         )
     }
@@ -831,13 +683,17 @@ private fun MembersTabContent(
     totalMembersCount: Int,
     adminIds: Set<String>,
     currentUserId: String,
+    canAddMembers: Boolean,
+    canManageMembers: Boolean,
     isSearching: Boolean,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     onToggleSearch: () -> Unit,
     onAddMemberClick: () -> Unit,
-    onMemberClick: (String) -> Unit
+    onToggleAdmin: (String) -> Unit,
+    onRemoveMember: (String) -> Unit
 ) {
+    val context = LocalContext.current
     LazyColumn(
         modifier = Modifier.fillMaxSize()
     ) {
@@ -877,150 +733,76 @@ private fun MembersTabContent(
             }
         }
 
-        // "+ Add members" row (Screenshot 1 & 5)
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onAddMemberClick)
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
+        // "+ Add members" row
+        if (canAddMembers) {
+            item {
+                Row(
                     modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF111827)),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .clickable(onClick = onAddMemberClick)
+                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.PersonAdd,
-                        contentDescription = "Add members",
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF111827)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PersonAdd,
+                            contentDescription = "Add members",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
 
-                Spacer(modifier = Modifier.width(16.dp))
+                    Spacer(modifier = Modifier.width(16.dp))
 
-                Text(
-                    text = "Add members",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF111827)
-                )
-            }
-        }
-
-        // "You" row (Screenshot 1 & 5)
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFFE2EDFC)),
-                    contentAlignment = Alignment.Center
-                ) {
                     Text(
-                        text = "You",
-                        color = Color(0xFF0160E3),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(16.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "You",
+                        text = "Add members",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = Color(0xFF111827)
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "Add member tag",
-                        fontSize = 13.sp,
-                        color = Color(0xFF007AFF),
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = Color(0xFFF1F5F9)
-                ) {
-                    Text(
-                        text = "Group Admin",
-                        fontSize = 12.sp,
-                        color = Color(0xFF475569),
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                        fontWeight = FontWeight.Medium
-                    )
                 }
             }
         }
 
-        // Other members list (Screenshot 5)
-        items(members.filter { it != currentUserId && it != "You" }) { member ->
+        // "You" row
+        item {
+            GroupMemberItem(
+                memberId = currentUserId,
+                displayName = "You",
+                phoneNumber = "",
+                isAdmin = adminIds.contains(currentUserId) || adminIds.contains("user_me") || adminIds.contains("me") || adminIds.isEmpty(),
+                isCurrentUser = true,
+                canManageMembers = false,
+                onMakeAdmin = {},
+                onDismissAdmin = {},
+                onRemoveMember = {},
+                onMessageMember = {}
+            )
+        }
+
+        // Other members list using modular GroupMemberItem
+        items(members.filter { it != currentUserId && it != "You" && it != "user_me" && it != "me" }) { member ->
             val isAdmin = adminIds.contains(member)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onMemberClick(member) }
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFFEDE9FE)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Person,
-                        contentDescription = null,
-                        tint = Color(0xFF7C3AED),
-                        modifier = Modifier.size(22.dp)
-                    )
+            GroupMemberItem(
+                memberId = member,
+                displayName = member,
+                phoneNumber = if (member.any { it.isDigit() }) member else "",
+                isAdmin = isAdmin,
+                isCurrentUser = false,
+                canManageMembers = canManageMembers,
+                onMakeAdmin = { onToggleAdmin(member) },
+                onDismissAdmin = { onToggleAdmin(member) },
+                onRemoveMember = { onRemoveMember(member) },
+                onMessageMember = {
+                    Toast.makeText(context, "Opening chat with $member", Toast.LENGTH_SHORT).show()
                 }
-
-                Spacer(modifier = Modifier.width(16.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = member,
-                        fontSize = 15.5.sp,
-                        fontWeight = FontWeight.Normal,
-                        color = Color(0xFF111827),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                if (isAdmin) {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color(0xFFF1F5F9)
-                    ) {
-                        Text(
-                            text = "Group Admin",
-                            fontSize = 12.sp,
-                            color = Color(0xFF475569),
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-            }
+            )
         }
     }
 }

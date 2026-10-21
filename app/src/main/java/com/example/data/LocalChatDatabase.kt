@@ -97,6 +97,16 @@ class LocalChatDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_N
         ensureColumnExists(db, TABLE_MESSAGES, "replyToSenderName", "TEXT")
         ensureColumnExists(db, TABLE_MESSAGES, "replyToText", "TEXT")
         ensureColumnExists(db, TABLE_MESSAGES, "reaction", "TEXT")
+        ensureColumnExists(db, TABLE_CONVERSATIONS, "groupDescription", "TEXT")
+        ensureColumnExists(db, TABLE_CONVERSATIONS, "groupAdminIds", "TEXT")
+        ensureColumnExists(db, TABLE_CONVERSATIONS, "participantIds", "TEXT")
+        ensureColumnExists(db, TABLE_CONVERSATIONS, "canMembersEditSettings", "INTEGER")
+        ensureColumnExists(db, TABLE_CONVERSATIONS, "canMembersSendMessages", "INTEGER")
+        ensureColumnExists(db, TABLE_CONVERSATIONS, "canMembersAddOthers", "INTEGER")
+        ensureColumnExists(db, TABLE_CONVERSATIONS, "canMembersInviteViaLink", "INTEGER")
+        ensureColumnExists(db, TABLE_CONVERSATIONS, "requireAdminApprovalToJoin", "INTEGER")
+        ensureColumnExists(db, TABLE_CONVERSATIONS, "groupInviteCode", "TEXT")
+        ensureColumnExists(db, TABLE_CONVERSATIONS, "groupCreatedBy", "TEXT")
     }
 
     private fun ensureColumnExists(db: SQLiteDatabase, tableName: String, columnName: String, columnType: String) {
@@ -143,6 +153,16 @@ class LocalChatDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_N
             put("onlineStatus", conv.onlineStatus ?: "")
             put("iconType", conv.iconType)
             put("labelIds", conv.labelIds.joinToString(","))
+            put("groupDescription", conv.groupDescription ?: "")
+            put("groupAdminIds", conv.groupAdminIds.joinToString(","))
+            put("participantIds", conv.participantIds.joinToString(","))
+            put("canMembersEditSettings", if (conv.canMembersEditSettings) 1 else 0)
+            put("canMembersSendMessages", if (conv.canMembersSendMessages) 1 else 0)
+            put("canMembersAddOthers", if (conv.canMembersAddOthers) 1 else 0)
+            put("canMembersInviteViaLink", if (conv.canMembersInviteViaLink) 1 else 0)
+            put("requireAdminApprovalToJoin", if (conv.requireAdminApprovalToJoin) 1 else 0)
+            put("groupInviteCode", conv.groupInviteCode)
+            put("groupCreatedBy", conv.groupCreatedBy ?: "")
         }
         db.insertWithOnConflict(TABLE_CONVERSATIONS, null, cv, SQLiteDatabase.CONFLICT_REPLACE)
     }
@@ -169,6 +189,16 @@ class LocalChatDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_N
                     put("onlineStatus", conv.onlineStatus ?: "")
                     put("iconType", conv.iconType)
                     put("labelIds", conv.labelIds.joinToString(","))
+                    put("groupDescription", conv.groupDescription ?: "")
+                    put("groupAdminIds", conv.groupAdminIds.joinToString(","))
+                    put("participantIds", conv.participantIds.joinToString(","))
+                    put("canMembersEditSettings", if (conv.canMembersEditSettings) 1 else 0)
+                    put("canMembersSendMessages", if (conv.canMembersSendMessages) 1 else 0)
+                    put("canMembersAddOthers", if (conv.canMembersAddOthers) 1 else 0)
+                    put("canMembersInviteViaLink", if (conv.canMembersInviteViaLink) 1 else 0)
+                    put("requireAdminApprovalToJoin", if (conv.requireAdminApprovalToJoin) 1 else 0)
+                    put("groupInviteCode", conv.groupInviteCode)
+                    put("groupCreatedBy", conv.groupCreatedBy ?: "")
                 }
                 db.insertWithOnConflict(TABLE_CONVERSATIONS, null, cv, SQLiteDatabase.CONFLICT_REPLACE)
             }
@@ -201,6 +231,16 @@ class LocalChatDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_N
             val statusIdx = it.getColumnIndex("onlineStatus")
             val iconIdx = it.getColumnIndex("iconType")
             val labelsIdx = it.getColumnIndex("labelIds")
+            val descIdx = it.getColumnIndex("groupDescription")
+            val adminIdx = it.getColumnIndex("groupAdminIds")
+            val partIdx = it.getColumnIndex("participantIds")
+            val editSetIdx = it.getColumnIndex("canMembersEditSettings")
+            val sendMsgIdx = it.getColumnIndex("canMembersSendMessages")
+            val addMemIdx = it.getColumnIndex("canMembersAddOthers")
+            val invLnkIdx = it.getColumnIndex("canMembersInviteViaLink")
+            val reqAppIdx = it.getColumnIndex("requireAdminApprovalToJoin")
+            val invCodeIdx = it.getColumnIndex("groupInviteCode")
+            val createdByIdx = it.getColumnIndex("groupCreatedBy")
 
             while (it.moveToNext()) {
                 val id = it.getString(idIdx)
@@ -208,6 +248,12 @@ class LocalChatDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_N
 
                 val labelIdsStr = if (labelsIdx >= 0) it.getString(labelsIdx) ?: "" else ""
                 val labelIds = if (labelIdsStr.isNotBlank()) labelIdsStr.split(",") else emptyList()
+
+                val adminStr = if (adminIdx >= 0) it.getString(adminIdx) ?: "" else ""
+                val groupAdminIds = if (adminStr.isNotBlank()) adminStr.split(",").filter { s -> s.isNotBlank() } else emptyList()
+
+                val partStr = if (partIdx >= 0) it.getString(partIdx) ?: "" else ""
+                val participantIds = if (partStr.isNotBlank()) partStr.split(",").filter { s -> s.isNotBlank() } else emptyList()
 
                 result.add(
                     Conversation(
@@ -225,7 +271,17 @@ class LocalChatDatabase(context: Context) : SQLiteOpenHelper(context, DATABASE_N
                         isSpam = if (spamIdx >= 0) it.getInt(spamIdx) == 1 else false,
                         onlineStatus = if (statusIdx >= 0) it.getString(statusIdx).ifBlank { null } else null,
                         iconType = if (iconIdx >= 0) it.getString(iconIdx) ?: "USER" else "USER",
-                        labelIds = labelIds
+                        labelIds = labelIds,
+                        groupDescription = if (descIdx >= 0) it.getString(descIdx).ifBlank { null } else null,
+                        groupAdminIds = groupAdminIds,
+                        participantIds = participantIds,
+                        canMembersEditSettings = if (editSetIdx >= 0) it.getInt(editSetIdx) == 1 else true,
+                        canMembersSendMessages = if (sendMsgIdx >= 0) it.getInt(sendMsgIdx) == 1 else true,
+                        canMembersAddOthers = if (addMemIdx >= 0) it.getInt(addMemIdx) == 1 else true,
+                        canMembersInviteViaLink = if (invLnkIdx >= 0) it.getInt(invLnkIdx) == 1 else false,
+                        requireAdminApprovalToJoin = if (reqAppIdx >= 0) it.getInt(reqAppIdx) == 1 else false,
+                        groupInviteCode = if (invCodeIdx >= 0) it.getString(invCodeIdx) ?: "" else "",
+                        groupCreatedBy = if (createdByIdx >= 0) it.getString(createdByIdx).ifBlank { null } else null
                     )
                 )
             }

@@ -642,6 +642,18 @@ fun ChatDetailScreen(
     var isChatMuted by remember(conversation.id) {
         mutableStateOf(chatPrefs.getBoolean("muted_${conversation.id}", false))
     }
+    val isCurrentUserAdmin = remember(conversation, currentUserId) {
+        if (!conversation.isGroup) false
+        else {
+            val adminSet = conversation.groupAdminIds.toSet()
+            adminSet.contains(currentUserId) ||
+            adminSet.contains("user_me") ||
+            adminSet.contains("me") ||
+            conversation.groupCreatedBy == currentUserId ||
+            conversation.groupCreatedBy == "You" ||
+            adminSet.isEmpty()
+        }
+    }
     var activeDisappearingDurationState by remember(conversation.id) {
         mutableStateOf(chatPrefs.getString("disappearing_${conversation.id}", "Off") ?: "Off")
     }
@@ -1890,34 +1902,15 @@ fun ChatDetailScreen(
 
                     // Message list items
                     items(displayMessages, key = { it.id }) { msg ->
-                        if (msg.isUnreadDivider) {
-                            // Centered "1 unread message" pill (Matching user screenshot!)
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 8.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Surface(
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = Color.White,
-                                    shadowElevation = 0.5.dp
-                                ) {
-                                    Text(
-                                        text = msg.text.ifBlank { "1 unread message" },
-                                        fontSize = 12.5.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = Color(0xFF54656F),
-                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                                    )
-                                }
-                            }
+                        if (msg.senderId == "system" || msg.isUnreadDivider) {
+                            com.example.ui.screens.group.GroupSystemMessageBubble(text = msg.text)
                         } else {
                             val isMe = msg.senderId == currentUserId || msg.senderId == "user_me" || msg.senderId == "me"
                             val isHighlighted = isSearchMode && searchQuery.isNotBlank() && msg.text.contains(searchQuery, ignoreCase = true)
                             WhatsAppMessageBubble(
                                 message = msg,
                                 isMe = isMe,
+                                isGroup = conversation.isGroup,
                                 isHighlighted = isHighlighted,
                                 isReadReceiptsEnabled = isReadReceiptsEnabled,
                                 quickReactionEnabled = chatSettingsState.quickReaction,
@@ -1980,6 +1973,10 @@ fun ChatDetailScreen(
                             )
                         }
                     }
+                } else if (conversation.isGroup && !conversation.canMembersSendMessages && !isCurrentUserAdmin) {
+                    com.example.ui.screens.group.AdminOnlyNoticeBar(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                    )
                 } else if (isShortCodeOrAlphanumeric && !enableManualReplyTest) {
                     // Sleek, minimal read-only banner matching Google Messages production UX
                     Surface(
@@ -4261,6 +4258,7 @@ fun CreatePollDialog(
 fun WhatsAppMessageBubble(
     message: Message,
     isMe: Boolean,
+    isGroup: Boolean = false,
     isHighlighted: Boolean = false,
     isReadReceiptsEnabled: Boolean = true,
     quickReactionEnabled: Boolean = true,
@@ -4309,6 +4307,13 @@ fun WhatsAppMessageBubble(
             Column(
                 modifier = Modifier.padding(start = 9.dp, end = 9.dp, top = 6.dp, bottom = 5.dp)
             ) {
+                if (isGroup && !isMe && message.senderName.isNotBlank()) {
+                    com.example.ui.screens.group.GroupSenderHeader(
+                        senderName = message.senderName,
+                        senderId = message.senderId
+                    )
+                }
+
                 // Quoted / Tagged Reply Preview Card inside Bubble (Matching reference image)
                 if (!message.replyToText.isNullOrBlank()) {
                     Surface(
