@@ -706,6 +706,17 @@ fun HomeScreen(
         return
     }
 
+    // Oj AI full-screen destination (pixel-matching ChatDetailScreen layout & window insets)
+    if (currentTab == AppTab.OJ_AI) {
+        OjAiScreen(
+            viewModel = viewModel,
+            onBackClick = { viewModel.setTab(AppTab.CHATS) },
+            onOpenMorph = { viewModel.setTab(AppTab.MORPH) },
+            onOpenCamera = { showCameraScreen = true }
+        )
+        return
+    }
+
     BackHandler(enabled = selectedConversationIds.isNotEmpty()) {
         selectedConversationIds = emptySet()
     }

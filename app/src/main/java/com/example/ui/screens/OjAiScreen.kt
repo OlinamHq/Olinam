@@ -27,14 +27,25 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import android.Manifest
+import android.content.pm.PackageManager
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material3.Scaffold
 import com.example.ui.screens.ai.OjAiAttachmentSheet
 import com.example.ui.screens.camera.RecentMediaHelper
 import com.example.ui.screens.camera.RecentMediaItem
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.core.content.ContextCompat
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -194,15 +205,87 @@ fun OjAiScreen(
     var showAgentToolsSheet by remember { mutableStateOf(false) }
     var showEmojiPicker by remember { mutableStateOf(false) }
     var showAttachSheet by remember { mutableStateOf(false) }
-    var recentMedia by remember { mutableStateOf<List<RecentMediaItem>>(emptyList()) }
+    var showFullGalleryPicker by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        recentMedia = RecentMediaHelper.getRecentMedia(context)
+    val isMediaPermissionGranted = remember(context) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+    var hasGalleryPermission by remember { mutableStateOf(isMediaPermissionGranted) }
+    var photosReloadTrigger by remember { mutableStateOf(0) }
+
+    val mediaPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = permissions.values.any { it }
+        hasGalleryPermission = granted || (
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
+            } else {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+            }
+        )
+        if (granted) {
+            photosReloadTrigger++
+        }
     }
 
-    // Intercept back gesture: close emoji/attachment panel first if open, else exit to chats
+    // Query real photos exclusively from device MediaStore & camera captures (Zero dummy images)
+    val recentDevicePhotos = remember(context, photosReloadTrigger, hasGalleryPermission) {
+        val uris = mutableListOf<Uri>()
+        // 1. Session media
+        try {
+            val sessionItems = RecentMediaHelper.getRecentMedia(context)
+            for (item in sessionItems) {
+                if (!uris.contains(item.uri)) {
+                    uris.add(item.uri)
+                }
+            }
+        } catch (_: Exception) {}
+
+        // 2. Device MediaStore real gallery photos
+        try {
+            val projection = arrayOf(
+                android.provider.MediaStore.Images.Media._ID,
+                android.provider.MediaStore.Images.Media.DATE_ADDED
+            )
+            val sortOrder = "${android.provider.MediaStore.Images.Media.DATE_ADDED} DESC"
+            context.contentResolver.query(
+                android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                projection,
+                null,
+                null,
+                sortOrder
+            )?.use { cursor ->
+                val idColumn = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Images.Media._ID)
+                var count = 0
+                while (cursor.moveToNext() && count < 60) {
+                    val id = cursor.getLong(idColumn)
+                    val contentUri = android.content.ContentUris.withAppendedId(
+                        android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                        id
+                    )
+                    if (!uris.contains(contentUri)) {
+                        uris.add(contentUri)
+                        count++
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        uris
+    }
+
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+
+    // Intercept back gesture: close modals/panels first if open, else exit to chats
     BackHandler {
-        if (showEmojiPicker) {
+        if (showFullGalleryPicker) {
+            showFullGalleryPicker = false
+        } else if (showEmojiPicker) {
             showEmojiPicker = false
         } else if (showAttachSheet) {
             showAttachSheet = false
@@ -263,6 +346,28 @@ fun OjAiScreen(
         return
     }
 
+    // Full Recents Gallery Modal (Reused from ChatDetailScreen, zero dummy images)
+    if (showFullGalleryPicker) {
+        FullGalleryPickerModal(
+            onDismiss = { showFullGalleryPicker = false },
+            onCameraClick = {
+                showFullGalleryPicker = false
+                onOpenCamera()
+            },
+            onOpenPhotoPicker = {
+                showFullGalleryPicker = false
+                photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+            },
+            recentPhotos = recentDevicePhotos,
+            onImageSelected = { uri ->
+                showFullGalleryPicker = false
+                val prompt = if (inputPrompt.isBlank()) "Analyze this photo/video: $uri" else "$inputPrompt\n[Attached: $uri]"
+                viewModel.sendOjAiPrompt(prompt)
+                inputPrompt = ""
+            }
+        )
+    }
+
     // Auto-scroll to bottom on new message or typing state change
     LaunchedEffect(messages.size, isTyping) {
         if (messages.isNotEmpty()) {
@@ -270,43 +375,56 @@ fun OjAiScreen(
         }
     }
 
-    Scaffold(
+    // Unified edge-to-edge container: Pure white background extending through status bar & IME padding
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .testTag("oj_ai_screen"),
-        topBar = {
-            // Authentic WhatsApp Chat Top Bar
-            Surface(
-                color = Color.White,
-                shadowElevation = 1.dp,
-                modifier = Modifier.fillMaxWidth()
+            .background(Color.White)
+            .imePadding()
+            .testTag("oj_ai_screen")
+    ) {
+        // Pure White Top Container extending seamlessly through status bar
+        Surface(
+            color = Color.White,
+            shadowElevation = 0.5.dp,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
             ) {
-                Column(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .statusBarsPadding()
+                        .height(58.dp)
+                        .padding(horizontal = 4.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // Back Button
+                    IconButton(
+                        onClick = onBackClick,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .testTag("oj_ai_back_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back to Chats",
+                            tint = WhatsAppDarkText,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    // Avatar & Title Header (Clickable -> Opens Profile)
                     Row(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .height(58.dp)
-                            .padding(horizontal = 4.dp),
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { showProfileScreen = true }
+                            .padding(horizontal = 4.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Back Button
-                        IconButton(
-                            onClick = onBackClick,
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back to Chats",
-                                tint = WhatsAppDarkText,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-
-                        // Meta AI Style Glowing Avatar
                         Box(
                             modifier = Modifier
                                 .size(38.dp)
@@ -315,8 +433,7 @@ fun OjAiScreen(
                                     Brush.linearGradient(
                                         listOf(GeminiBlue, GeminiPurple, Color(0xFF06B6D4))
                                     )
-                                )
-                                .clickable { showProfileScreen = true },
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             Box(
@@ -337,12 +454,7 @@ fun OjAiScreen(
 
                         Spacer(modifier = Modifier.width(10.dp))
 
-                        // Name & Online Status
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { showProfileScreen = true }
-                        ) {
+                        Column {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     text = "Oj AI",
@@ -375,286 +487,481 @@ fun OjAiScreen(
                                 )
                             }
                         }
+                    }
 
-                        // Omkun Morph Shortcut Button
+                    // Omkun Morph Shortcut Button
+                    IconButton(
+                        onClick = onOpenMorph,
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(
+                            painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.ic_morph_notes),
+                            contentDescription = "Omkun Morph Notes",
+                            tint = GeminiBlue,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+
+                    // 3-dots Menu
+                    Box {
                         IconButton(
-                            onClick = onOpenMorph,
+                            onClick = { showMenu = true },
                             modifier = Modifier.size(38.dp)
                         ) {
                             Icon(
-                                painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.ic_morph_notes),
-                                contentDescription = "Omkun Morph Notes",
-                                tint = GeminiBlue,
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "Menu",
+                                tint = WhatsAppSubText,
                                 modifier = Modifier.size(22.dp)
                             )
                         }
 
-                        // 3-dots Menu
-                        Box {
-                            IconButton(
-                                onClick = { showMenu = true },
-                                modifier = Modifier.size(38.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.MoreVert,
-                                    contentDescription = "Menu",
-                                    tint = WhatsAppSubText,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-
-                            DropdownMenu(
-                                expanded = showMenu,
-                                onDismissRequest = { showMenu = false }
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Profile & Worker Settings") },
-                                    leadingIcon = {
-                                        Icon(Icons.Default.Person, contentDescription = null, tint = GeminiBlue, modifier = Modifier.size(20.dp))
-                                    },
-                                    onClick = {
-                                        showMenu = false
-                                        showProfileScreen = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Agent Tools & Rules") },
-                                    leadingIcon = {
-                                        Icon(Icons.Default.Settings, contentDescription = null, tint = GeminiBlue, modifier = Modifier.size(20.dp))
-                                    },
-                                    onClick = {
-                                        showMenu = false
-                                        showProfileScreen = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Omkun Morph Notes") },
-                                    leadingIcon = {
-                                        Icon(
-                                            painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.ic_morph_notes),
-                                            contentDescription = null,
-                                            tint = GeminiBlue,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    },
-                                    onClick = {
-                                        showMenu = false
-                                        onOpenMorph()
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Clear Chat") },
-                                    leadingIcon = {
-                                        Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(20.dp))
-                                    },
-                                    onClick = {
-                                        showMenu = false
-                                        showClearDialog = true
-                                    }
-                                )
-                            }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Profile & Worker Settings") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Person, contentDescription = null, tint = GeminiBlue, modifier = Modifier.size(20.dp))
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    showProfileScreen = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Agent Tools & Rules") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Settings, contentDescription = null, tint = GeminiBlue, modifier = Modifier.size(20.dp))
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    showProfileScreen = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Omkun Morph Notes") },
+                                leadingIcon = {
+                                    Icon(
+                                        painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.ic_morph_notes),
+                                        contentDescription = null,
+                                        tint = GeminiBlue,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    onOpenMorph()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Clear Chat") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(20.dp))
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    showClearDialog = true
+                                }
+                            )
                         }
                     }
                 }
             }
-        },
-        bottomBar = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .imePadding()
-            ) {
-                // WhatsApp Input Row (Identical to ChatDetailScreen)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 6.dp, end = 6.dp, bottom = 6.dp, top = 2.dp),
-                    verticalAlignment = Alignment.Bottom
-                ) {
-                    // Floating White Capsule Input
-                    Surface(
-                        shape = RoundedCornerShape(26.dp),
-                        color = Color.White,
-                        shadowElevation = 1.dp,
-                        modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = 48.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 4.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Smiley / Keyboard Toggle Button
-                            IconButton(
-                                onClick = {
-                                    showEmojiPicker = !showEmojiPicker
-                                    if (showEmojiPicker) showAttachSheet = false
-                                },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (showEmojiPicker) Icons.Default.Keyboard else Icons.Default.SentimentSatisfiedAlt,
-                                    contentDescription = "Emoji",
-                                    tint = if (showEmojiPicker) GeminiBlue else WhatsAppSubText,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
+        }
 
-                            // Message Input Field
+        // Chat Messages & Floating Input Container
+        // WhatsApp Doodle Background spans the entire viewport!
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        ) {
+            WhatsAppDoodleBackground(modifier = Modifier.fillMaxSize())
+
+            Column(
+                modifier = Modifier.fillMaxSize()
+            ) {
+                // Messages list filling the available space above the input with tap-outside dismiss
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        contentPadding = PaddingValues(top = 8.dp, bottom = 6.dp)
+                    ) {
+                        // Top Centered Date Pill
+                        item {
                             Box(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .padding(horizontal = 4.dp, vertical = 6.dp),
-                                contentAlignment = Alignment.CenterStart
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                if (inputPrompt.isEmpty()) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color.White.copy(alpha = 0.95f),
+                                    shadowElevation = 0.5.dp
+                                ) {
                                     Text(
-                                        text = "Ask Oj AI anything...",
-                                        fontSize = 16.sp,
-                                        color = Color(0xFF8696A0)
+                                        text = "Today",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = WhatsAppSubText,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
                                     )
                                 }
-                                BasicTextField(
-                                    value = inputPrompt,
-                                    onValueChange = {
-                                        inputPrompt = it
-                                        if (it.isNotEmpty()) {
-                                            showAttachSheet = false
-                                        }
-                                    },
-                                    textStyle = TextStyle(
-                                        fontSize = 16.sp,
-                                        color = WhatsAppDarkText
-                                    ),
-                                    cursorBrush = SolidColor(GeminiBlue),
-                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                                    keyboardActions = KeyboardActions(
-                                        onSend = {
-                                            if (inputPrompt.isNotBlank()) {
-                                                val promptToSend = inputPrompt
-                                                inputPrompt = ""
-                                                showEmojiPicker = false
-                                                showAttachSheet = false
-                                                viewModel.sendOjAiPrompt(promptToSend)
-                                            }
-                                        }
-                                    ),
+                            }
+                        }
+
+                        // Yellow End-to-End Encryption Banner (identical to Contact Chat)
+                        item {
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFFFFF7D6),
+                                shadowElevation = 0.5.dp
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(10.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Lock,
+                                            contentDescription = "Encrypted",
+                                            tint = Color(0xFF854D0E),
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Messages are end-to-end encrypted with Cloudflare Worker / Gemini. No one outside of this chat, not even Olinam, can read them. ",
+                                            fontSize = 12.sp,
+                                            color = WhatsAppSubText,
+                                            lineHeight = 16.sp,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                    Text(
+                                        text = "Learn more",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = WhatsAppDarkText,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+                        }
+
+                        // Suggested Prompts Row (Only when chat has 1 or fewer messages)
+                        if (messages.size <= 1) {
+                            item {
+                                Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .testTag("oj_ai_chat_input")
-                                )
-                            }
-
-                            // Paperclip Attachment Button
-                            IconButton(
-                                onClick = {
-                                    showAttachSheet = !showAttachSheet
-                                    if (showAttachSheet) showEmojiPicker = false
-                                },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.AttachFile,
-                                    contentDescription = "Attach",
-                                    tint = if (showAttachSheet) GeminiBlue else WhatsAppSubText,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-
-                            // Camera Button
-                            IconButton(
-                                onClick = {
-                                    photoPickerLauncher.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                        .padding(vertical = 4.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = "💡 Quick Prompts",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = WhatsAppSubText,
+                                        modifier = Modifier.padding(bottom = 6.dp)
                                     )
-                                },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.CameraAlt,
-                                    contentDescription = "Camera",
-                                    tint = WhatsAppSubText,
-                                    modifier = Modifier.size(22.dp)
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp)
+                                    ) {
+                                        items(OjAiService.initialSuggestions) { suggestion ->
+                                            Surface(
+                                                shape = RoundedCornerShape(16.dp),
+                                                color = Color.White,
+                                                shadowElevation = 1.dp,
+                                                modifier = Modifier.clickable {
+                                                    viewModel.sendOjAiPrompt(suggestion)
+                                                }
+                                            ) {
+                                                Text(
+                                                    text = suggestion,
+                                                    fontSize = 12.5.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = WhatsAppDarkText,
+                                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Messages List (WhatsApp Bubbles)
+                        items(messages, key = { it.id }) { msg ->
+                            if (msg.isUser) {
+                                WhatsAppUserBubble(message = msg)
+                            } else {
+                                WhatsAppAiBubble(
+                                    message = msg,
+                                    onCopy = { text ->
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        clipboard.setPrimaryClip(ClipData.newPlainText("Oj AI response", text))
+                                        Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                                    },
+                                    onShare = { text ->
+                                        val intent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, text)
+                                        }
+                                        context.startActivity(Intent.createChooser(intent, "Share Oj AI response"))
+                                    },
+                                    onFeedback = { feedback ->
+                                        viewModel.setOjAiFeedback(msg.id, feedback)
+                                        Toast.makeText(context, if (feedback > 0) "Helpful! 👍" else "Thanks for feedback 👎", Toast.LENGTH_SHORT).show()
+                                    },
+                                    onRegenerate = {
+                                        val lastUserMsg = messages.filter { it.isUser }.lastOrNull()
+                                        if (lastUserMsg != null) {
+                                            viewModel.sendOjAiPrompt(lastUserMsg.text)
+                                        }
+                                    }
                                 )
+                            }
+                        }
+
+                        // Typing Indicator Bubble
+                        if (isTyping) {
+                            item {
+                                WhatsAppAiTypingBubble()
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.width(6.dp))
-
-                    // Floating Circular Action Button (Mic / Send)
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .shadow(2.dp, CircleShape)
-                            .clip(CircleShape)
-                            .background(GeminiBlue)
-                            .clickable {
-                                if (inputPrompt.isNotBlank()) {
-                                    val promptToSend = inputPrompt
-                                    inputPrompt = ""
-                                    showEmojiPicker = false
+                    // Tap-outside dismiss overlay: When attachment sheet or emoji picker is open, tapping anywhere in message history closes it!
+                    if (showAttachSheet || showEmojiPicker) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
                                     showAttachSheet = false
-                                    viewModel.sendOjAiPrompt(promptToSend)
-                                } else {
-                                    try {
-                                        val speechIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                            putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to Oj AI...")
-                                        }
-                                        speechRecognizerLauncher.launch(speechIntent)
-                                    } catch (_: Exception) {
-                                        Toast.makeText(context, "Speak your prompt to Oj AI", Toast.LENGTH_SHORT).show()
-                                    }
+                                    showEmojiPicker = false
                                 }
-                            }
-                            .testTag("oj_ai_send_mic_button"),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = if (inputPrompt.isNotBlank()) Icons.AutoMirrored.Filled.Send else Icons.Default.Mic,
-                            contentDescription = if (inputPrompt.isNotBlank()) "Send" else "Voice input",
-                            tint = Color.White,
-                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }
 
-                // WhatsApp-style Docked Attachment Sheet (Docked BELOW input bar!)
+                // Floating Input Container (Identical to Contact Chat)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 6.dp, end = 6.dp, bottom = 6.dp, top = 2.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Rounded White Pill Text Field (height 48.dp, shadow 1.5.dp, shape 26.dp)
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .shadow(1.5.dp, RoundedCornerShape(26.dp)),
+                            shape = RoundedCornerShape(26.dp),
+                            color = Color.White
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Emoji toggle button
+                                IconButton(
+                                    onClick = {
+                                        keyboardController?.hide()
+                                        focusManager.clearFocus()
+                                        showEmojiPicker = !showEmojiPicker
+                                        if (showEmojiPicker) showAttachSheet = false
+                                    },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (showEmojiPicker) Icons.Default.Keyboard else Icons.Default.SentimentSatisfiedAlt,
+                                        contentDescription = "Emoji",
+                                        tint = if (showEmojiPicker) GeminiBlue else WhatsAppSubText,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+
+                                // Message Input Field with auto-dismiss of attachment/emoji sheet
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(horizontal = 4.dp)
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null
+                                        ) {
+                                            if (showAttachSheet) showAttachSheet = false
+                                            if (showEmojiPicker) showEmojiPicker = false
+                                        },
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    if (inputPrompt.isEmpty()) {
+                                        Text(
+                                            text = "Ask Oj AI anything...",
+                                            fontSize = 16.sp,
+                                            color = Color(0xFF8696A0)
+                                        )
+                                    }
+                                    BasicTextField(
+                                        value = inputPrompt,
+                                        onValueChange = {
+                                            inputPrompt = it
+                                            if (showAttachSheet) showAttachSheet = false
+                                            if (showEmojiPicker) showEmojiPicker = false
+                                        },
+                                        textStyle = TextStyle(
+                                            fontSize = 16.sp,
+                                            color = WhatsAppDarkText
+                                        ),
+                                        cursorBrush = SolidColor(GeminiBlue),
+                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                        keyboardActions = KeyboardActions(
+                                            onSend = {
+                                                if (inputPrompt.isNotBlank()) {
+                                                    val promptToSend = inputPrompt
+                                                    inputPrompt = ""
+                                                    showEmojiPicker = false
+                                                    showAttachSheet = false
+                                                    viewModel.sendOjAiPrompt(promptToSend)
+                                                }
+                                            }
+                                        ),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .onFocusChanged { focusState ->
+                                                if (focusState.isFocused) {
+                                                    if (showAttachSheet) showAttachSheet = false
+                                                    if (showEmojiPicker) showEmojiPicker = false
+                                                }
+                                            }
+                                            .testTag("oj_ai_chat_input")
+                                    )
+                                }
+
+                                // Paperclip Attachment Button (Opens WhatsAppAttachmentSheet with real gallery & swipe-up)
+                                IconButton(
+                                    onClick = {
+                                        keyboardController?.hide()
+                                        focusManager.clearFocus()
+                                        showAttachSheet = !showAttachSheet
+                                        if (showAttachSheet) {
+                                            showEmojiPicker = false
+                                            if (!hasGalleryPermission) {
+                                                val perms = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                                    arrayOf(
+                                                        Manifest.permission.READ_MEDIA_IMAGES,
+                                                        Manifest.permission.READ_MEDIA_VIDEO
+                                                    )
+                                                } else {
+                                                    arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+                                                }
+                                                mediaPermissionLauncher.launch(perms)
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AttachFile,
+                                        contentDescription = "Attach",
+                                        tint = if (showAttachSheet) GeminiBlue else WhatsAppSubText,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+
+                                // Camera Button
+                                IconButton(
+                                    onClick = onOpenCamera,
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CameraAlt,
+                                        contentDescription = "Camera",
+                                        tint = WhatsAppSubText,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        // Floating Circular Action Button (Mic / Send) in Royal Blue
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .shadow(2.dp, CircleShape)
+                                .clip(CircleShape)
+                                .background(GeminiBlue)
+                                .clickable {
+                                    if (inputPrompt.isNotBlank()) {
+                                        val promptToSend = inputPrompt
+                                        inputPrompt = ""
+                                        showEmojiPicker = false
+                                        showAttachSheet = false
+                                        viewModel.sendOjAiPrompt(promptToSend)
+                                    } else {
+                                        try {
+                                            val speechIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                                putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to Oj AI...")
+                                            }
+                                            speechRecognizerLauncher.launch(speechIntent)
+                                        } catch (_: Exception) {
+                                            Toast.makeText(context, "Speak your prompt to Oj AI", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }
+                                .testTag("oj_ai_send_mic_button"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (inputPrompt.isNotBlank()) Icons.AutoMirrored.Filled.Send else Icons.Default.Mic,
+                                contentDescription = if (inputPrompt.isNotBlank()) "Send" else "Voice input",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                }
+
+                // WhatsApp-style Docked Attachment Sheet (REUSING WhatsAppAttachmentSheet with real user photos & swipe up to expand!)
                 AnimatedVisibility(
                     visible = showAttachSheet,
                     enter = expandVertically() + fadeIn(),
                     exit = shrinkVertically() + fadeOut()
                 ) {
-                    OjAiAttachmentSheet(
+                    WhatsAppAttachmentSheet(
                         onDocumentClick = {
                             showAttachSheet = false
                             documentPickerLauncher.launch("*/*")
-                        },
-                        onCameraClick = {
-                            showAttachSheet = false
-                            photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                        },
-                        onGalleryClick = {
-                            showAttachSheet = false
-                            photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
-                        },
-                        onMorphNotesClick = {
-                            showAttachSheet = false
-                            val morphRepo = com.example.data.MorphRepository.getInstance(context)
-                            val note = morphRepo.notesFlow.value.firstOrNull()
-                            if (note != null) {
-                                inputPrompt = "Review this Morph note:\nTitle: ${note.title}\n${note.content}"
-                            } else {
-                                Toast.makeText(context, "No notes found in Morph", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        onAudioClick = {
-                            showAttachSheet = false
-                            audioPickerLauncher.launch("audio/*")
                         },
                         onLocationClick = {
                             showAttachSheet = false
@@ -662,17 +969,52 @@ fun OjAiScreen(
                             viewModel.sendOjAiPrompt(inputPrompt)
                             inputPrompt = ""
                         },
-                        recentMedia = recentMedia,
-                        onRecentMediaClick = { mediaItem ->
+                        onContactClick = {
                             showAttachSheet = false
-                            inputPrompt = "Analyze this media item: ${mediaItem.uri}"
+                            showProfileScreen = true
+                        },
+                        onPollClick = {
+                            showAttachSheet = false
+                            inputPrompt = "Can you create a quick poll or quiz for me?"
+                            viewModel.sendOjAiPrompt(inputPrompt)
+                            inputPrompt = ""
+                        },
+                        onCameraClick = {
+                            showAttachSheet = false
+                            onOpenCamera()
+                        },
+                        onGalleryClick = {
+                            showAttachSheet = false
+                            photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                        },
+                        onExpandGallery = {
+                            showAttachSheet = false
+                            if (recentDevicePhotos.isNotEmpty()) {
+                                showFullGalleryPicker = true
+                            } else {
+                                photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                            }
+                        },
+                        recentDevicePhotos = recentDevicePhotos,
+                        hasGalleryPermission = hasGalleryPermission,
+                        onRequestPermission = {
+                            val perms = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
+                            } else {
+                                arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+                            }
+                            mediaPermissionLauncher.launch(perms)
+                        },
+                        onRecentPhotoClick = { photoUri ->
+                            showAttachSheet = false
+                            inputPrompt = if (inputPrompt.isBlank()) "Analyze this image: $photoUri" else "$inputPrompt\n[Attached: $photoUri]"
                             viewModel.sendOjAiPrompt(inputPrompt)
                             inputPrompt = ""
                         }
                     )
                 }
 
-                // WhatsApp-style Docked Emoji Keyboard (Docked BELOW input bar!)
+                // WhatsApp-style Docked Emoji Keyboard
                 AnimatedVisibility(
                     visible = showEmojiPicker,
                     enter = expandVertically() + fadeIn(),
@@ -689,168 +1031,12 @@ fun OjAiScreen(
                         }
                     )
                 }
-            }
-        }
-    ) { innerPadding ->
-        // Main Chat Canvas with WhatsApp Doodle Background
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            WhatsAppDoodleBackground(modifier = Modifier.fillMaxSize())
 
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-                contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp)
-            ) {
-                // Top Centered Date Pill
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color.White.copy(alpha = 0.92f),
-                            shadowElevation = 0.5.dp
-                        ) {
-                            Text(
-                                text = "Today",
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = WhatsAppSubText,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
-                }
-
-                // Yellow End-to-End Encryption Banner
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = Color(0xFFFFF9C4),
-                            shadowElevation = 0.5.dp
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.Top
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Lock,
-                                    contentDescription = "Encrypted",
-                                    tint = Color(0xFF854D0E),
-                                    modifier = Modifier
-                                        .size(13.dp)
-                                        .offset(y = 2.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Messages and calls are end-to-end encrypted. Generated with Cloudflare Worker / Gemini. No one outside of this chat, not even Olinam, can read them. Learn more",
-                                    fontSize = 12.sp,
-                                    color = Color(0xFF713F12),
-                                    textAlign = TextAlign.Center,
-                                    lineHeight = 16.sp
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Suggested Prompts Row (Only when chat has 1 or fewer messages)
-                if (messages.size <= 1) {
-                    item {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = "💡 Quick Prompts",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = WhatsAppSubText,
-                                modifier = Modifier.padding(bottom = 6.dp)
-                            )
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp)
-                            ) {
-                                items(OjAiService.initialSuggestions) { suggestion ->
-                                    Surface(
-                                        shape = RoundedCornerShape(16.dp),
-                                        color = Color.White,
-                                        shadowElevation = 1.dp,
-                                        modifier = Modifier.clickable {
-                                            viewModel.sendOjAiPrompt(suggestion)
-                                        }
-                                    ) {
-                                        Text(
-                                            text = suggestion,
-                                            fontSize = 12.5.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = WhatsAppDarkText,
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Messages List (WhatsApp Bubbles)
-                items(messages, key = { it.id }) { msg ->
-                    if (msg.isUser) {
-                        WhatsAppUserBubble(message = msg)
-                    } else {
-                        WhatsAppAiBubble(
-                            message = msg,
-                            onCopy = { text ->
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("Oj AI response", text))
-                                Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-                            },
-                            onShare = { text ->
-                                val intent = Intent(Intent.ACTION_SEND).apply {
-                                    type = "text/plain"
-                                    putExtra(Intent.EXTRA_TEXT, text)
-                                }
-                                context.startActivity(Intent.createChooser(intent, "Share Oj AI response"))
-                            },
-                            onFeedback = { feedback ->
-                                viewModel.setOjAiFeedback(msg.id, feedback)
-                                Toast.makeText(context, if (feedback > 0) "Helpful! 👍" else "Thanks for feedback 👎", Toast.LENGTH_SHORT).show()
-                            },
-                            onRegenerate = {
-                                val lastUserMsg = messages.filter { it.isUser }.lastOrNull()
-                                if (lastUserMsg != null) {
-                                    viewModel.sendOjAiPrompt(lastUserMsg.text)
-                                }
-                            }
-                        )
-                    }
-                }
-
-                // Typing Indicator Bubble
-                if (isTyping) {
-                    item {
-                        WhatsAppAiTypingBubble()
-                    }
+                // Navigation bars padding INSIDE doodle container so texture extends all the way to screen bottom!
+                val density = LocalDensity.current
+                val isImeOpen = WindowInsets.ime.getBottom(density) > 0
+                if (!isImeOpen && !showEmojiPicker && !showAttachSheet) {
+                    Spacer(modifier = Modifier.navigationBarsPadding())
                 }
             }
         }

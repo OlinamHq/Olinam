@@ -12,13 +12,18 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
+import com.example.model.MediaType
+
 data class OjAiChatMessage(
     val id: String = java.util.UUID.randomUUID().toString(),
     val text: String,
     val isUser: Boolean,
     val timestamp: Long = System.currentTimeMillis(),
     val isError: Boolean = false,
-    val feedback: Int = 0 // 0: none, 1: like, -1: dislike
+    val feedback: Int = 0, // 0: none, 1: like, -1: dislike
+    val mediaUrl: String? = null,
+    val mediaType: MediaType = MediaType.TEXT,
+    val audioDurationSeconds: Int = 0
 )
 
 object OjAiService {

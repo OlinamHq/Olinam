@@ -111,16 +111,6 @@ object RecentMediaHelper {
         // Sort by timestamp descending
         result.sortByDescending { it.timestamp }
 
-        // If gallery has few or no photos (e.g. fresh emulator or first run), supply rich sample gallery photos and videos
-        if (result.size < 6) {
-            val samples = getSampleMedia()
-            for (sample in samples) {
-                if (result.none { it.id == sample.id }) {
-                    result.add(sample)
-                }
-            }
-        }
-
         return result
     }
 
@@ -130,49 +120,5 @@ object RecentMediaHelper {
         val minutes = totalSeconds / 60
         val seconds = totalSeconds % 60
         return String.format(Locale.getDefault(), "%d:%02d", minutes, seconds)
-    }
-
-    private fun getSampleMedia(): List<RecentMediaItem> {
-        val now = System.currentTimeMillis()
-        return listOf(
-            RecentMediaItem(
-                id = "sample_img_1",
-                uri = Uri.parse("https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=800"),
-                isVideo = false,
-                timestamp = now - 100000L
-            ),
-            RecentMediaItem(
-                id = "sample_vid_1",
-                uri = Uri.parse("https://images.unsplash.com/photo-1518791841217-8f162f1e1131?w=800"),
-                isVideo = true,
-                duration = "0:18",
-                timestamp = now - 200000L
-            ),
-            RecentMediaItem(
-                id = "sample_img_2",
-                uri = Uri.parse("https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=800"),
-                isVideo = false,
-                timestamp = now - 350000L
-            ),
-            RecentMediaItem(
-                id = "sample_vid_2",
-                uri = Uri.parse("https://images.unsplash.com/photo-1534447677768-be436bb09401?w=800"),
-                isVideo = true,
-                duration = "0:32",
-                timestamp = now - 500000L
-            ),
-            RecentMediaItem(
-                id = "sample_img_3",
-                uri = Uri.parse("https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800"),
-                isVideo = false,
-                timestamp = now - 750000L
-            ),
-            RecentMediaItem(
-                id = "sample_img_4",
-                uri = Uri.parse("https://images.unsplash.com/photo-1519681393784-d120267933ba?w=800"),
-                isVideo = false,
-                timestamp = now - 900000L
-            )
-        )
     }
 }

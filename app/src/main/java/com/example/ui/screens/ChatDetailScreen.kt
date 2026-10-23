@@ -23,8 +23,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -555,6 +563,8 @@ fun ChatDetailScreen(
     BackHandler {
         if (showLocationDialog) {
             showLocationDialog = false
+        } else if (showFullGalleryPicker) {
+            showFullGalleryPicker = false
         } else if (showAttachSheet) {
             showAttachSheet = false
         } else if (showEmojiPicker) {
@@ -594,6 +604,14 @@ fun ChatDetailScreen(
     val focusManager = LocalFocusManager.current
     val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
     val coroutineScope = rememberCoroutineScope()
+
+    val isKeyboardOpen = WindowInsets.ime.getBottom(density) > 0
+    LaunchedEffect(isKeyboardOpen) {
+        if (isKeyboardOpen) {
+            if (showAttachSheet) showAttachSheet = false
+            if (showEmojiPicker) showEmojiPicker = false
+        }
+    }
 
     var inputText by remember { mutableStateOf("") }
     var replyingToMessage by remember { mutableStateOf<Message?>(null) }
@@ -774,6 +792,7 @@ fun ChatDetailScreen(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) {
+            com.example.ui.screens.camera.RecentMediaHelper.registerCapturedMedia(uri)
             onSendMediaAttachment(uri, MediaType.IMAGE, "🖼️ Photo")
             Toast.makeText(context, "Photo sending...", Toast.LENGTH_SHORT).show()
         }
@@ -795,11 +814,58 @@ fun ChatDetailScreen(
         }
     }
 
-    // Query real recent photos from device MediaStore (Zero dummy images)
-    val recentDevicePhotos = remember(context) {
+    val isMediaPermissionGranted = remember(context) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.READ_MEDIA_IMAGES
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+    var hasGalleryPermission by remember { mutableStateOf(isMediaPermissionGranted) }
+    var photosReloadTrigger by remember { mutableStateOf(0) }
+
+    val mediaPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = permissions.values.any { it }
+        hasGalleryPermission = granted || (
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
+            } else {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+            }
+        )
+        if (granted) {
+            photosReloadTrigger++
+        }
+    }
+
+    // Query real photos exclusively from device MediaStore & camera captures (Zero dummy images)
+    val recentDevicePhotos = remember(context, photosReloadTrigger, hasGalleryPermission) {
         val uris = mutableListOf<Uri>()
+
+        // 1. Session media (captured/picked by user)
         try {
-            val projection = arrayOf(android.provider.MediaStore.Images.Media._ID)
+            val sessionItems = com.example.ui.screens.camera.RecentMediaHelper.getRecentMedia(context)
+            for (item in sessionItems) {
+                if (!uris.contains(item.uri)) {
+                    uris.add(item.uri)
+                }
+            }
+        } catch (_: Exception) {}
+
+        // 2. Query device MediaStore for real user gallery photos
+        try {
+            val projection = arrayOf(
+                android.provider.MediaStore.Images.Media._ID,
+                android.provider.MediaStore.Images.Media.DATE_ADDED
+            )
             val sortOrder = "${android.provider.MediaStore.Images.Media.DATE_ADDED} DESC"
             context.contentResolver.query(
                 android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
@@ -809,17 +875,19 @@ fun ChatDetailScreen(
                 sortOrder
             )?.use { cursor ->
                 val idCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Images.Media._ID)
-                while (cursor.moveToNext() && uris.size < 32) {
+                while (cursor.moveToNext() && uris.size < 60) {
                     val id = cursor.getLong(idCol)
-                    uris.add(
-                        android.content.ContentUris.withAppendedId(
-                            android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                            id
-                        )
+                    val contentUri = android.content.ContentUris.withAppendedId(
+                        android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                        id
                     )
+                    if (!uris.contains(contentUri)) {
+                        uris.add(contentUri)
+                    }
                 }
             }
         } catch (_: Exception) {}
+
         uris
     }
 
@@ -1741,16 +1809,20 @@ fun ChatDetailScreen(
                 modifier = Modifier.fillMaxSize()
             ) {
 
-                // Messages list filling the available space above the input
-                LazyColumn(
-                    state = listState,
+                // Messages list filling the available space above the input with tap-outside dismiss
+                Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .padding(horizontal = 4.dp),
-                    contentPadding = PaddingValues(top = 8.dp, bottom = 6.dp),
-                    verticalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 4.dp),
+                        contentPadding = PaddingValues(top = 8.dp, bottom = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
                     // WhatsApp Business Profile Card
                     if (conversation.isBusinessAccount || conversation.isVerified) {
                         item {
@@ -1936,6 +2008,24 @@ fun ChatDetailScreen(
                                 onActionClick = { showSecurityActionDialog = true }
                             )
                         }
+                    }
+                }
+
+                    // Tapping anywhere on the chat screen (messages or background) dismisses attachment sheet / emoji picker
+                    if (showAttachSheet || showEmojiPicker) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    showAttachSheet = false
+                                    showEmojiPicker = false
+                                    focusManager.clearFocus()
+                                    keyboardController?.hide()
+                                }
+                        )
                     }
                 }
 
@@ -2220,7 +2310,14 @@ fun ChatDetailScreen(
                                     Box(
                                         modifier = Modifier
                                             .weight(1f)
-                                            .padding(horizontal = 4.dp),
+                                            .padding(horizontal = 4.dp)
+                                            .clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null
+                                            ) {
+                                                if (showAttachSheet) showAttachSheet = false
+                                                if (showEmojiPicker) showEmojiPicker = false
+                                            },
                                         contentAlignment = Alignment.CenterStart
                                     ) {
                                         if (inputText.isEmpty()) {
@@ -2256,6 +2353,12 @@ fun ChatDetailScreen(
                                             ),
                                             modifier = Modifier
                                                 .fillMaxWidth()
+                                                .onFocusChanged { focusState ->
+                                                    if (focusState.isFocused) {
+                                                        if (showAttachSheet) showAttachSheet = false
+                                                        if (showEmojiPicker) showEmojiPicker = false
+                                                    }
+                                                }
                                                 .testTag("chat_message_input")
                                         )
                                     }
@@ -2266,7 +2369,20 @@ fun ChatDetailScreen(
                                             keyboardController?.hide()
                                             focusManager.clearFocus()
                                             showAttachSheet = !showAttachSheet
-                                            if (showAttachSheet) showEmojiPicker = false
+                                            if (showAttachSheet) {
+                                                showEmojiPicker = false
+                                                if (!hasGalleryPermission) {
+                                                    val perms = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                                        arrayOf(
+                                                            Manifest.permission.READ_MEDIA_IMAGES,
+                                                            Manifest.permission.READ_MEDIA_VIDEO
+                                                        )
+                                                    } else {
+                                                        arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+                                                    }
+                                                    mediaPermissionLauncher.launch(perms)
+                                                }
+                                            }
                                         },
                                         modifier = Modifier.size(36.dp)
                                     ) {
@@ -2348,7 +2464,24 @@ fun ChatDetailScreen(
                             showAttachSheet = false
                             photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
                         },
+                        onExpandGallery = {
+                            showAttachSheet = false
+                            if (recentDevicePhotos.isNotEmpty()) {
+                                showFullGalleryPicker = true
+                            } else {
+                                photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                            }
+                        },
                         recentDevicePhotos = recentDevicePhotos,
+                        hasGalleryPermission = hasGalleryPermission,
+                        onRequestPermission = {
+                            val perms = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
+                            } else {
+                                arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+                            }
+                            mediaPermissionLauncher.launch(perms)
+                        },
                         onRecentPhotoClick = { photoUri ->
                             showAttachSheet = false
                             onSendMediaAttachment(photoUri, MediaType.IMAGE, "")
@@ -3273,9 +3406,25 @@ fun WhatsAppAttachmentSheet(
     onPollClick: () -> Unit,
     onCameraClick: () -> Unit,
     onGalleryClick: () -> Unit,
+    onExpandGallery: () -> Unit,
     recentDevicePhotos: List<Uri>,
+    hasGalleryPermission: Boolean,
+    onRequestPermission: () -> Unit,
     onRecentPhotoClick: (Uri) -> Unit
 ) {
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                // Detecting scroll upwards to expand into full gallery
+                if (available.y < -25f) {
+                    onExpandGallery()
+                    return Offset.Zero
+                }
+                return Offset.Zero
+            }
+        }
+    }
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -3287,19 +3436,54 @@ fun WhatsAppAttachmentSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 8.dp, bottom = 8.dp)
+                .pointerInput(Unit) {
+                    detectVerticalDragGestures { _, dragAmount ->
+                        // Swiping / dragging upwards opens full gallery
+                        if (dragAmount < -15f) {
+                            onExpandGallery()
+                        }
+                    }
+                }
+                .padding(top = 6.dp, bottom = 8.dp)
         ) {
-            // Drag handle
-            Box(
+            // Drag handle with "Swipe up for gallery" indicator
+            Column(
                 modifier = Modifier
-                    .width(36.dp)
-                    .height(4.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF8696A0).copy(alpha = 0.45f))
-                    .align(Alignment.CenterHorizontally)
-            )
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { onExpandGallery() }
+                    .padding(vertical = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(38.dp)
+                        .height(4.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF8696A0).copy(alpha = 0.5f))
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowUp,
+                        contentDescription = "Swipe up for gallery",
+                        tint = Color(0xFF64748B),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text(
+                        text = "Swipe up for gallery",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF64748B)
+                    )
+                }
+            }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             // Action chips Row: File Manager, Location, Contact, Poll (compact pill style with smaller icons & spacing)
             Row(
@@ -3342,8 +3526,9 @@ fun WhatsAppAttachmentSheet(
                 columns = GridCells.Fixed(4),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(240.dp)
-                    .padding(horizontal = 2.dp),
+                    .height(260.dp)
+                    .padding(horizontal = 2.dp)
+                    .nestedScroll(nestedScrollConnection),
                 contentPadding = PaddingValues(2.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -3411,21 +3596,95 @@ fun WhatsAppAttachmentSheet(
                     }
                 }
 
-                // Recent Gallery photos from device MediaStore
-                items(recentDevicePhotos) { photoUri ->
-                    Surface(
-                        modifier = Modifier
-                            .aspectRatio(1f)
-                            .clickable { onRecentPhotoClick(photoUri) },
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color(0xFFE2E8F0)
-                    ) {
-                        AsyncImage(
-                            model = photoUri,
-                            contentDescription = "Recent photo",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
+                // If storage permission is not granted, show permission request card
+                if (!hasGalleryPermission) {
+                    item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(2) }) {
+                        Surface(
+                            modifier = Modifier
+                                .aspectRatio(2f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable { onRequestPermission() },
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFEFF6FF),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBFDBFE))
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(6.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = Color(0xFF0160E3),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(
+                                    text = "Allow Photos Access",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF0160E3),
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                    }
+                } else if (recentDevicePhotos.isEmpty()) {
+                    // Permission is granted but device has 0 photos stored
+                    item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(2) }) {
+                        Surface(
+                            modifier = Modifier
+                                .aspectRatio(2f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable { onGalleryClick() },
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFF8FAFC),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(6.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PhotoLibrary,
+                                    contentDescription = null,
+                                    tint = Color(0xFF64748B),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(
+                                    text = "Tap to choose photos",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF64748B),
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    // Real user device photos from MediaStore
+                    items(recentDevicePhotos) { photoUri ->
+                        Surface(
+                            modifier = Modifier
+                                .aspectRatio(1f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable { onRecentPhotoClick(photoUri) },
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFE2E8F0)
+                        ) {
+                            AsyncImage(
+                                model = photoUri,
+                                contentDescription = "Device photo",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
                     }
                 }
             }

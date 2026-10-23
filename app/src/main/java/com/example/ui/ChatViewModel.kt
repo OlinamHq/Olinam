@@ -898,6 +898,26 @@ class ChatViewModel @JvmOverloads constructor(
         }
     }
 
+    fun sendOjAiVoiceNote(file: java.io.File, durationSec: Int) {
+        val currentHistory = _ojAiMessages.value
+        val uri = android.net.Uri.fromFile(file)
+        val userVoiceMsg = OjAiChatMessage(
+            text = "🎙️ Voice message (${durationSec}s)",
+            isUser = true,
+            mediaUrl = uri.toString(),
+            mediaType = MediaType.VOICE,
+            audioDurationSeconds = durationSec
+        )
+        _ojAiMessages.value = currentHistory + userVoiceMsg
+        _isOjAiTyping.value = true
+        viewModelScope.launch {
+            val prompt = "User sent a voice note of $durationSec seconds. Respond courteously, acknowledge their voice message, and offer your help as Oj AI."
+            val responseText = OjAiService.generateResponse(prompt, currentHistory)
+            _isOjAiTyping.value = false
+            _ojAiMessages.value = _ojAiMessages.value + OjAiChatMessage(text = responseText, isUser = false)
+        }
+    }
+
     fun clearOjAiChat() {
         _ojAiMessages.value = listOf(
             OjAiChatMessage(
