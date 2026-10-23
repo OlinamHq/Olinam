@@ -30,7 +30,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -650,6 +652,20 @@ private val AVATAR_PALETTE = listOf(
     Color(0xFFF59E0B)  // Amber
 )
 
+private val parsedColorCache = java.util.concurrent.ConcurrentHashMap<String, Color>(32)
+
+fun parseColorCached(hex: String, fallback: Color = Color(0xFF007AFF)): Color {
+    if (hex.isBlank()) return fallback
+    parsedColorCache[hex]?.let { return it }
+    val parsed = try {
+        Color(android.graphics.Color.parseColor(hex))
+    } catch (_: Exception) {
+        fallback
+    }
+    parsedColorCache[hex] = parsed
+    return parsed
+}
+
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun ConversationListItem(
@@ -661,7 +677,11 @@ fun ConversationListItem(
     onLongClick: () -> Unit = {},
     onAvatarClick: () -> Unit = onClick
 ) {
+    val context = LocalContext.current
     val isItemLocked = isLocked
+    val formattedTime = remember(conversation.lastMessageTimestamp) {
+        formatMessageTime(conversation.lastMessageTimestamp)
+    }
     val attachedLabels = remember(conversation.labelIds, labels) {
         if (conversation.isSmsContact || conversation.labelIds.isEmpty()) {
             emptyList()
@@ -687,11 +707,11 @@ fun ConversationListItem(
             .testTag("conversation_item_${conversation.id}"),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // WhatsApp compact circular avatar (48dp)
+        // WhatsApp compact circular avatar (50dp)
         Box(
             contentAlignment = Alignment.BottomEnd,
             modifier = Modifier
-                .clickable { onAvatarClick() }
+                .clickable(onClick = onAvatarClick)
                 .testTag("avatar_${conversation.id}")
         ) {
             val avatarColor = remember(conversation.id, conversation.title) {
@@ -709,9 +729,19 @@ fun ConversationListItem(
                     .background(avatarColor),
                 contentAlignment = Alignment.Center
             ) {
-                if (!conversation.avatarUrl.isNullOrBlank()) {
+                val avatarUrl = conversation.avatarUrl
+                if (!avatarUrl.isNullOrBlank()) {
+                    val avatarRequest = remember(avatarUrl, context) {
+                        ImageRequest.Builder(context)
+                            .data(avatarUrl)
+                            .size(150)
+                            .crossfade(false)
+                            .memoryCacheKey(avatarUrl)
+                            .diskCacheKey(avatarUrl)
+                            .build()
+                    }
                     AsyncImage(
-                        model = conversation.avatarUrl,
+                        model = avatarRequest,
                         contentDescription = conversation.title,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
@@ -805,7 +835,7 @@ fun ConversationListItem(
                 Spacer(modifier = Modifier.width(8.dp))
 
                 Text(
-                    text = formatMessageTime(conversation.lastMessageTimestamp),
+                    text = formattedTime,
                     fontSize = 12.sp,
                     color = if (conversation.unreadCount > 0) Color(0xFF0160E3) else Color(0xFF8696A0),
                     fontWeight = if (conversation.unreadCount > 0) FontWeight.SemiBold else FontWeight.Normal
@@ -891,11 +921,7 @@ fun ConversationListItem(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     attachedLabels.take(3).forEach { label ->
-                        val labelColor = try {
-                            Color(android.graphics.Color.parseColor(label.colorHex))
-                        } catch (_: Exception) {
-                            Color(0xFF007AFF)
-                        }
+                        val labelColor = parseColorCached(label.colorHex)
                         Surface(
                             shape = RoundedCornerShape(6.dp),
                             color = labelColor.copy(alpha = 0.12f),
@@ -1058,10 +1084,8 @@ private fun androidx.compose.foundation.layout.RowScope.BottomNavItem(
         modifier = Modifier
             .weight(1f)
             .height(58.dp)
-            .clickable(
-                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                indication = null
-            ) { onClick() }
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
             .testTag(testTag),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center

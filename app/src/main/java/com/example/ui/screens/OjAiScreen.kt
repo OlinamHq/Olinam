@@ -480,7 +480,7 @@ fun OjAiScreen(
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = if (isTyping) "typing..." else "with Cloudflare Worker • online",
+                                    text = if (isTyping) "typing..." else "Powered by Gemini • online",
                                     fontSize = 12.sp,
                                     color = if (isTyping) GeminiBlue else WhatsAppSubText,
                                     maxLines = 1
@@ -521,7 +521,7 @@ fun OjAiScreen(
                             onDismissRequest = { showMenu = false }
                         ) {
                             DropdownMenuItem(
-                                text = { Text("Profile & Worker Settings") },
+                                text = { Text("Oj AI Profile & Connected Apps") },
                                 leadingIcon = {
                                     Icon(Icons.Default.Person, contentDescription = null, tint = GeminiBlue, modifier = Modifier.size(20.dp))
                                 },
@@ -647,7 +647,7 @@ fun OjAiScreen(
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            text = "Messages are end-to-end encrypted with Cloudflare Worker / Gemini. No one outside of this chat, not even Olinam, can read them. ",
+                                            text = "Messages are end-to-end encrypted. No one outside of this chat, not even Olinam, can read them. ",
                                             fontSize = 12.sp,
                                             color = WhatsAppSubText,
                                             lineHeight = 16.sp,
@@ -1352,8 +1352,9 @@ private fun OjAiAgentBottomSheetContent(
 ) {
     val plugins by agentManager.plugins.collectAsState()
     val settings by agentManager.settings.collectAsState()
-    val delegatedContacts by agentManager.delegatedContacts.collectAsState()
     val context = LocalContext.current
+    val morphRepo = remember(context) { com.example.data.MorphRepository.getInstance(context) }
+    var showMorphAuthSheet by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -1384,7 +1385,7 @@ private fun OjAiAgentBottomSheetContent(
                         color = WhatsAppDarkText
                     )
                     Text(
-                        text = "Executive Auto-Pilot & Workspace Sync",
+                        text = "Executive Auto-Pilot & Connected Accounts",
                         fontSize = 12.5.sp,
                         color = WhatsAppSubText
                     )
@@ -1447,6 +1448,11 @@ private fun OjAiAgentBottomSheetContent(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .clickable {
+                        if (plugin.id == "morph_plugin") {
+                            showMorphAuthSheet = true
+                        }
+                    }
                     .padding(vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -1504,10 +1510,29 @@ private fun OjAiAgentBottomSheetContent(
                 }
                 Switch(
                     checked = plugin.isConnected,
-                    onCheckedChange = { agentManager.togglePlugin(plugin.id, it) },
+                    onCheckedChange = { enabled ->
+                        val ok = agentManager.togglePlugin(plugin.id, enabled)
+                        if (!ok && plugin.id == "morph_plugin") {
+                            showMorphAuthSheet = true
+                        }
+                    },
                     colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = GeminiBlue)
                 )
             }
         }
+    }
+
+    if (showMorphAuthSheet) {
+        com.example.ui.components.MorphAuthBottomSheet(
+            repository = morphRepo,
+            onDismiss = { showMorphAuthSheet = false },
+            onAuthenticated = { account ->
+                agentManager.togglePlugin("morph_plugin", true)
+                Toast.makeText(context, "Signed in to Omkun Morph as ${account.email}", Toast.LENGTH_SHORT).show()
+            },
+            onDisconnected = {
+                agentManager.refreshPlugins()
+            }
+        )
     }
 }

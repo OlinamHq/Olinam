@@ -1,7 +1,11 @@
 package com.example.ai
 
 import android.util.Log
+import androidx.compose.runtime.Immutable
 import com.example.BuildConfig
+import com.example.model.MediaType
+import com.example.model.MorphAccount
+import com.example.model.MorphPalette
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -10,12 +14,13 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Locale
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 
-import com.example.model.MediaType
-
+@Immutable
 data class OjAiChatMessage(
-    val id: String = java.util.UUID.randomUUID().toString(),
+    val id: String = UUID.randomUUID().toString(),
     val text: String,
     val isUser: Boolean,
     val timestamp: Long = System.currentTimeMillis(),
@@ -28,42 +33,27 @@ data class OjAiChatMessage(
 
 object OjAiService {
     private const val TAG = "OjAiService"
-    private const val GEMINI_MODEL = "gemini-3.5-flash"
+    private const val GEMINI_MODEL = "gemini-2.5-flash"
     private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/"
-
-    /**
-     * Cloudflare Worker backend URL for Oj AI.
-     * Dummy default URL as requested: https://oj-ai-worker.olinam.workers.dev/api/chat
-     * You can directly change this URL here or via setWorkerUrl(newUrl).
-     */
-    var CLOUDFLARE_WORKER_URL: String = "https://oj-ai-worker.olinam.workers.dev/api/chat"
-
-    fun setWorkerUrl(newUrl: String) {
-        CLOUDFLARE_WORKER_URL = newUrl.trim()
-    }
-
-    fun getWorkerUrl(): String = CLOUDFLARE_WORKER_URL
+    private const val INTERNAL_WORKER_URL = "https://oj-ai-worker.olinam.workers.dev/api/chat"
 
     val initialSuggestions = listOf(
+        "📝 Show my Omkun Morph notes",
+        "➕ Create a Morph note: Sprint Goals",
         "✨ Summarize my pending chats",
         "✍️ Draft a polite decline message",
         "🌐 Translate 'See you tomorrow' to Hindi",
-        "💡 Plan a weekend movie night with friends",
-        "🔒 How does Olinam end-to-end encryption work?",
-        "💻 Write a Kotlin Compose sample"
+        "🔒 How does Olinam encryption work?"
     )
 
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(60, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(60, TimeUnit.SECONDS)
+            .connectTimeout(45, TimeUnit.SECONDS)
+            .readTimeout(45, TimeUnit.SECONDS)
+            .writeTimeout(45, TimeUnit.SECONDS)
             .build()
     }
 
-    /**
-     * Resolves the Gemini API key from BuildConfig or environment variables.
-     */
     fun getApiKey(): String {
         return try {
             val field = BuildConfig::class.java.getDeclaredField("GEMINI_API_KEY")
@@ -75,240 +65,474 @@ object OjAiService {
     }
 
     /**
-     * Generates a conversational response using:
-     * 1. Cloudflare Worker backend (if URL is provided)
-     * 2. Gemini 3.5 Flash REST API fallback
-     * 3. Intelligent local assistant fallback
+     * Generates a response while executing authenticated Omkun Morph tool operations
+     * strictly against the signed-in user's MorphAccount.
      */
     suspend fun generateResponse(
         userPrompt: String,
-        history: List<OjAiChatMessage> = emptyList()
+        history: List<OjAiChatMessage> = emptyList(),
+        agentManager: OjAiAgentManager? = null
     ): String = withContext(Dispatchers.IO) {
-        // 1. First Priority: Cloudflare Worker backend
-        if (CLOUDFLARE_WORKER_URL.isNotBlank()) {
-            try {
-                val workerResponse = callCloudflareWorker(CLOUDFLARE_WORKER_URL, userPrompt, history)
-                if (workerResponse.isNotBlank()) {
-                    Log.i(TAG, "Oj AI response successfully received from Cloudflare Worker")
-                    return@withContext workerResponse
-                }
-            } catch (t: Throwable) {
-                Log.w(TAG, "Cloudflare Worker request note (${t.message}). Falling back to Gemini/intelligent engine.")
+        // 1. Check if prompt targets Omkun Morph Notes (CRUD / Read / Sync)
+        if (agentManager != null) {
+            val morphToolResponse = handleMorphToolIntentIfApplicable(userPrompt, agentManager)
+            if (morphToolResponse != null) {
+                return@withContext morphToolResponse
             }
         }
 
-        // 2. Second Priority: Direct Gemini REST API
+        // Build authenticated context block (Morph notes + custom instructions)
+        val systemContext = buildSystemContext(agentManager)
+
+        // 2. Priority 1: Direct Gemini REST API (when GEMINI_API_KEY is configured in Secrets)
         val apiKey = getApiKey()
         if (apiKey.isNotBlank()) {
             try {
-                val response = callGeminiRestApi(apiKey, userPrompt, history)
+                val response = callGeminiRestApi(apiKey, userPrompt, history, systemContext)
                 if (response.isNotBlank()) {
                     return@withContext response
                 }
             } catch (t: Throwable) {
-                Log.w(TAG, "Gemini REST API attempt failed: ${t.message}. Falling back to smart assistant logic.", t)
+                Log.w(TAG, "Gemini REST API notice: ${t.message}")
             }
         }
 
-        // 3. Fallback: Context-aware smart assistant logic
-        generateSmartFallback(userPrompt)
+        // 3. Priority 2: Internal Oj AI Cloud Worker
+        try {
+            val workerResponse = callInternalWorker(userPrompt, history, systemContext)
+            if (workerResponse.isNotBlank()) {
+                return@withContext workerResponse
+            }
+        } catch (t: Throwable) {
+            Log.d(TAG, "Internal worker fallback notice: ${t.message}")
+        }
+
+        // 4. Context-aware intelligent fallback
+        generateSmartFallback(userPrompt, agentManager)
     }
 
-    private fun callCloudflareWorker(
-        workerUrl: String,
+    private fun handleMorphToolIntentIfApplicable(
+        prompt: String,
+        agentManager: OjAiAgentManager
+    ): String? {
+        val trimmed = prompt.trim()
+        val lower = trimmed.lowercase(Locale.US)
+
+        val mentionsMorphExplicitly = lower.contains("morph")
+        val mentionsNotes = lower.contains("note") || lower.contains("notes") ||
+            lower.contains("checklist") || lower.contains("todo") || lower.contains("to-do")
+
+        if (!mentionsMorphExplicitly && !mentionsNotes) return null
+
+        val isCreate = lower.contains("create") || lower.contains("add") || lower.contains("save") ||
+            lower.contains("new note") || lower.contains("make a note") || lower.contains("write a note") ||
+            lower.contains("banao") || lower.contains("bana do") || lower.contains("likho") || lower.contains("save karo")
+        val isDelete = lower.contains("delete") || lower.contains("remove") ||
+            lower.contains("hatao") || lower.contains("delete karo") || lower.contains("hata do")
+        val isUpdate = lower.contains("update") || lower.contains("edit") || lower.contains("append") ||
+            lower.contains("change") || lower.contains("badlo")
+        val isListOrRead = lower.contains("show") || lower.contains("list") || lower.contains("read") ||
+            lower.contains("my morph") || lower.contains("my notes") || lower.contains("what") ||
+            lower.contains("dikhao") || lower.contains("batao") || lower.contains("padho") || lower.contains("search")
+
+        if (!isCreate && !isDelete && !isUpdate && !isListOrRead && !mentionsMorphExplicitly) {
+            return null
+        }
+
+        val morphRepo = agentManager.morphRepository
+        val connectedAccount = morphRepo.connectedAccountFlow.value
+
+        // Enforce strict account authentication before any Morph access!
+        if (connectedAccount == null) {
+            return "🔒 **Sign in to Omkun Morph Required**\n\n" +
+                "To read, create, or delete notes, Morph needs to know which account to use.\n\n" +
+                "1. Tap **Oj AI** at the top (or the **Agent Tools** menu)\n" +
+                "2. Tap **Omkun Morph Notes** and sign in with your account\n" +
+                "3. Authorize permissions — then ask me again!"
+        }
+
+        if (!agentManager.isMorphAuthenticatedAndActive()) {
+            return "⏸️ **Omkun Morph Integration Paused**\n\n" +
+                "Your Morph account (**${connectedAccount.email}**) is signed in, but Oj AI access is currently turned off. " +
+                "Enable the **Omkun Morph Notes** switch in **Oj AI Profile → Work Integrations** to continue."
+        }
+
+        // Handle DELETE Note
+        if (isDelete) {
+            if (!connectedAccount.authorizedScopes.contains(MorphAccount.SCOPE_DELETE)) {
+                return "⚠️ **Delete Permission Not Granted**\n\n" +
+                    "Oj AI does not have permission to delete notes in **${connectedAccount.email}**. " +
+                    "You can update authorized scopes in **Omkun Morph Notes** settings."
+            }
+            val query = extractTargetQueryForDelete(trimmed)
+            val deleteResult = morphRepo.deleteNoteByQueryFromAi(query)
+            return deleteResult.fold(
+                onSuccess = { deleted ->
+                    "🗑️ **Note Deleted from Omkun Morph**\n\n" +
+                        "• **Deleted:** ${deleted.title.ifBlank { deleted.content.take(30) }}\n" +
+                        "• **Account:** ${connectedAccount.email}\n" +
+                        "• **Remaining Notes:** ${morphRepo.notesFlow.value.count { !it.isArchived }}"
+                },
+                onFailure = {
+                    val existingTitles = morphRepo.notesFlow.value.filter { !it.isArchived }
+                        .take(5)
+                        .joinToString("\n") { "• ${it.title.ifBlank { "Untitled" }}" }
+                    if (existingTitles.isBlank()) {
+                        "📭 Your Morph account (**${connectedAccount.email}**) currently has no notes to delete."
+                    } else {
+                        "🔍 Couldn't find a note matching *\"$query\"* in **${connectedAccount.email}**.\n\n" +
+                            "**Available notes in your account:**\n$existingTitles\n\n" +
+                            "*Try saying: \"Delete Morph note [Title]\"*"
+                    }
+                }
+            )
+        }
+
+        // Handle CREATE Note
+        if (isCreate) {
+            if (!connectedAccount.authorizedScopes.contains(MorphAccount.SCOPE_WRITE)) {
+                return "⚠️ **Create/Write Permission Not Granted**\n\n" +
+                    "Oj AI only has read access for **${connectedAccount.email}**. Re-authorize with Create & Edit permission to add notes."
+            }
+            val (title, body, checklist) = parseTitleAndContentForCreate(trimmed)
+            val createdResult = morphRepo.createNoteFromAi(
+                title = title,
+                content = body,
+                checklistItems = checklist,
+                isPinned = lower.contains("pin"),
+                colorHex = when {
+                    lower.contains("blue") -> MorphPalette.Sky
+                    lower.contains("green") -> MorphPalette.Mint
+                    lower.contains("pink") || lower.contains("red") -> MorphPalette.Peach
+                    lower.contains("purple") -> MorphPalette.Lavender
+                    else -> MorphPalette.Lemon
+                }
+            )
+            return createdResult.fold(
+                onSuccess = { note ->
+                    val preview = if (note.isChecklist) {
+                        note.checklist.joinToString("\n") { "☐ ${it.text}" }
+                    } else {
+                        note.content
+                    }
+                    "✅ **Saved to Omkun Morph**\n\n" +
+                        "• **Title:** ${note.title}\n" +
+                        (if (preview.isNotBlank()) "• **Content:**\n$preview\n" else "") +
+                        "• **Account:** ${connectedAccount.email}"
+                },
+                onFailure = {
+                    "⚠️ Could not create note in **${connectedAccount.email}**: ${it.message}"
+                }
+            )
+        }
+
+        // Handle UPDATE Note
+        if (isUpdate) {
+            val payload = trimmed.substringAfter(":", "").trim()
+            if (payload.isNotBlank()) {
+                val targetTitle = trimmed.substringBefore(":")
+                    .replace(Regex("(?i)(update|edit|append|morph|note|in|to)"), "")
+                    .trim()
+                val updateRes = morphRepo.updateNoteByQueryFromAi(targetTitle, payload, append = true)
+                if (updateRes.isSuccess) {
+                    val updated = updateRes.getOrThrow()
+                    return "✏️ **Updated Morph Note**\n\n" +
+                        "• **Title:** ${updated.title}\n" +
+                        "• **Added:** $payload\n" +
+                        "• **Account:** ${connectedAccount.email}"
+                }
+            }
+        }
+
+        // Handle READ / LIST Notes directly if Gemini key isn't present, else let LLM reason over live notes
+        if (isListOrRead && getApiKey().isBlank()) {
+            val notes = morphRepo.notesFlow.value.filter { !it.isArchived }
+            if (notes.isEmpty()) {
+                return "📭 **Omkun Morph (${connectedAccount.email})**\n\n" +
+                    "You don't have any notes saved in this account yet. Say *\"Create a Morph note: Meeting at 4 PM\"* to add one!"
+            }
+            val formatted = notes.take(8).joinToString("\n\n") { note ->
+                val pinIcon = if (note.isPinned) "📌 " else "📝 "
+                val body = if (note.isChecklist) {
+                    note.checklist.joinToString("\n") { "   " + (if (it.isDone) "☑ " else "☐ ") + it.text }
+                } else {
+                    "   " + note.content.take(120)
+                }
+                "$pinIcon**${note.title.ifBlank { "Untitled" }}**\n$body"
+            }
+            return "🗂️ **Your Omkun Morph Notes (${connectedAccount.email}):**\n\n$formatted"
+        }
+
+        return null
+    }
+
+    private fun extractTargetQueryForDelete(prompt: String): String {
+        val afterColon = prompt.substringAfter(":", "").trim()
+        if (afterColon.isNotBlank()) return afterColon
+
+        val quoted = Regex("[\"']([^\"']+)[\"']").find(prompt)?.groupValues?.getOrNull(1)
+        if (!quoted.isNullOrBlank()) return quoted.trim()
+
+        return prompt
+            .replace(
+                Regex("(?i)\\b(please|oj ai|delete|remove|my|the|from|omkun|morph|notes|note|titled|called|named|about|karo|hatao|hata|do|mera|meri)\\b"),
+                " "
+            )
+            .replace(Regex("\\s+"), " ")
+            .trim()
+    }
+
+    private fun parseTitleAndContentForCreate(prompt: String): Triple<String, String, List<String>> {
+        val isChecklist = prompt.contains("checklist", ignoreCase = true) ||
+            prompt.contains("to-do", ignoreCase = true) ||
+            prompt.contains("todo", ignoreCase = true)
+
+        // Extract explicit title if user wrote "... titled/called/named <Title>: <Body>"
+        var explicitTitle: String? = null
+        if (prompt.contains(":")) {
+            val beforeColon = prompt.substringBefore(":").trim()
+            val titledMatch = Regex("(?i)(?:titled|called|named|title)\\s+[\"']?([^\"':]+)[\"']?$")
+                .find(beforeColon)?.groupValues?.getOrNull(1)?.trim()
+            val hindiNaamMatch = Regex("(?i)(?:morph\\s+me\\s+)?[\"']?([^\"':]+?)[\"']?\\s+naam\\s+ka")
+                .find(beforeColon)?.groupValues?.getOrNull(1)?.trim()
+            explicitTitle = titledMatch ?: hindiNaamMatch
+        }
+
+        val rawPayload = if (prompt.contains(":")) {
+            prompt.substringAfter(":").trim()
+        } else {
+            prompt.replace(
+                Regex("(?i)^(please\\s+)?(create|add|save|make|write)\\s+(a\\s+)?(new\\s+)?(omkun\\s+)?(morph\\s+)?(note|checklist|todo|to-do)(\\s+in\\s+morph)?(\\s+about|\\s+for|\\s+saying|\\s+titled|\\s+called|\\s+named)?\\s*"),
+                ""
+            ).replace(
+                Regex("(?i)(morph\\s+me\\s+)(ek\\s+)?(note\\s+)(banao|likho|save\\s+karo)\\s*"),
+                ""
+            ).trim()
+        }
+
+        if (isChecklist) {
+            val items = rawPayload.split(Regex("[,;\n]"))
+                .map { it.trim().removePrefix("-").trim() }
+                .filter { it.isNotBlank() }
+            val title = explicitTitle?.takeIf { it.isNotBlank() }
+                ?: items.firstOrNull()?.take(28)?.let { "Checklist: $it" }
+                ?: "Morph Checklist"
+            return Triple(title, "", if (items.isEmpty()) listOf(rawPayload.ifBlank { "New task" }) else items)
+        }
+
+        if (!explicitTitle.isNullOrBlank()) {
+            return Triple(explicitTitle, rawPayload, emptyList())
+        }
+
+        return if (rawPayload.contains(" - ")) {
+            val t = rawPayload.substringBefore(" - ").trim()
+            val b = rawPayload.substringAfter(" - ").trim()
+            Triple(t.ifBlank { "Quick Note" }, b, emptyList())
+        } else if (rawPayload.contains("\n")) {
+            val t = rawPayload.substringBefore("\n").trim()
+            val b = rawPayload.substringAfter("\n").trim()
+            Triple(t.ifBlank { "Quick Note" }, b, emptyList())
+        } else {
+            val words = rawPayload.split(" ").filter { it.isNotBlank() }
+            val title = words.take(5).joinToString(" ").ifBlank { "Morph Note" }
+            Triple(title, rawPayload.ifBlank { prompt }, emptyList())
+        }
+    }
+
+    private fun buildSystemContext(agentManager: OjAiAgentManager?): String {
+        val sb = StringBuilder()
+        sb.append(
+            "You are Oj AI, the intelligent assistant built into Olinam, an end-to-end encrypted messaging app. " +
+                "Be helpful, concise, and clear. Never expose internal API endpoints or developer tokens."
+        )
+        if (agentManager != null) {
+            val settings = agentManager.settings.value
+            sb.append("\nResponse Tone: ${settings.personalityTone}.")
+            if (settings.customSystemBio.isNotBlank()) {
+                sb.append("\nUser Preferences: ${settings.customSystemBio}")
+            }
+            if (agentManager.isMorphAuthenticatedAndActive()) {
+                val account = agentManager.morphRepository.connectedAccountFlow.value
+                val notes = agentManager.getAuthenticatedMorphNotes()
+                if (account != null) {
+                    sb.append("\n\nConnected Omkun Morph Account: ${account.displayName} (${account.email}).")
+                    if (notes.isNotEmpty()) {
+                        sb.append("\nUser's Live Morph Notes:\n")
+                        notes.take(10).forEach { n ->
+                            val body = if (n.isChecklist) {
+                                n.checklist.joinToString(", ") { (if (it.isDone) "[Done] " else "[Todo] ") + it.text }
+                            } else {
+                                n.content
+                            }
+                            sb.append("- ${n.title.ifBlank { "Untitled" }}: $body\n")
+                        }
+                    }
+                }
+            }
+        }
+        return sb.toString()
+    }
+
+    private fun callInternalWorker(
         userPrompt: String,
-        history: List<OjAiChatMessage>
+        history: List<OjAiChatMessage>,
+        systemContext: String
     ): String {
         val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-        val payload = JSONObject()
-        payload.put("prompt", userPrompt)
-        payload.put("message", userPrompt)
-        payload.put("model", "oj-ai")
-
-        val historyArray = JSONArray()
-        for (msg in history.takeLast(10)) {
-            val item = JSONObject()
-            item.put("role", if (msg.isUser) "user" else "assistant")
-            item.put("content", msg.text)
-            historyArray.put(item)
+        val payload = JSONObject().apply {
+            put("prompt", userPrompt)
+            put("message", userPrompt)
+            put("system", systemContext)
+            put("model", "oj-ai")
+            val historyArray = JSONArray()
+            for (msg in history.takeLast(8)) {
+                historyArray.put(
+                    JSONObject().apply {
+                        put("role", if (msg.isUser) "user" else "assistant")
+                        put("content", msg.text)
+                    }
+                )
+            }
+            put("history", historyArray)
         }
-        payload.put("history", historyArray)
 
         val request = Request.Builder()
-            .url(workerUrl)
+            .url(INTERNAL_WORKER_URL)
             .addHeader("Content-Type", "application/json")
             .post(payload.toString().toRequestBody(jsonMediaType))
             .build()
 
-        val response = httpClient.newCall(request).execute()
-        val bodyStr = response.body?.string().orEmpty()
-
-        if (!response.isSuccessful) {
-            throw IllegalStateException("Cloudflare Worker HTTP ${response.code}: $bodyStr")
-        }
-
-        return try {
-            val json = JSONObject(bodyStr)
-            when {
-                json.has("response") -> json.getString("response")
-                json.has("text") -> json.getString("text")
-                json.has("message") -> json.getString("message")
-                json.has("output") -> json.getString("output")
-                json.has("result") -> json.getString("result")
-                else -> bodyStr
+        httpClient.newCall(request).execute().use { response ->
+            val bodyStr = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IllegalStateException("Worker HTTP ${response.code}")
             }
-        } catch (_: Exception) {
-            bodyStr
+            return try {
+                val json = JSONObject(bodyStr)
+                when {
+                    json.has("response") -> json.getString("response")
+                    json.has("text") -> json.getString("text")
+                    json.has("message") -> json.getString("message")
+                    json.has("output") -> json.getString("output")
+                    json.has("result") -> json.getString("result")
+                    else -> bodyStr
+                }
+            } catch (_: Exception) {
+                bodyStr
+            }
         }
     }
 
     private fun callGeminiRestApi(
         apiKey: String,
         userPrompt: String,
-        history: List<OjAiChatMessage>
+        history: List<OjAiChatMessage>,
+        systemContext: String
     ): String {
         val url = "$BASE_URL$GEMINI_MODEL:generateContent?key=$apiKey"
         val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
-        val rootJson = JSONObject()
+        val rootJson = JSONObject().apply {
+            put(
+                "systemInstruction",
+                JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemContext)))
+            )
 
-        // 1. System instruction
-        val systemInstruction = JSONObject()
-        val sysParts = JSONArray()
-        sysParts.put(JSONObject().put("text", "You are Oj AI, the intelligent built-in chatbot assistant in Olinam, a private, secure, end-to-end encrypted messaging app. You are friendly, helpful, concise, and capable of drafting messages, answering questions, translating languages, and assisting with tasks. Format responses clearly with neat markdown formatting."))
-        systemInstruction.put("parts", sysParts)
-        rootJson.put("systemInstruction", systemInstruction)
-
-        // 2. Chat contents with history
-        val contentsArray = JSONArray()
-
-        // Take up to 6 recent messages from history for conversational context
-        val contextHistory = history.takeLast(6)
-        for (msg in contextHistory) {
-            val turn = JSONObject()
-            turn.put("role", if (msg.isUser) "user" else "model")
-            val parts = JSONArray()
-            parts.put(JSONObject().put("text", msg.text))
-            turn.put("parts", parts)
-            contentsArray.put(turn)
+            val contentsArray = JSONArray()
+            for (msg in history.takeLast(6)) {
+                contentsArray.put(
+                    JSONObject().apply {
+                        put("role", if (msg.isUser) "user" else "model")
+                        put("parts", JSONArray().put(JSONObject().put("text", msg.text)))
+                    }
+                )
+            }
+            contentsArray.put(
+                JSONObject().apply {
+                    put("role", "user")
+                    put("parts", JSONArray().put(JSONObject().put("text", userPrompt)))
+                }
+            )
+            put("contents", contentsArray)
+            put(
+                "generationConfig",
+                JSONObject().apply {
+                    put("temperature", 0.7)
+                    put("maxOutputTokens", 1024)
+                }
+            )
         }
 
-        // Add current prompt
-        val currentTurn = JSONObject()
-        currentTurn.put("role", "user")
-        val currentParts = JSONArray()
-        currentParts.put(JSONObject().put("text", userPrompt))
-        currentTurn.put("parts", currentParts)
-        contentsArray.put(currentTurn)
-
-        rootJson.put("contents", contentsArray)
-
-        // Generation Config
-        val genConfig = JSONObject()
-        genConfig.put("temperature", 0.7)
-        genConfig.put("maxOutputTokens", 1024)
-        rootJson.put("generationConfig", genConfig)
-
-        val requestBody = rootJson.toString().toRequestBody(jsonMediaType)
         val request = Request.Builder()
             .url(url)
-            .post(requestBody)
+            .post(rootJson.toString().toRequestBody(jsonMediaType))
             .build()
 
-        val response = httpClient.newCall(request).execute()
-        val responseBody = response.body?.string().orEmpty()
-
-        if (!response.isSuccessful) {
-            Log.e(TAG, "Gemini API error code ${response.code}: $responseBody")
-            return ""
+        httpClient.newCall(request).execute().use { response ->
+            val responseBody = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                Log.w(TAG, "Gemini API HTTP ${response.code}")
+                return ""
+            }
+            val jsonResponse = JSONObject(responseBody)
+            val candidates = jsonResponse.optJSONArray("candidates") ?: return ""
+            if (candidates.length() == 0) return ""
+            val content = candidates.getJSONObject(0).optJSONObject("content") ?: return ""
+            val parts = content.optJSONArray("parts") ?: return ""
+            if (parts.length() == 0) return ""
+            return parts.getJSONObject(0).optString("text", "").trim()
         }
-
-        val jsonResponse = JSONObject(responseBody)
-        val candidates = jsonResponse.optJSONArray("candidates") ?: return ""
-        if (candidates.length() == 0) return ""
-
-        val firstCandidate = candidates.getJSONObject(0)
-        val content = firstCandidate.optJSONObject("content") ?: return ""
-        val parts = content.optJSONArray("parts") ?: return ""
-        if (parts.length() == 0) return ""
-
-        val text = parts.getJSONObject(0).optString("text", "")
-        return text.trim()
     }
 
-    private fun generateSmartFallback(userPrompt: String): String {
-        val lower = userPrompt.lowercase().trim()
+    private fun generateSmartFallback(
+        userPrompt: String,
+        agentManager: OjAiAgentManager?
+    ): String {
+        val lower = userPrompt.lowercase(Locale.US).trim()
+
+        if (agentManager?.isMorphAuthenticatedAndActive() == true &&
+            (lower.contains("morph") || lower.contains("note"))
+        ) {
+            val acc = agentManager.morphRepository.connectedAccountFlow.value
+            val notes = agentManager.getAuthenticatedMorphNotes()
+            if (acc != null) {
+                return if (notes.isEmpty()) {
+                    "📭 Your Omkun Morph account (**${acc.email}**) has no active notes yet. Ask me to create one anytime!"
+                } else {
+                    "🗂️ **Omkun Morph (${acc.email}):**\n\n" +
+                        notes.take(6).joinToString("\n") { "• **${it.title.ifBlank { "Untitled" }}** — ${it.content.take(70)}" }
+                }
+            }
+        }
 
         return when {
             lower.contains("summarize") || lower.contains("summary") -> {
                 "📋 **Chat Summary:**\n" +
-                "• **Project Alpha:** Team is finalizing the sprint release for Friday. All PRs merged.\n" +
-                "• **Design Team:** Updated group hero card and adaptive icons approved.\n" +
-                "• **Arattai Alerts:** Verification OTP (1034498) delivered.\n" +
-                "• **Upcoming:** 2 unread group messages awaiting review."
+                    "• **Direct Chats:** Recent updates and pending replies are organized in your Chats tab.\n" +
+                    "• **Groups:** Active team discussions are grouped under the Groups chip.\n" +
+                    "• **Tip:** Connect your **Omkun Morph** account in Oj AI Profile to save action items directly to your notes."
             }
             lower.contains("draft") || lower.contains("reply") -> {
-                "Here is a thoughtful, polite draft you can send:\n\n" +
-                "*\"Hi there! Thanks for reaching out. I'm currently tied up with a few items but will review this thoroughly and get back to you shortly. Have a great day!\"*\n\n" +
-                "💡 *Tip: Tap the Copy icon below to copy this directly to your clipboard.*"
+                "Here is a clean, polite draft you can send:\n\n" +
+                    "*\"Hi! Thanks for reaching out. I'm reviewing this right now and will get back to you shortly.\"*\n\n" +
+                    "💡 *Tap Copy below to copy it to your clipboard.*"
             }
             lower.contains("translate") && (lower.contains("hindi") || lower.contains("india")) -> {
                 "🌐 **Translation to Hindi:**\n\n" +
-                "\"**कल मिलते हैं! आपका दिन शुभ हो।**\"\n" +
-                "*(Kal milte hain! Aapka din shubh ho.)*\n\n" +
-                "Meaning: *\"See you tomorrow! Have a good day.\"*"
-            }
-            lower.contains("translate") -> {
-                "🌐 **Translation:**\n\n" +
-                "Here are translations for common greetings:\n" +
-                "• **Spanish:** *¡Hasta mañana! Que tengas un buen día.*\n" +
-                "• **French:** *À demain! Passe une bonne journée.*\n" +
-                "• **Hindi:** *कल मिलते हैं! (Kal milte hain!)*\n\n" +
-                "Let me know what specific language or text you would like translated!"
-            }
-            lower.contains("group") && (lower.contains("setting") || lower.contains("permission") || lower.contains("create")) -> {
-                "👥 **Olinam Group Best Practices:**\n\n" +
-                "• **Admin Controls:** As a group admin, you can decide who can send messages, edit group info, or add other members via **Group Permissions**.\n" +
-                "• **Disappearing Messages:** Protect sensitive discussions by enabling auto-deletion after 24 hours, 7 days, or 90 days.\n" +
-                "• **Invites:** Generate safe, revocable invite links or QR codes from Group Info."
+                    "\"**कल मिलते हैं! आपका दिन शुभ हो।**\"\n" +
+                    "*(Kal milte hain! Aapka din shubh ho.)*"
             }
             lower.contains("encrypt") || lower.contains("security") || lower.contains("e2ee") || lower.contains("privacy") -> {
-                "🔒 **Olinam End-to-End Encryption Architecture:**\n\n" +
-                "• **AES-256-GCM:** All chats, voice notes, and media attachments are encrypted on your local device before transmission.\n" +
-                "• **Zero Knowledge:** Neither Firebase servers, cloud storage, nor external actors hold decryption keys.\n" +
-                "• **Safety Numbers:** You can verify the 60-digit safety fingerprint with any contact in their profile screen."
-            }
-            lower.contains("code") || lower.contains("kotlin") || lower.contains("compose") -> {
-                "💻 **Kotlin Jetpack Compose Snippet:**\n\n" +
-                "```kotlin\n" +
-                "@Composable\n" +
-                "fun OjAiWelcomeBubble() {\n" +
-                "    Surface(\n" +
-                "        shape = RoundedCornerShape(16.dp),\n" +
-                "        color = MaterialTheme.colorScheme.primaryContainer\n" +
-                "    ) {\n" +
-                "        Text(\n" +
-                "            text = \"Hello from Oj AI with Gemini!\",\n" +
-                "            modifier = Modifier.padding(16.dp)\n" +
-                "        )\n" +
-                "    }\n" +
-                "}\n" +
-                "```"
-            }
-            lower.contains("plan") || lower.contains("weekend") || lower.contains("movie") -> {
-                "🍿 **Weekend Movie Night Plan:**\n\n" +
-                "1. **Poll Members:** Create a quick group poll in chat for genre (Sci-Fi, Comedy, Thriller).\n" +
-                "2. **Timing:** 7:30 PM gathering, 8:00 PM movie start.\n" +
-                "3. **Snack Delegations:** Popcorn, sodas, nachos.\n" +
-                "4. **Discussion:** 15-minute review session right after the credits roll!"
+                "🔒 **Olinam End-to-End Encryption:**\n\n" +
+                    "• **AES-256-GCM:** Messages and media are encrypted on-device before transmission.\n" +
+                    "• **Account Isolation:** Connected tools like Omkun Morph use explicit account authorization so only your signed-in account can read or modify your data."
             }
             lower.contains("hello") || lower.contains("hi") || lower.contains("hey") -> {
-                "Hey there! 👋 I'm **Oj AI**, powered by Gemini 3.5 Flash.\n\n" +
-                "I can help you draft messages, summarize conversations, answer questions, translate languages, brainstorm group ideas, or explain complex topics. What can I do for you today?"
+                "Hey there! 👋 I'm **Oj AI**.\n\n" +
+                    "I can draft messages, summarize chats, translate languages, and — once you sign in to **Omkun Morph** — read, create, edit, or delete notes directly in your account. How can I help?"
             }
             else -> {
-                "I'm here to help with that! As your built-in **Oj AI** assistant powered by Gemini 3.5 Flash, I can answer your questions, write drafts, translate phrases, or help organize your chats.\n\n" +
-                "Feel free to ask follow-up questions or tap any suggestion prompt!"
+                "I'm ready to help! You can ask me to draft replies, translate messages, summarize conversations, or manage notes in your connected **Omkun Morph** account."
             }
         }
     }

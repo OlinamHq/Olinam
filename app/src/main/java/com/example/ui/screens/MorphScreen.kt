@@ -37,11 +37,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import coil.compose.AsyncImage
 import com.example.R
 import com.example.data.MorphRepository
 import com.example.model.MorphChecklistItem
 import com.example.model.MorphNote
 import com.example.model.MorphPalette
+import com.example.model.UserProfile
+import com.example.ui.components.MorphAuthBottomSheet
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -50,16 +53,15 @@ import java.util.UUID
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MorphScreen(
-    repository: MorphRepository = MorphRepository.getInstance(LocalContext.current)
+    repository: MorphRepository = MorphRepository.getInstance(LocalContext.current),
+    currentUser: UserProfile? = null
 ) {
     val context = LocalContext.current
+    val connectedAccount by repository.connectedAccountFlow.collectAsState()
     val notes by repository.notesFlow.collectAsState()
-    val syncStatus by repository.syncStatus.collectAsState()
 
-    LaunchedEffect(Unit) {
-        if (!repository.isConnected || repository.apiAuthToken.isBlank()) {
-            repository.authenticateAndConnect()
-        } else {
+    LaunchedEffect(connectedAccount?.accountId) {
+        if (connectedAccount != null) {
             repository.syncWithServer()
         }
     }
@@ -71,7 +73,8 @@ fun MorphScreen(
     var editingNote by remember { mutableStateOf<MorphNote?>(null) }
     var isCreatingNew by remember { mutableStateOf(false) }
     var newNoteAsChecklist by remember { mutableStateOf(false) }
-    var showApiSettingsDialog by remember { mutableStateOf(false) }
+    var showAuthSheet by remember { mutableStateOf(false) }
+    var pendingCreateAfterAuth by remember { mutableStateOf<Boolean?>(null) } // false = note, true = checklist
 
     // Filter notes by search query and tag
     val filteredNotes = remember(notes, searchQuery, selectedTag) {
@@ -173,19 +176,51 @@ fun MorphScreen(
                             )
                         }
 
-                        IconButton(onClick = { showApiSettingsDialog = true }) {
-                            Box(contentAlignment = Alignment.TopEnd) {
+                        IconButton(
+                            onClick = { showAuthSheet = true },
+                            modifier = Modifier.testTag("morph_account_button")
+                        ) {
+                            val activeAcc = connectedAccount
+                            if (activeAcc != null) {
+                                Box(contentAlignment = Alignment.BottomEnd) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(30.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF0160E3)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (!activeAcc.avatarUrl.isNullOrBlank()) {
+                                            AsyncImage(
+                                                model = activeAcc.avatarUrl,
+                                                contentDescription = activeAcc.displayName,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        } else {
+                                            Text(
+                                                text = activeAcc.displayName.ifBlank { activeAcc.email }.take(1).uppercase(Locale.getDefault()),
+                                                color = Color.White,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp
+                                            )
+                                        }
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .size(9.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.White)
+                                            .padding(1.5.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF16A34A))
+                                    )
+                                }
+                            } else {
                                 Icon(
-                                    imageVector = Icons.Outlined.CloudDone,
-                                    contentDescription = "Morph Cloud Connected",
-                                    tint = Color(0xFF1A73E8),
-                                    modifier = Modifier.size(22.dp)
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .size(7.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFF34A853))
+                                    imageVector = Icons.Outlined.AccountCircle,
+                                    contentDescription = "Sign in to Morph",
+                                    tint = Color(0xFF0160E3),
+                                    modifier = Modifier.size(26.dp)
                                 )
                             }
                         }
@@ -193,7 +228,7 @@ fun MorphScreen(
                 }
 
                 // Filter Tag Chips
-                if (allTags.size > 2) {
+                if (connectedAccount != null && allTags.size > 2) {
                     Spacer(modifier = Modifier.height(8.dp))
                     LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -216,52 +251,130 @@ fun MorphScreen(
             }
         },
         floatingActionButton = {
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.padding(bottom = 8.dp)
-            ) {
-                // Secondary FAB for Checklist
-                SmallFloatingActionButton(
-                    onClick = {
-                        isCreatingNew = true
-                        newNoteAsChecklist = true
-                    },
-                    shape = RoundedCornerShape(14.dp),
-                    containerColor = Color.White,
-                    contentColor = Color(0xFF1A73E8),
-                    elevation = FloatingActionButtonDefaults.elevation(2.dp),
-                    modifier = Modifier.testTag("morph_new_checklist_fab")
+            if (connectedAccount != null) {
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(bottom = 8.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Outlined.CheckBox,
-                        contentDescription = "New Checklist",
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+                    // Secondary FAB for Checklist
+                    SmallFloatingActionButton(
+                        onClick = {
+                            isCreatingNew = true
+                            newNoteAsChecklist = true
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        containerColor = Color.White,
+                        contentColor = Color(0xFF1A73E8),
+                        elevation = FloatingActionButtonDefaults.elevation(2.dp),
+                        modifier = Modifier.testTag("morph_new_checklist_fab")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.CheckBox,
+                            contentDescription = "New Checklist",
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
 
-                // Main FAB: New Note
-                FloatingActionButton(
-                    onClick = {
-                        isCreatingNew = true
-                        newNoteAsChecklist = false
-                    },
-                    shape = RoundedCornerShape(18.dp),
-                    containerColor = Color(0xFF007AFF),
-                    contentColor = Color.White,
-                    elevation = FloatingActionButtonDefaults.elevation(3.dp),
-                    modifier = Modifier.testTag("morph_new_note_fab")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "New Note",
-                        modifier = Modifier.size(26.dp)
-                    )
+                    // Main FAB: New Note
+                    FloatingActionButton(
+                        onClick = {
+                            isCreatingNew = true
+                            newNoteAsChecklist = false
+                        },
+                        shape = RoundedCornerShape(18.dp),
+                        containerColor = Color(0xFF007AFF),
+                        contentColor = Color.White,
+                        elevation = FloatingActionButtonDefaults.elevation(3.dp),
+                        modifier = Modifier.testTag("morph_new_note_fab")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "New Note",
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
                 }
             }
         }
     ) { padding ->
-        if (filteredNotes.isEmpty()) {
+        if (connectedAccount == null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color.White,
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                    shadowElevation = 2.dp,
+                    modifier = Modifier
+                        .padding(horizontal = 24.dp)
+                        .widthIn(max = 420.dp)
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 28.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(Color(0xFFEFF6FF)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_morph_notes),
+                                contentDescription = null,
+                                tint = Color(0xFF0160E3),
+                                modifier = Modifier.size(34.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Sign in to Omkun Morph",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF0F172A)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Connect your Google or Omkun account to securely sync your personal notes, checklists, and let Oj AI read, create, or manage notes in your account.",
+                            fontSize = 13.5.sp,
+                            color = Color(0xFF64748B),
+                            lineHeight = 19.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(22.dp))
+                        Button(
+                            onClick = { showAuthSheet = true },
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0160E3)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("morph_sign_in_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Sign in & Activate Morph",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+            }
+        } else if (filteredNotes.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -280,16 +393,17 @@ fun MorphScreen(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        "No notes in Omkun Morph yet",
+                        "No notes in ${connectedAccount?.email ?: "Omkun Morph"} yet",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Medium,
                         color = Color(0xFF5F6368)
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        "Tap the + button to jot down a quick note or checklist",
+                        "Tap the + button or ask Oj AI to create a note or checklist",
                         fontSize = 13.sp,
-                        color = Color(0xFF9E9E9E)
+                        color = Color(0xFF9E9E9E),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
                 }
             }
@@ -430,11 +544,24 @@ fun MorphScreen(
         )
     }
 
-    // Omkun Morph API Configuration Dialog
-    if (showApiSettingsDialog) {
-        OmkunMorphApiSettingsDialog(
+    // OAuth-Style Omkun Morph Account Login & Permission Sheet
+    if (showAuthSheet) {
+        MorphAuthBottomSheet(
             repository = repository,
-            onDismiss = { showApiSettingsDialog = false }
+            currentUser = currentUser,
+            onDismiss = {
+                showAuthSheet = false
+                pendingCreateAfterAuth = null
+            },
+            onAuthenticated = { account ->
+                Toast.makeText(context, "Signed in as ${account.email}", Toast.LENGTH_SHORT).show()
+                val pendingChecklist = pendingCreateAfterAuth
+                pendingCreateAfterAuth = null
+                if (pendingChecklist != null) {
+                    newNoteAsChecklist = pendingChecklist
+                    isCreatingNew = true
+                }
+            }
         )
     }
 }
@@ -957,173 +1084,8 @@ fun MorphNoteEditorDialog(
                     fontSize = 11.sp,
                     color = Color(0xFF757575),
                     modifier = Modifier
-                        .align(Alignment.End)
-                        .padding(vertical = 4.dp)
                 )
             }
         }
     }
-}
-
-/**
- * Omkun Morph Cloud Status & Sync Dialog
- * Displays verified auto-connection status from Oj AI.
- * No manual API configuration required on this page.
- */
-@Composable
-fun OmkunMorphApiSettingsDialog(
-    repository: MorphRepository,
-    onDismiss: () -> Unit
-) {
-    val context = LocalContext.current
-    val syncStatus by repository.syncStatus.collectAsState()
-    var showAdvanced by remember { mutableStateOf(false) }
-    var url by remember { mutableStateOf(repository.apiBaseUrl) }
-    var token by remember { mutableStateOf(repository.apiAuthToken) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_morph_notes),
-                    contentDescription = null,
-                    tint = Color(0xFF007AFF),
-                    modifier = Modifier.size(26.dp)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Column {
-                    Text("Omkun Morph Cloud", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Text("Auto-Connected via Oj AI", fontSize = 12.sp, color = Color(0xFF10B981), fontWeight = FontWeight.Medium)
-                }
-            }
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Surface(
-                    color = Color(0xFFECFDF5),
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, Color(0xFFA7F3D0)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(10.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF10B981))
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                "Connected & Authenticated",
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF065F46),
-                                fontSize = 13.5.sp
-                            )
-                            Text(
-                                "All notes auto-sync directly with Morph Cloud API.",
-                                color = Color(0xFF047857),
-                                fontSize = 11.5.sp
-                            )
-                        }
-                    }
-                }
-
-                Text(
-                    "Cloud API URL:",
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF4B5563)
-                )
-                Surface(
-                    color = Color(0xFFF3F4F6),
-                    shape = RoundedCornerShape(6.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        repository.apiBaseUrl,
-                        fontSize = 11.sp,
-                        color = Color(0xFF1F2937),
-                        modifier = Modifier.padding(8.dp)
-                    )
-                }
-
-                Text(
-                    "Auth Status:",
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF4B5563)
-                )
-                Surface(
-                    color = Color(0xFFF3F4F6),
-                    shape = RoundedCornerShape(6.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        "Bearer " + repository.apiAuthToken.take(8) + "•••••••• (Active)",
-                        fontSize = 11.sp,
-                        color = Color(0xFF1F2937),
-                        modifier = Modifier.padding(8.dp)
-                    )
-                }
-
-                Text(
-                    "Sync status: $syncStatus",
-                    fontSize = 12.sp,
-                    color = Color(0xFF6B7280)
-                )
-
-                if (!showAdvanced) {
-                    TextButton(
-                        onClick = { showAdvanced = true },
-                        contentPadding = PaddingValues(0.dp)
-                    ) {
-                        Text("Show Advanced Endpoint Options", fontSize = 12.sp, color = Color(0xFF1A73E8))
-                    }
-                } else {
-                    OutlinedTextField(
-                        value = url,
-                        onValueChange = { url = it },
-                        label = { Text("Custom API Base URL") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    OutlinedTextField(
-                        value = token,
-                        onValueChange = { token = it },
-                        label = { Text("Custom Auth Token") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (showAdvanced) {
-                        repository.apiBaseUrl = url.trim()
-                        repository.apiAuthToken = token.trim()
-                    }
-                    repository.syncWithServer { success, msg ->
-                        Toast.makeText(context, if (success) "Notes synced from Morph Cloud!" else "Sync status: $msg", Toast.LENGTH_SHORT).show()
-                    }
-                    onDismiss()
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF007AFF))
-            ) {
-                Text(if (showAdvanced) "Save & Sync" else "Sync Now", color = Color.White)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Close", color = Color(0xFF5F6368))
-            }
-        }
-    )
 }

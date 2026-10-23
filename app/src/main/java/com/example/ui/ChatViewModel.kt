@@ -945,8 +945,9 @@ class ChatViewModel @JvmOverloads constructor(
         val userMsg = OjAiChatMessage(text = trimmed, isUser = true)
         _ojAiMessages.value = currentHistory + userMsg
         _isOjAiTyping.value = true
+        val manager = getOrCreateAiAgentManager(getApplication())
         viewModelScope.launch {
-            val responseText = OjAiService.generateResponse(trimmed, currentHistory)
+            val responseText = OjAiService.generateResponse(trimmed, currentHistory, manager)
             _isOjAiTyping.value = false
             _ojAiMessages.value = _ojAiMessages.value + OjAiChatMessage(text = responseText, isUser = false)
         }
@@ -964,9 +965,10 @@ class ChatViewModel @JvmOverloads constructor(
         )
         _ojAiMessages.value = currentHistory + userVoiceMsg
         _isOjAiTyping.value = true
+        val manager = getOrCreateAiAgentManager(getApplication())
         viewModelScope.launch {
             val prompt = "User sent a voice note of $durationSec seconds. Respond courteously, acknowledge their voice message, and offer your help as Oj AI."
-            val responseText = OjAiService.generateResponse(prompt, currentHistory)
+            val responseText = OjAiService.generateResponse(prompt, currentHistory, manager)
             _isOjAiTyping.value = false
             _ojAiMessages.value = _ojAiMessages.value + OjAiChatMessage(text = responseText, isUser = false)
         }

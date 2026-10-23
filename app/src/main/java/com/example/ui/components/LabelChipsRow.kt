@@ -55,7 +55,15 @@ fun LabelChipsRow(
 
     LaunchedEffect(selectedIndex) {
         if (selectedIndex >= 0 && !listState.isScrollInProgress) {
-            listState.animateScrollToItem(selectedIndex)
+            val visibleItems = listState.layoutInfo.visibleItemsInfo
+            val isFullyVisible = visibleItems.any { item ->
+                item.index == selectedIndex &&
+                    item.offset >= listState.layoutInfo.viewportStartOffset &&
+                    (item.offset + item.size) <= listState.layoutInfo.viewportEndOffset
+            }
+            if (!isFullyVisible) {
+                listState.animateScrollToItem(selectedIndex)
+            }
         }
     }
 
@@ -68,17 +76,11 @@ fun LabelChipsRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        items(labels, key = { it.id }) { label ->
+        items(labels, key = { it.id }, contentType = { "label_chip" }) { label ->
             val isSelected = selectedLabelId == label.id
             val unreadCount = unreadCounts[label.id] ?: 0
             val isCustomLabel = label.id !in listOf("all", "direct", "groups", "sms")
-            val labelColor = remember(label.colorHex) {
-                try {
-                    Color(android.graphics.Color.parseColor(label.colorHex))
-                } catch (_: Exception) {
-                    Color(0xFF007AFF)
-                }
-            }
+            val labelColor = parseColorCached(label.colorHex)
 
             val chipBgColor = if (isSelected) {
                 if (isCustomLabel) labelColor.copy(alpha = 0.15f) else Color(0xFFDCE8FE)

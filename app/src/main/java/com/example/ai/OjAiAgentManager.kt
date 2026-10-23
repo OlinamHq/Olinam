@@ -5,10 +5,15 @@ import android.telephony.TelephonyManager
 import android.util.Log
 import com.example.BuildConfig
 import com.example.data.MorphRepository
+import com.example.model.MorphNote
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -16,13 +21,14 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.UUID
 import java.util.concurrent.TimeUnit
 
-class OjAiAgentManager(private val context: Context) {
+class OjAiAgentManager(val appContext: Context) {
 
     private val tag = "OjAiAgentManager"
-    private val prefs = context.getSharedPreferences("oj_ai_agent_prefs", Context.MODE_PRIVATE)
+    private val prefs = appContext.getSharedPreferences("oj_ai_agent_prefs", Context.MODE_PRIVATE)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val morphRepository: MorphRepository = MorphRepository.getInstance(appContext)
 
     private val _plugins = MutableStateFlow<List<AiPlugin>>(emptyList())
     val plugins: StateFlow<List<AiPlugin>> = _plugins.asStateFlow()
@@ -53,63 +59,110 @@ class OjAiAgentManager(private val context: Context) {
     init {
         loadSavedState()
         refreshPlugins()
+
+        // Reactively sync Oj AI plugin state whenever Morph account or notes change
+        scope.launch {
+            combine(
+                morphRepository.connectedAccountFlow,
+                morphRepository.notesFlow
+            ) { account, notes -> account to notes }.collect {
+                refreshPlugins()
+            }
+        }
     }
 
     fun refreshPlugins() {
-        val morphNotes = getRealMorphNotes()
+        val morphAccount = morphRepository.connectedAccountFlow.value
+        val morphPluginEnabled = prefs.getBoolean("plugin_enabled_morph_plugin", true)
+        val isMorphActive = morphAccount != null && morphPluginEnabled
+        val activeMorphNotes = if (morphAccount != null) {
+            morphRepository.notesFlow.value.filter { !it.isArchived }
+        } else {
+            emptyList()
+        }
+        val morphSamples = activeMorphNotes.take(4).map { note ->
+            if (note.isChecklist) {
+                "☑️ ${note.title} (${note.checklist.count { it.isDone }}/${note.checklist.size} done)"
+            } else {
+                "📝 ${note.title.ifBlank { "Untitled" }}: ${note.content.take(35)}"
+            }
+        }
+        val morphSummary = when {
+            morphAccount == null -> "Not signed in • Tap to connect your Morph account"
+            !morphPluginEnabled -> "Paused for ${morphAccount.email} • Toggle to resume"
+            else -> "Connected as ${morphAccount.email} • ${activeMorphNotes.size} notes"
+        }
+
         val (hasSim, simSummary) = getRealSimInfo()
         val customBio = _settings.value.customSystemBio
 
-        val gmailKey = getPluginApiKey("gmail_plugin")
-        val driveKey = getPluginApiKey("drive_plugin")
-        val calendarKey = getPluginApiKey("calendar_plugin")
-        val photosKey = getPluginApiKey("photos_plugin")
+        val gmailAccount = getAuthorizedPluginAccount("gmail_plugin")
+        val driveAccount = getAuthorizedPluginAccount("drive_plugin")
+        val calendarAccount = getAuthorizedPluginAccount("calendar_plugin")
+        val photosAccount = getAuthorizedPluginAccount("photos_plugin")
 
         val list = listOf(
             AiPlugin(
+                id = "morph_plugin",
+                name = "Omkun Morph Notes",
+                description = "Reads, creates, updates, and deletes notes inside your authenticated Omkun Morph account.",
+                iconType = "MORPH",
+                isConnected = isMorphActive,
+                connectedAccountEmail = morphAccount?.email.orEmpty(),
+                syncSummary = morphSummary,
+                sampleItems = morphSamples
+            ),
+            AiPlugin(
                 id = "gmail_plugin",
                 name = "Gmail Integration",
-                description = "Reads relevant inbox emails and thread context to formulate accurate answers.",
+                description = "Reads relevant inbox emails and thread context from your authorized Google account.",
                 iconType = "GMAIL",
-                isConnected = prefs.getBoolean("plugin_enabled_gmail_plugin", true),
-                syncSummary = if (gmailKey.isNotBlank()) "Connected • API Active" else "Ready • Tap to configure API",
-                sampleItems = if (gmailKey.isNotBlank()) listOf("API configured") else emptyList()
+                isConnected = gmailAccount.isNotBlank() && prefs.getBoolean("plugin_enabled_gmail_plugin", false),
+                connectedAccountEmail = gmailAccount,
+                syncSummary = if (gmailAccount.isNotBlank() && prefs.getBoolean("plugin_enabled_gmail_plugin", false)) {
+                    "Authorized • $gmailAccount"
+                } else {
+                    "Not connected • Tap to sign in with Google"
+                }
             ),
             AiPlugin(
                 id = "drive_plugin",
                 name = "Google Drive Docs",
-                description = "Indexes documents, project specifications, and sheets for contextual retrieval.",
+                description = "Indexes documents, project specs, and spreadsheets in your authorized Drive.",
                 iconType = "DRIVE",
-                isConnected = prefs.getBoolean("plugin_enabled_drive_plugin", true),
-                syncSummary = if (driveKey.isNotBlank()) "Connected • API Active" else "Ready • Tap to configure API",
-                sampleItems = if (driveKey.isNotBlank()) listOf("API configured") else emptyList()
+                isConnected = driveAccount.isNotBlank() && prefs.getBoolean("plugin_enabled_drive_plugin", false),
+                connectedAccountEmail = driveAccount,
+                syncSummary = if (driveAccount.isNotBlank() && prefs.getBoolean("plugin_enabled_drive_plugin", false)) {
+                    "Authorized • $driveAccount"
+                } else {
+                    "Not connected • Tap to sign in with Google"
+                }
             ),
             AiPlugin(
                 id = "calendar_plugin",
                 name = "Google Calendar Sync",
                 description = "Checks your live meetings, schedules, and confirms availability automatically.",
                 iconType = "CALENDAR",
-                isConnected = prefs.getBoolean("plugin_enabled_calendar_plugin", true),
-                syncSummary = if (calendarKey.isNotBlank()) "Connected • API Active" else "Ready • Tap to configure API",
-                sampleItems = if (calendarKey.isNotBlank()) listOf("API configured") else emptyList()
+                isConnected = calendarAccount.isNotBlank() && prefs.getBoolean("plugin_enabled_calendar_plugin", false),
+                connectedAccountEmail = calendarAccount,
+                syncSummary = if (calendarAccount.isNotBlank() && prefs.getBoolean("plugin_enabled_calendar_plugin", false)) {
+                    "Authorized • $calendarAccount"
+                } else {
+                    "Not connected • Tap to sign in with Google"
+                }
             ),
             AiPlugin(
                 id = "photos_plugin",
                 name = "Google Photos Library",
-                description = "Accesses photo memories and visual media albums for AI visual search.",
+                description = "Accesses photo albums and visual memories via Android Photo Picker.",
                 iconType = "PHOTOS",
-                isConnected = prefs.getBoolean("plugin_enabled_photos_plugin", true),
-                syncSummary = if (photosKey.isNotBlank()) "Connected • API Active" else "Ready • Tap to configure API",
-                sampleItems = if (photosKey.isNotBlank()) listOf("API configured") else emptyList()
-            ),
-            AiPlugin(
-                id = "morph_plugin",
-                name = "Omkun Morph Notes",
-                description = "Reads your private Omkun Morph notes, checklists, and to-dos for answering queries and referencing ideas.",
-                iconType = "MORPH",
-                isConnected = prefs.getBoolean("plugin_enabled_morph_plugin", true),
-                syncSummary = if (morphNotes.isNotEmpty()) "Connected • ${morphNotes.size} Morph notes indexed" else "Connected • 0 Morph notes",
-                sampleItems = morphNotes
+                isConnected = photosAccount.isNotBlank() && prefs.getBoolean("plugin_enabled_photos_plugin", false),
+                connectedAccountEmail = photosAccount,
+                syncSummary = if (photosAccount.isNotBlank() && prefs.getBoolean("plugin_enabled_photos_plugin", false)) {
+                    "Authorized • $photosAccount"
+                } else {
+                    "Not connected • Tap to authorize Google Photos"
+                }
             ),
             AiPlugin(
                 id = "sms_pilot_plugin",
@@ -123,7 +176,7 @@ class OjAiAgentManager(private val context: Context) {
             AiPlugin(
                 id = "knowledge_base_plugin",
                 name = "Personal Knowledge Base",
-                description = "Custom rules, FAQs, business hours, and instructions on how you prefer to communicate with clients.",
+                description = "Custom rules, FAQs, business hours, and instructions on how you prefer to communicate.",
                 iconType = "KNOWLEDGE",
                 isConnected = prefs.getBoolean("plugin_enabled_knowledge_base_plugin", true),
                 syncSummary = if (customBio.isNotBlank()) "Active • Custom instructions configured" else "Tap to configure custom rules & FAQs",
@@ -133,39 +186,39 @@ class OjAiAgentManager(private val context: Context) {
         _plugins.value = list
     }
 
-    fun setPluginApiKey(pluginId: String, apiKey: String, endpoint: String = "") {
+    fun authorizeWorkspacePlugin(pluginId: String, accountEmail: String) {
         prefs.edit()
-            .putString("api_key_$pluginId", apiKey.trim())
-            .putString("endpoint_$pluginId", endpoint.trim())
+            .putString("auth_account_$pluginId", accountEmail.trim())
             .putBoolean("plugin_enabled_$pluginId", true)
             .apply()
         refreshPlugins()
     }
 
-    fun getPluginApiKey(pluginId: String): String {
-        return prefs.getString("api_key_$pluginId", "") ?: ""
+    fun disconnectWorkspacePlugin(pluginId: String) {
+        prefs.edit()
+            .remove("auth_account_$pluginId")
+            .putBoolean("plugin_enabled_$pluginId", false)
+            .apply()
+        refreshPlugins()
     }
 
-    fun getPluginEndpoint(pluginId: String): String {
-        return prefs.getString("endpoint_$pluginId", "") ?: ""
+    fun getAuthorizedPluginAccount(pluginId: String): String {
+        return prefs.getString("auth_account_$pluginId", "") ?: ""
     }
 
-    private fun getRealMorphNotes(): List<String> {
-        return try {
-            val morphRepo = MorphRepository.getInstance(context)
-            val notes = morphRepo.notesFlow.value.filter { !it.isArchived }
-            notes.take(4).map { note ->
-                if (note.isChecklist) "☑️ ${note.title} (${note.checklist.count { it.isDone }}/${note.checklist.size} done)"
-                else "📝 ${note.title.ifBlank { "Untitled" }}: ${note.content.take(35)}"
-            }
-        } catch (_: Exception) {
-            emptyList()
-        }
+    fun isMorphAuthenticatedAndActive(): Boolean {
+        return morphRepository.connectedAccountFlow.value != null &&
+            prefs.getBoolean("plugin_enabled_morph_plugin", true)
+    }
+
+    fun getAuthenticatedMorphNotes(): List<MorphNote> {
+        if (!isMorphAuthenticatedAndActive()) return emptyList()
+        return morphRepository.notesFlow.value.filter { !it.isArchived }
     }
 
     private fun getRealSimInfo(): Pair<Boolean, String> {
         try {
-            val telephony = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+            val telephony = appContext.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
             val carrier = telephony?.networkOperatorName?.ifBlank { telephony.simOperatorName }
             if (!carrier.isNullOrBlank()) {
                 return true to "Connected • Active SIM: $carrier"
@@ -232,21 +285,33 @@ class OjAiAgentManager(private val context: Context) {
         prefs.edit().putString("delegated_contacts_json", array.toString()).apply()
     }
 
-    fun togglePlugin(pluginId: String, isConnected: Boolean) {
-        prefs.edit().putBoolean("plugin_enabled_$pluginId", isConnected).apply()
+    /**
+     * Toggles a plugin on/off. Note: Morph cannot be toggled ON unless a MorphAccount is authenticated.
+     */
+    fun togglePlugin(pluginId: String, isConnected: Boolean): Boolean {
         if (pluginId == "morph_plugin") {
-            val morphRepo = com.example.data.MorphRepository.getInstance(context)
+            if (isConnected && morphRepository.connectedAccountFlow.value == null) {
+                // Caller must trigger MorphAuthBottomSheet so user signs in first!
+                return false
+            }
+            prefs.edit().putBoolean("plugin_enabled_morph_plugin", isConnected).apply()
+            morphRepository.isConnected = isConnected
             if (isConnected) {
-                morphRepo.authenticateAndConnect()
-                prefs.edit()
-                    .putString("api_key_morph_plugin", com.example.data.MorphRepository.DEFAULT_MORPH_API_KEY)
-                    .putString("endpoint_morph_plugin", com.example.data.MorphRepository.DEFAULT_MORPH_API_BASE_URL)
-                    .apply()
-            } else {
-                morphRepo.isConnected = false
+                morphRepository.syncWithServer()
+            }
+            refreshPlugins()
+            return true
+        }
+
+        if (pluginId in listOf("gmail_plugin", "drive_plugin", "calendar_plugin", "photos_plugin")) {
+            if (isConnected && getAuthorizedPluginAccount(pluginId).isBlank()) {
+                return false
             }
         }
+
+        prefs.edit().putBoolean("plugin_enabled_$pluginId", isConnected).apply()
         refreshPlugins()
+        return true
     }
 
     fun addDelegatedContact(contact: DelegatedContact) {
@@ -284,8 +349,19 @@ class OjAiAgentManager(private val context: Context) {
         refreshPlugins()
     }
 
+    fun restoreDefaults() {
+        prefs.edit()
+            .putBoolean("master_enabled", true)
+            .putBoolean("autonomous_mode", true)
+            .putString("tone", "Professional Executive")
+            .putString("custom_system_bio", "Handle client and team inquiries smoothly and professionally.")
+            .apply()
+        loadSavedState()
+        refreshPlugins()
+    }
+
     /**
-     * Synthesizes context from connected real plugins (Morph Notes, Knowledge Base, APIs) and uses Gemini API.
+     * Synthesizes context from connected real plugins (authenticated Morph Notes, Knowledge Base) and calls Gemini API.
      */
     suspend fun generateAutonomousReply(
         contact: DelegatedContact,
@@ -302,14 +378,21 @@ class OjAiAgentManager(private val context: Context) {
             contextBuilder.append("User instructions: ${_settings.value.customSystemBio}\n\n")
         }
 
-        // Live Real Omkun Morph Notes Context
-        val morphActive = _plugins.value.find { it.id == "morph_plugin" }?.isConnected == true
-        if (morphActive) {
-            val notes = getRealMorphNotes()
-            if (notes.isNotEmpty()) {
-                sourcesUsed.add("Omkun Morph")
-                contextBuilder.append("--- RELEVANT OMKUN MORPH NOTES ---\n")
-                notes.forEach { contextBuilder.append("• $it\n") }
+        // Live Authenticated Omkun Morph Notes Context
+        if (isMorphAuthenticatedAndActive()) {
+            val account = morphRepository.connectedAccountFlow.value
+            val notes = getAuthenticatedMorphNotes()
+            if (notes.isNotEmpty() && account != null) {
+                sourcesUsed.add("Omkun Morph (${account.email})")
+                contextBuilder.append("--- AUTHENTICATED OMKUN MORPH NOTES (${account.email}) ---\n")
+                notes.take(8).forEach { note ->
+                    val summary = if (note.isChecklist) {
+                        note.checklist.joinToString(", ") { (if (it.isDone) "[x] " else "[ ] ") + it.text }
+                    } else {
+                        note.content
+                    }
+                    contextBuilder.append("• ${note.title.ifBlank { "Untitled" }}: $summary\n")
+                }
                 contextBuilder.append("\n")
             }
         }
@@ -317,7 +400,6 @@ class OjAiAgentManager(private val context: Context) {
         contextBuilder.append("Incoming Message from ${contact.name}:\n\"$incomingMessage\"\n\n")
         contextBuilder.append("Provide a concise, direct, helpful reply to send back to them. Write ONLY the message body, without meta-commentary.")
 
-        // Call Gemini API
         val geminiApiKey = try {
             val field = BuildConfig::class.java.getField("GEMINI_API_KEY")
             field.get(null) as? String ?: ""
@@ -397,20 +479,21 @@ class OjAiAgentManager(private val context: Context) {
             .post(jsonBody.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
-        val response = okHttpClient.newCall(request).execute()
-        if (!response.isSuccessful) {
-            throw IllegalStateException("Gemini API HTTP ${response.code}")
-        }
+        okHttpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw IllegalStateException("Gemini API HTTP ${response.code}")
+            }
 
-        val respStr = response.body?.string() ?: ""
-        val respJson = JSONObject(respStr)
-        val candidates = respJson.optJSONArray("candidates")
-        if (candidates != null && candidates.length() > 0) {
-            val first = candidates.getJSONObject(0)
-            val content = first.optJSONObject("content")
-            val parts = content?.optJSONArray("parts")
-            if (parts != null && parts.length() > 0) {
-                return@withContext parts.getJSONObject(0).optString("text", "").trim()
+            val respStr = response.body?.string() ?: ""
+            val respJson = JSONObject(respStr)
+            val candidates = respJson.optJSONArray("candidates")
+            if (candidates != null && candidates.length() > 0) {
+                val first = candidates.getJSONObject(0)
+                val content = first.optJSONObject("content")
+                val parts = content?.optJSONArray("parts")
+                if (parts != null && parts.length() > 0) {
+                    return@withContext parts.getJSONObject(0).optString("text", "").trim()
+                }
             }
         }
         ""

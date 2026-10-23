@@ -121,6 +121,8 @@ fun OjAiProfileScreen(
     val plugins by agentManager.plugins.collectAsState()
     val settings by agentManager.settings.collectAsState()
     val delegatedContacts by agentManager.delegatedContacts.collectAsState()
+    val currentUser by viewModel.currentUser.collectAsState()
+    val morphRepo = remember(context) { com.example.data.MorphRepository.getInstance(context) }
 
     var menuExpanded by remember { mutableStateOf(false) }
     var showClearChatDialog by remember { mutableStateOf(false) }
@@ -130,10 +132,8 @@ fun OjAiProfileScreen(
     var showCustomBioDialog by remember { mutableStateOf(false) }
     var showDelegatedContactsDialog by remember { mutableStateOf(false) }
     var showAddContactDialog by remember { mutableStateOf(false) }
-    var showWorkerUrlDialog by remember { mutableStateOf(false) }
-    var workerUrlText by remember { mutableStateOf(com.example.ai.OjAiService.getWorkerUrl()) }
     var configuringPlugin by remember { mutableStateOf<AiPlugin?>(null) }
-    var showMorphStatusDialog by remember { mutableStateOf(false) }
+    var showMorphAuthSheet by remember { mutableStateOf(false) }
 
     var newContactName by remember { mutableStateOf("") }
     var newContactPhone by remember { mutableStateOf("") }
@@ -473,21 +473,27 @@ fun OjAiProfileScreen(
                             onCheckedChange = { isChecked ->
                                 if (plugin.id == "morph_plugin") {
                                     if (isChecked) {
-                                        val morphRepo = com.example.data.MorphRepository.getInstance(context)
-                                        morphRepo.authenticateAndConnect()
-                                        agentManager.setPluginApiKey(
-                                            "morph_plugin",
-                                            com.example.data.MorphRepository.DEFAULT_MORPH_API_KEY,
-                                            com.example.data.MorphRepository.DEFAULT_MORPH_API_BASE_URL
-                                        )
-                                        agentManager.togglePlugin("morph_plugin", true)
-                                        Toast.makeText(context, "Omkun Morph Notes Authenticated & Connected to Cloud API!", Toast.LENGTH_SHORT).show()
+                                        val enabled = agentManager.togglePlugin("morph_plugin", true)
+                                        if (!enabled) {
+                                            // Not signed in yet — open OAuth-style Morph login sheet
+                                            showMorphAuthSheet = true
+                                        } else {
+                                            val email = morphRepo.connectedAccountFlow.value?.email ?: "Morph account"
+                                            Toast.makeText(context, "Omkun Morph active for $email", Toast.LENGTH_SHORT).show()
+                                        }
                                     } else {
                                         agentManager.togglePlugin("morph_plugin", false)
-                                        Toast.makeText(context, "Omkun Morph Notes disconnected", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "Omkun Morph paused for Oj AI", Toast.LENGTH_SHORT).show()
                                     }
-                                } else if (isChecked && plugin.id in listOf("gmail_plugin", "drive_plugin", "calendar_plugin", "photos_plugin")) {
-                                    configuringPlugin = plugin
+                                } else if (plugin.id in listOf("gmail_plugin", "drive_plugin", "calendar_plugin", "photos_plugin")) {
+                                    if (isChecked) {
+                                        val enabled = agentManager.togglePlugin(plugin.id, true)
+                                        if (!enabled) {
+                                            configuringPlugin = plugin
+                                        }
+                                    } else {
+                                        agentManager.togglePlugin(plugin.id, false)
+                                    }
                                 } else if (plugin.id == "knowledge_base_plugin" && isChecked) {
                                     showCustomBioDialog = true
                                 } else {
@@ -496,7 +502,7 @@ fun OjAiProfileScreen(
                             },
                             onClick = {
                                 if (plugin.id == "morph_plugin") {
-                                    showMorphStatusDialog = true
+                                    showMorphAuthSheet = true
                                 } else if (plugin.id in listOf("gmail_plugin", "drive_plugin", "calendar_plugin", "photos_plugin")) {
                                     configuringPlugin = plugin
                                 } else if (plugin.id == "knowledge_base_plugin") {
@@ -551,22 +557,6 @@ fun OjAiProfileScreen(
                         subtitle = settings.customSystemBio.ifBlank { "Tap to define custom prompt instructions for Oj AI" },
                         onClick = { showCustomBioDialog = true }
                     )
-
-                    HorizontalDivider(
-                        color = Color(0xFFF1F5F9),
-                        thickness = 0.5.dp,
-                        modifier = Modifier.padding(start = 68.dp)
-                    )
-
-                    OjAiClickableRow(
-                        icon = Icons.Default.AutoAwesome,
-                        title = "Cloudflare Worker Endpoint",
-                        subtitle = com.example.ai.OjAiService.getWorkerUrl().ifBlank { "Tap to configure Cloudflare Worker URL" },
-                        onClick = {
-                            workerUrlText = com.example.ai.OjAiService.getWorkerUrl()
-                            showWorkerUrlDialog = true
-                        }
-                    )
                 }
             }
 
@@ -620,11 +610,22 @@ fun OjAiProfileScreen(
     }
 
 
-    // Dialog: Configure Plugin API Key / Credentials
+    // OAuth-style Account Authorization Dialog for Google Workspace Plugins (Zero Raw API Keys)
     val activePlugin = configuringPlugin
     if (activePlugin != null) {
-        var apiKeyInput by remember(activePlugin.id) { mutableStateOf(agentManager.getPluginApiKey(activePlugin.id)) }
-        var endpointInput by remember(activePlugin.id) { mutableStateOf(agentManager.getPluginEndpoint(activePlugin.id)) }
+        val existingAccount = remember(activePlugin.id, plugins) {
+            agentManager.getAuthorizedPluginAccount(activePlugin.id)
+        }
+        val defaultSuggestedEmail = remember(currentUser.email, currentUser.phoneNumber) {
+            currentUser.email.ifBlank {
+                if (currentUser.phoneNumber.isNotBlank()) {
+                    "${currentUser.phoneNumber.filter { it.isDigit() }}@gmail.com"
+                } else ""
+            }
+        }
+        var accountEmailInput by remember(activePlugin.id) {
+            mutableStateOf(existingAccount.ifBlank { defaultSuggestedEmail })
+        }
 
         AlertDialog(
             onDismissRequest = { configuringPlugin = null },
@@ -639,220 +640,130 @@ fun OjAiProfileScreen(
                     }
                     Icon(icon, contentDescription = null, tint = GeminiBlue)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(activePlugin.name, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text(
+                        text = if (existingAccount.isNotBlank()) "Connected to ${activePlugin.name}" else "Sign in to ${activePlugin.name}",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
                 }
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
                         activePlugin.description,
                         fontSize = 13.sp,
-                        color = Color(0xFF6B7280)
+                        color = Color(0xFF4B5563)
                     )
 
-                    OutlinedTextField(
-                        value = apiKeyInput,
-                        onValueChange = { apiKeyInput = it },
-                        label = { Text("API Key / OAuth Token") },
-                        placeholder = { Text("Paste your API key or token here") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    OutlinedTextField(
-                        value = endpointInput,
-                        onValueChange = { endpointInput = it },
-                        label = { Text("Custom Endpoint URL (Optional)") },
-                        placeholder = { Text("https://api.example.com/v1") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Text(
-                        "You can paste your API key here or send it in chat, and Oj AI will immediately connect and enable production access.",
-                        fontSize = 11.5.sp,
-                        color = Color(0xFF9CA3AF)
-                    )
+                    if (existingAccount.isNotBlank()) {
+                        Surface(
+                            color = Color(0xFFECFDF5),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = Color(0xFF16A34A),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = "Authorized Account",
+                                        fontSize = 11.5.sp,
+                                        color = Color(0xFF15803D),
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = existingAccount,
+                                        fontSize = 13.5.sp,
+                                        color = Color(0xFF065F46),
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        OutlinedTextField(
+                            value = accountEmailInput,
+                            onValueChange = { accountEmailInput = it },
+                            label = { Text("Google Account Email") },
+                            placeholder = { Text("you@gmail.com") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            "Oj AI will only access ${activePlugin.name} data belonging to the Google account you authorize. You can revoke access anytime.",
+                            fontSize = 11.5.sp,
+                            color = Color(0xFF6B7280)
+                        )
+                    }
                 }
             },
             confirmButton = {
-                Button(
-                    onClick = {
-                        agentManager.setPluginApiKey(activePlugin.id, apiKeyInput, endpointInput)
-                        configuringPlugin = null
-                        Toast.makeText(context, "${activePlugin.name} API saved", Toast.LENGTH_SHORT).show()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = GeminiBlue)
-                ) {
-                    Text("Save API Key", color = Color.White)
+                if (existingAccount.isNotBlank()) {
+                    Button(
+                        onClick = {
+                            agentManager.disconnectWorkspacePlugin(activePlugin.id)
+                            configuringPlugin = null
+                            Toast.makeText(context, "Disconnected from ${activePlugin.name}", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+                    ) {
+                        Text("Disconnect Account", color = Color.White)
+                    }
+                } else {
+                    Button(
+                        onClick = {
+                            val trimmed = accountEmailInput.trim()
+                            if (trimmed.contains("@")) {
+                                agentManager.authorizeWorkspacePlugin(activePlugin.id, trimmed)
+                                configuringPlugin = null
+                                Toast.makeText(context, "Connected ${activePlugin.name} as $trimmed", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Please enter a valid Google email address", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = GeminiBlue)
+                    ) {
+                        Text("Authorize & Connect", color = Color.White)
+                    }
                 }
             },
             dismissButton = {
                 TextButton(onClick = { configuringPlugin = null }) {
-                    Text("Cancel", color = Color(0xFF6B7280))
-                }
-            }
-        )
-    }
-
-    // Dialog: Omkun Morph Status & Cloud Sync
-    if (showMorphStatusDialog) {
-        val morphRepo = remember { com.example.data.MorphRepository.getInstance(context) }
-        val syncStatus by morphRepo.syncStatus.collectAsState()
-        AlertDialog(
-            onDismissRequest = { showMorphStatusDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.ic_morph_notes),
-                        contentDescription = null,
-                        tint = Color(0xFF007AFF),
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Omkun Morph Notes Cloud", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Surface(
-                        color = Color(0xFFE8F5E9),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(androidx.compose.foundation.shape.CircleShape)
-                                    .background(Color(0xFF2E7D32))
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                "Status: Authenticated & Connected",
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF1B5E20),
-                                fontSize = 13.sp
-                            )
-                        }
-                    }
-
-                    Text(
-                        "Cloud API Endpoint:",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF4B5563)
-                    )
-                    Surface(
-                        color = Color(0xFFF3F4F6),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            morphRepo.apiBaseUrl,
-                            fontSize = 11.5.sp,
-                            color = Color(0xFF1F2937),
-                            modifier = Modifier.padding(8.dp)
-                        )
-                    }
-
-                    Text(
-                        "Authentication:",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF4B5563)
-                    )
-                    Surface(
-                        color = Color(0xFFF3F4F6),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            "Bearer " + morphRepo.apiAuthToken.take(8) + "•••••••• (Verified)",
-                            fontSize = 11.5.sp,
-                            color = Color(0xFF1F2937),
-                            modifier = Modifier.padding(8.dp)
-                        )
-                    }
-
-                    Text(
-                        "Sync state: $syncStatus\nNo API key is required on the Morph page. Notes sync automatically in real-time.",
-                        fontSize = 12.sp,
-                        color = Color(0xFF6B7280)
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        morphRepo.syncWithServer { success, msg ->
-                            Toast.makeText(context, if (success) "Notes synced from Morph Cloud!" else "Sync status: $msg", Toast.LENGTH_SHORT).show()
-                        }
-                        showMorphStatusDialog = false
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = GeminiBlue)
-                ) {
-                    Text("Sync Now", color = Color.White)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showMorphStatusDialog = false }) {
                     Text("Close", color = Color(0xFF6B7280))
                 }
             }
         )
     }
 
-    // Dialog: Cloudflare Worker URL Configuration
-    if (showWorkerUrlDialog) {
-        AlertDialog(
-            onDismissRequest = { showWorkerUrlDialog = false },
-            title = { Text("Cloudflare Worker Endpoint", fontWeight = FontWeight.Bold) },
-            text = {
-                Column {
-                    Text(
-                        text = "Enter your Cloudflare Worker URL for Oj AI backend processing. Requests will be posted to this URL with { prompt, history, model }.",
-                        fontSize = 13.sp,
-                        color = Color(0xFF4B5563)
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = workerUrlText,
-                        onValueChange = { workerUrlText = it },
-                        label = { Text("Worker URL") },
-                        placeholder = { Text("https://oj-ai-worker.olinam.workers.dev/api/chat") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    TextButton(
-                        onClick = {
-                            workerUrlText = "https://oj-ai-worker.olinam.workers.dev/api/chat"
-                        }
-                    ) {
-                        Text("Reset to Default URL", fontSize = 12.sp, color = GeminiBlue)
-                    }
-                }
+    // Production OAuth-Style Sign-In & Permission Sheet for Omkun Morph
+    if (showMorphAuthSheet) {
+        com.example.ui.components.MorphAuthBottomSheet(
+            repository = morphRepo,
+            currentUser = currentUser,
+            onDismiss = { showMorphAuthSheet = false },
+            onAuthenticated = { account ->
+                agentManager.togglePlugin("morph_plugin", true)
+                Toast.makeText(
+                    context,
+                    "Connected to Omkun Morph as ${account.email}",
+                    Toast.LENGTH_SHORT
+                ).show()
             },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        com.example.ai.OjAiService.setWorkerUrl(workerUrlText)
-                        showWorkerUrlDialog = false
-                        Toast.makeText(context, "Worker URL updated", Toast.LENGTH_SHORT).show()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = GeminiBlue)
-                ) {
-                    Text("Save URL", color = Color.White)
-                }
+            onDisconnected = {
+                agentManager.refreshPlugins()
             },
-            dismissButton = {
-                TextButton(onClick = { showWorkerUrlDialog = false }) {
-                    Text("Cancel", color = Color(0xFF6B7280))
-                }
+            onOpenMorphNotes = {
+                showMorphAuthSheet = false
+                viewModel.setTab(com.example.model.AppTab.MORPH)
+                onBackClick()
             }
         )
     }
@@ -892,14 +803,7 @@ fun OjAiProfileScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        agentManager.setMasterEnabled(true)
-                        agentManager.updateSettings(
-                            settings.copy(
-                                autonomousMode = true,
-                                personalityTone = "Professional Executive",
-                                customSystemBio = "Handle client and team inquiries smoothly and professionally."
-                            )
-                        )
+                        agentManager.restoreDefaults()
                         showResetSettingsDialog = false
                         Toast.makeText(context, "Settings restored to defaults", Toast.LENGTH_SHORT).show()
                     },
