@@ -54,7 +54,7 @@ fun LabelChipsRow(
     }
 
     LaunchedEffect(selectedIndex) {
-        if (selectedIndex >= 0) {
+        if (selectedIndex >= 0 && !listState.isScrollInProgress) {
             listState.animateScrollToItem(selectedIndex)
         }
     }
@@ -72,10 +72,12 @@ fun LabelChipsRow(
             val isSelected = selectedLabelId == label.id
             val unreadCount = unreadCounts[label.id] ?: 0
             val isCustomLabel = label.id !in listOf("all", "direct", "groups", "sms")
-            val labelColor = try {
-                Color(android.graphics.Color.parseColor(label.colorHex))
-            } catch (_: Exception) {
-                Color(0xFF007AFF)
+            val labelColor = remember(label.colorHex) {
+                try {
+                    Color(android.graphics.Color.parseColor(label.colorHex))
+                } catch (_: Exception) {
+                    Color(0xFF007AFF)
+                }
             }
 
             val chipBgColor = if (isSelected) {

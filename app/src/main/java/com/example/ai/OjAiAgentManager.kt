@@ -234,9 +234,19 @@ class OjAiAgentManager(private val context: Context) {
 
     fun togglePlugin(pluginId: String, isConnected: Boolean) {
         prefs.edit().putBoolean("plugin_enabled_$pluginId", isConnected).apply()
-        _plugins.value = _plugins.value.map {
-            if (it.id == pluginId) it.copy(isConnected = isConnected) else it
+        if (pluginId == "morph_plugin") {
+            val morphRepo = com.example.data.MorphRepository.getInstance(context)
+            if (isConnected) {
+                morphRepo.authenticateAndConnect()
+                prefs.edit()
+                    .putString("api_key_morph_plugin", com.example.data.MorphRepository.DEFAULT_MORPH_API_KEY)
+                    .putString("endpoint_morph_plugin", com.example.data.MorphRepository.DEFAULT_MORPH_API_BASE_URL)
+                    .apply()
+            } else {
+                morphRepo.isConnected = false
+            }
         }
+        refreshPlugins()
     }
 
     fun addDelegatedContact(contact: DelegatedContact) {

@@ -122,6 +122,7 @@ fun HomeScreen(
     val isLoggedIn by viewModel.isLoggedIn.collectAsState()
     val currentTab by viewModel.currentTab.collectAsState()
     val conversations by viewModel.conversations.collectAsState()
+    val conversationsByLabel by viewModel.conversationsByLabel.collectAsState()
     val allConversations by viewModel.allConversations.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val labels by viewModel.labels.collectAsState()
@@ -921,12 +922,14 @@ fun HomeScreen(
                         pageCount = { labels.size }
                     )
 
-                    // Sync when page changes by swiping left/right
-                    LaunchedEffect(pagerState.currentPage) {
-                        if (pagerState.currentPage in labels.indices) {
-                            val targetLabel = labels[pagerState.currentPage]
-                            if (selectedLabelId != targetLabel.id) {
-                                viewModel.selectLabel(targetLabel.id)
+                    // Sync when page finishes swiping left/right and settles
+                    LaunchedEffect(pagerState) {
+                        androidx.compose.runtime.snapshotFlow { pagerState.settledPage }.collect { settledPage ->
+                            if (settledPage in labels.indices) {
+                                val targetLabel = labels[settledPage]
+                                if (selectedLabelId != targetLabel.id) {
+                                    viewModel.selectLabel(targetLabel.id)
+                                }
                             }
                         }
                     }
@@ -934,7 +937,7 @@ fun HomeScreen(
                     // Sync when chip is tapped
                     LaunchedEffect(selectedLabelId) {
                         val targetIndex = labels.indexOfFirst { it.id == selectedLabelId }
-                        if (targetIndex >= 0 && targetIndex != pagerState.currentPage) {
+                        if (targetIndex >= 0 && targetIndex != pagerState.currentPage && !pagerState.isScrollInProgress) {
                             pagerState.animateScrollToPage(targetIndex)
                         }
                     }
@@ -942,24 +945,12 @@ fun HomeScreen(
                     HorizontalPager(
                         state = pagerState,
                         modifier = Modifier.fillMaxSize(),
-                        beyondViewportPageCount = 1
+                        beyondViewportPageCount = 0
                     ) { pageIndex ->
                         val currentLabel = labels.getOrNull(pageIndex) ?: return@HorizontalPager
-                        val pageConversations = remember(allConversations, currentLabel.id, searchQuery) {
-                            allConversations.filter { conv ->
-                                val matchesLabel = when (currentLabel.id) {
-                                    "all", "direct" -> !viewModel.isSmsConversation(conv) && !conv.isGroup
-                                    "groups" -> conv.isGroup && !viewModel.isSmsConversation(conv)
-                                    "sms" -> viewModel.isSmsConversation(conv)
-                                    else -> !viewModel.isSmsConversation(conv) && (currentLabel.chatIds.contains(conv.id) || conv.labelIds.contains(currentLabel.id))
-                                }
-                                val matchesQuery = if (searchQuery.isBlank()) true else {
-                                    conv.title.contains(searchQuery, ignoreCase = true) ||
-                                    conv.lastMessageText.contains(searchQuery, ignoreCase = true)
-                                }
-                                matchesLabel && matchesQuery
-                            }.distinctBy { it.id }
-                        }
+                        val pageConversations = conversationsByLabel[currentLabel.id]
+                            ?: (if (currentLabel.id in listOf("all", "direct")) conversationsByLabel["direct"] else null)
+                            ?: emptyList()
 
                         ChatsTabContent(
                             conversations = pageConversations,

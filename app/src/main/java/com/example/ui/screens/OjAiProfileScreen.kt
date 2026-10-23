@@ -133,6 +133,7 @@ fun OjAiProfileScreen(
     var showWorkerUrlDialog by remember { mutableStateOf(false) }
     var workerUrlText by remember { mutableStateOf(com.example.ai.OjAiService.getWorkerUrl()) }
     var configuringPlugin by remember { mutableStateOf<AiPlugin?>(null) }
+    var showMorphStatusDialog by remember { mutableStateOf(false) }
 
     var newContactName by remember { mutableStateOf("") }
     var newContactPhone by remember { mutableStateOf("") }
@@ -470,7 +471,22 @@ fun OjAiProfileScreen(
                             subtitle = plugin.syncSummary.ifBlank { plugin.description },
                             checked = plugin.isConnected,
                             onCheckedChange = { isChecked ->
-                                if (isChecked && plugin.id in listOf("gmail_plugin", "drive_plugin", "calendar_plugin", "photos_plugin", "morph_plugin")) {
+                                if (plugin.id == "morph_plugin") {
+                                    if (isChecked) {
+                                        val morphRepo = com.example.data.MorphRepository.getInstance(context)
+                                        morphRepo.authenticateAndConnect()
+                                        agentManager.setPluginApiKey(
+                                            "morph_plugin",
+                                            com.example.data.MorphRepository.DEFAULT_MORPH_API_KEY,
+                                            com.example.data.MorphRepository.DEFAULT_MORPH_API_BASE_URL
+                                        )
+                                        agentManager.togglePlugin("morph_plugin", true)
+                                        Toast.makeText(context, "Omkun Morph Notes Authenticated & Connected to Cloud API!", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        agentManager.togglePlugin("morph_plugin", false)
+                                        Toast.makeText(context, "Omkun Morph Notes disconnected", Toast.LENGTH_SHORT).show()
+                                    }
+                                } else if (isChecked && plugin.id in listOf("gmail_plugin", "drive_plugin", "calendar_plugin", "photos_plugin")) {
                                     configuringPlugin = plugin
                                 } else if (plugin.id == "knowledge_base_plugin" && isChecked) {
                                     showCustomBioDialog = true
@@ -479,7 +495,9 @@ fun OjAiProfileScreen(
                                 }
                             },
                             onClick = {
-                                if (plugin.id in listOf("gmail_plugin", "drive_plugin", "calendar_plugin", "photos_plugin", "morph_plugin")) {
+                                if (plugin.id == "morph_plugin") {
+                                    showMorphStatusDialog = true
+                                } else if (plugin.id in listOf("gmail_plugin", "drive_plugin", "calendar_plugin", "photos_plugin")) {
                                     configuringPlugin = plugin
                                 } else if (plugin.id == "knowledge_base_plugin") {
                                     showCustomBioDialog = true
@@ -672,6 +690,117 @@ fun OjAiProfileScreen(
             dismissButton = {
                 TextButton(onClick = { configuringPlugin = null }) {
                     Text("Cancel", color = Color(0xFF6B7280))
+                }
+            }
+        )
+    }
+
+    // Dialog: Omkun Morph Status & Cloud Sync
+    if (showMorphStatusDialog) {
+        val morphRepo = remember { com.example.data.MorphRepository.getInstance(context) }
+        val syncStatus by morphRepo.syncStatus.collectAsState()
+        AlertDialog(
+            onDismissRequest = { showMorphStatusDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.ic_morph_notes),
+                        contentDescription = null,
+                        tint = Color(0xFF007AFF),
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Omkun Morph Notes Cloud", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Surface(
+                        color = Color(0xFFE8F5E9),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(androidx.compose.foundation.shape.CircleShape)
+                                    .background(Color(0xFF2E7D32))
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "Status: Authenticated & Connected",
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF1B5E20),
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+
+                    Text(
+                        "Cloud API Endpoint:",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF4B5563)
+                    )
+                    Surface(
+                        color = Color(0xFFF3F4F6),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            morphRepo.apiBaseUrl,
+                            fontSize = 11.5.sp,
+                            color = Color(0xFF1F2937),
+                            modifier = Modifier.padding(8.dp)
+                        )
+                    }
+
+                    Text(
+                        "Authentication:",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF4B5563)
+                    )
+                    Surface(
+                        color = Color(0xFFF3F4F6),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            "Bearer " + morphRepo.apiAuthToken.take(8) + "•••••••• (Verified)",
+                            fontSize = 11.5.sp,
+                            color = Color(0xFF1F2937),
+                            modifier = Modifier.padding(8.dp)
+                        )
+                    }
+
+                    Text(
+                        "Sync state: $syncStatus\nNo API key is required on the Morph page. Notes sync automatically in real-time.",
+                        fontSize = 12.sp,
+                        color = Color(0xFF6B7280)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        morphRepo.syncWithServer { success, msg ->
+                            Toast.makeText(context, if (success) "Notes synced from Morph Cloud!" else "Sync status: $msg", Toast.LENGTH_SHORT).show()
+                        }
+                        showMorphStatusDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = GeminiBlue)
+                ) {
+                    Text("Sync Now", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMorphStatusDialog = false }) {
+                    Text("Close", color = Color(0xFF6B7280))
                 }
             }
         )

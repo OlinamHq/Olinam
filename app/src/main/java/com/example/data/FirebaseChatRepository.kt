@@ -1929,20 +1929,6 @@ class FirebaseChatRepository {
             }
         lastSmsConversations = allSms
         updateCombinedConversations()
-
-        if (context != null) {
-            scope.launch {
-                for (conv in allSms.take(15)) {
-                    val phone = conv.phoneNumber ?: conv.title
-                    if (phone.isNotBlank()) {
-                        val messages = SmsHelper.getMessagesForAddress(context, phone)
-                        if (messages.isNotEmpty()) {
-                            setLocalMessages(conv.id, messages)
-                        }
-                    }
-                }
-            }
-        }
     }
 
     fun loadMessagesForConversation(conversationId: String, context: android.content.Context) {

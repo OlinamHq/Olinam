@@ -663,12 +663,14 @@ fun ConversationListItem(
 ) {
     val isItemLocked = isLocked
     val attachedLabels = remember(conversation.labelIds, labels) {
-        if (labels.size <= 3 && conversation.labelIds.isEmpty()) {
+        if (conversation.isSmsContact || conversation.labelIds.isEmpty()) {
             emptyList()
         } else {
-            labels.filter { label ->
-                label.id !in listOf("all", "direct", "groups", "sms") &&
-                (conversation.labelIds.contains(label.id) || label.chatIds.contains(conversation.id))
+            val nonSystemIds = conversation.labelIds.filter { it !in listOf("all", "direct", "groups", "sms") }
+            if (nonSystemIds.isEmpty()) {
+                emptyList()
+            } else {
+                labels.filter { it.id in nonSystemIds }
             }
         }
     }
@@ -1116,22 +1118,40 @@ private fun androidx.compose.foundation.layout.RowScope.BottomNavItem(
 
 private val timeFormat = ThreadLocal.withInitial { SimpleDateFormat("h:mm a", Locale.US) }
 private val dateFormat = ThreadLocal.withInitial { SimpleDateFormat("MMM d", Locale.US) }
-private val formattedTimeCache = java.util.concurrent.ConcurrentHashMap<Long, String>(512)
+private val formattedTimeCache = java.util.concurrent.ConcurrentHashMap<Long, String>(1024)
+private var lastTodayCheckTime = 0L
+private var startOfTodayMillis = 0L
+private var endOfTodayMillis = 0L
+
+private fun isTimestampTodayFast(timestamp: Long): Boolean {
+    val now = System.currentTimeMillis()
+    if (now - lastTodayCheckTime > 60_000L || startOfTodayMillis == 0L) {
+        val cal = java.util.Calendar.getInstance()
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        cal.set(java.util.Calendar.MINUTE, 0)
+        cal.set(java.util.Calendar.SECOND, 0)
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+        startOfTodayMillis = cal.timeInMillis
+        endOfTodayMillis = startOfTodayMillis + 86400000L
+        lastTodayCheckTime = now
+    }
+    return timestamp in startOfTodayMillis until endOfTodayMillis
+}
 
 fun formatMessageTime(timestamp: Long): String {
     if (timestamp <= 0L) return ""
     val minuteBucket = timestamp / 60000L
-    return formattedTimeCache.getOrPut(minuteBucket) {
-        val now = System.currentTimeMillis()
-        val diff = now - timestamp
-        val isToday = diff in 0..(24 * 3600 * 1000L) && android.text.format.DateUtils.isToday(timestamp)
-        val date = Date(timestamp)
-        if (isToday) {
-            val fmt = timeFormat.get() ?: SimpleDateFormat("h:mm a", Locale.US)
-            fmt.format(date).lowercase(Locale.US)
-        } else {
-            val fmt = dateFormat.get() ?: SimpleDateFormat("MMM d", Locale.US)
-            fmt.format(date)
-        }
+    val cached = formattedTimeCache[minuteBucket]
+    if (cached != null) return cached
+
+    val date = Date(timestamp)
+    val formatted = if (isTimestampTodayFast(timestamp)) {
+        val fmt = timeFormat.get() ?: SimpleDateFormat("h:mm a", Locale.US)
+        fmt.format(date).lowercase(Locale.US)
+    } else {
+        val fmt = dateFormat.get() ?: SimpleDateFormat("MMM d", Locale.US)
+        fmt.format(date)
     }
+    formattedTimeCache[minuteBucket] = formatted
+    return formatted
 }

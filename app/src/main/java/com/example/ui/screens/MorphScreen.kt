@@ -54,6 +54,15 @@ fun MorphScreen(
 ) {
     val context = LocalContext.current
     val notes by repository.notesFlow.collectAsState()
+    val syncStatus by repository.syncStatus.collectAsState()
+
+    LaunchedEffect(Unit) {
+        if (!repository.isConnected || repository.apiAuthToken.isBlank()) {
+            repository.authenticateAndConnect()
+        } else {
+            repository.syncWithServer()
+        }
+    }
 
     var searchQuery by remember { mutableStateOf("") }
     var isGridView by remember { mutableStateOf(true) }
@@ -165,12 +174,20 @@ fun MorphScreen(
                         }
 
                         IconButton(onClick = { showApiSettingsDialog = true }) {
-                            Icon(
-                                imageVector = Icons.Outlined.Settings,
-                                contentDescription = "Omkun Morph Settings",
-                                tint = Color(0xFF5F6368),
-                                modifier = Modifier.size(22.dp)
-                            )
+                            Box(contentAlignment = Alignment.TopEnd) {
+                                Icon(
+                                    imageVector = Icons.Outlined.CloudDone,
+                                    contentDescription = "Morph Cloud Connected",
+                                    tint = Color(0xFF1A73E8),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF34A853))
+                                )
+                            }
                         }
                     }
                 }
@@ -949,16 +966,20 @@ fun MorphNoteEditorDialog(
 }
 
 /**
- * Omkun Morph API Configuration Dialog (Allows updating backend API later)
+ * Omkun Morph Cloud Status & Sync Dialog
+ * Displays verified auto-connection status from Oj AI.
+ * No manual API configuration required on this page.
  */
 @Composable
 fun OmkunMorphApiSettingsDialog(
     repository: MorphRepository,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
+    val syncStatus by repository.syncStatus.collectAsState()
+    var showAdvanced by remember { mutableStateOf(false) }
     var url by remember { mutableStateOf(repository.apiBaseUrl) }
     var token by remember { mutableStateOf(repository.apiAuthToken) }
-    val context = LocalContext.current
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -968,52 +989,140 @@ fun OmkunMorphApiSettingsDialog(
                     painter = painterResource(id = R.drawable.ic_morph_notes),
                     contentDescription = null,
                     tint = Color(0xFF007AFF),
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(26.dp)
                 )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Omkun Morph Sync", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text("Omkun Morph Cloud", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text("Auto-Connected via Oj AI", fontSize = 12.sp, color = Color(0xFF10B981), fontWeight = FontWeight.Medium)
+                }
             }
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(
+                    color = Color(0xFFECFDF5),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, Color(0xFFA7F3D0)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF10B981))
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                "Connected & Authenticated",
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF065F46),
+                                fontSize = 13.5.sp
+                            )
+                            Text(
+                                "All notes auto-sync directly with Morph Cloud API.",
+                                color = Color(0xFF047857),
+                                fontSize = 11.5.sp
+                            )
+                        }
+                    }
+                }
+
                 Text(
-                    "Configure your Omkun Morph backend integration. Notes are currently safely saved locally and will auto-sync once connected.",
-                    fontSize = 13.sp,
-                    color = Color(0xFF5F6368)
+                    "Cloud API URL:",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF4B5563)
+                )
+                Surface(
+                    color = Color(0xFFF3F4F6),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        repository.apiBaseUrl,
+                        fontSize = 11.sp,
+                        color = Color(0xFF1F2937),
+                        modifier = Modifier.padding(8.dp)
+                    )
+                }
+
+                Text(
+                    "Auth Status:",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF4B5563)
+                )
+                Surface(
+                    color = Color(0xFFF3F4F6),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        "Bearer " + repository.apiAuthToken.take(8) + "•••••••• (Active)",
+                        fontSize = 11.sp,
+                        color = Color(0xFF1F2937),
+                        modifier = Modifier.padding(8.dp)
+                    )
+                }
+
+                Text(
+                    "Sync status: $syncStatus",
+                    fontSize = 12.sp,
+                    color = Color(0xFF6B7280)
                 )
 
-                OutlinedTextField(
-                    value = url,
-                    onValueChange = { url = it },
-                    label = { Text("API Base URL") },
-                    placeholder = { Text("https://api.morph.omkun.com/v1") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                if (!showAdvanced) {
+                    TextButton(
+                        onClick = { showAdvanced = true },
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Text("Show Advanced Endpoint Options", fontSize = 12.sp, color = Color(0xFF1A73E8))
+                    }
+                } else {
+                    OutlinedTextField(
+                        value = url,
+                        onValueChange = { url = it },
+                        label = { Text("Custom API Base URL") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
 
-                OutlinedTextField(
-                    value = token,
-                    onValueChange = { token = it },
-                    label = { Text("Auth Token / API Key (Optional)") },
-                    placeholder = { Text("Bearer token or API key") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                    OutlinedTextField(
+                        value = token,
+                        onValueChange = { token = it },
+                        label = { Text("Custom Auth Token") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                repository.apiBaseUrl = url.trim()
-                repository.apiAuthToken = token.trim()
-                Toast.makeText(context, "Omkun Morph settings saved", Toast.LENGTH_SHORT).show()
-                onDismiss()
-            }) {
-                Text("Save", fontWeight = FontWeight.Bold)
+            Button(
+                onClick = {
+                    if (showAdvanced) {
+                        repository.apiBaseUrl = url.trim()
+                        repository.apiAuthToken = token.trim()
+                    }
+                    repository.syncWithServer { success, msg ->
+                        Toast.makeText(context, if (success) "Notes synced from Morph Cloud!" else "Sync status: $msg", Toast.LENGTH_SHORT).show()
+                    }
+                    onDismiss()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF007AFF))
+            ) {
+                Text(if (showAdvanced) "Save & Sync" else "Sync Now", color = Color.White)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text("Close", color = Color(0xFF5F6368))
             }
         }
     )

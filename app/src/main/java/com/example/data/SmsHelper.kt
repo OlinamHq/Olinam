@@ -253,11 +253,18 @@ object SmsHelper {
         }
     }
 
+    private val contactNameCache = java.util.concurrent.ConcurrentHashMap<String, String>(256)
+
     fun resolveContactName(context: Context, phoneNumber: String): String? {
+        val clean = phoneNumber.trim()
+        if (clean.isEmpty() || clean.any { it.isLetter() }) return null
+        val cached = contactNameCache[clean]
+        if (cached != null) return cached.ifEmpty { null }
+
         try {
             val uri = Uri.withAppendedPath(
                 ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
-                Uri.encode(phoneNumber)
+                Uri.encode(clean)
             )
             val cursor = context.contentResolver.query(
                 uri,
@@ -270,11 +277,16 @@ object SmsHelper {
                 if (it.moveToFirst()) {
                     val idx = it.getColumnIndex(ContactsContract.PhoneLookup.DISPLAY_NAME)
                     if (idx >= 0) {
-                        return it.getString(idx)
+                        val name = it.getString(idx)
+                        if (!name.isNullOrBlank()) {
+                            contactNameCache[clean] = name
+                            return name
+                        }
                     }
                 }
             }
         } catch (_: Exception) {}
+        contactNameCache[clean] = ""
         return null
     }
 }

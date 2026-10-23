@@ -27,9 +27,11 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class ChatViewModel @JvmOverloads constructor(
     application: Application,
@@ -74,79 +76,131 @@ class ChatViewModel @JvmOverloads constructor(
 
     val allConversations: StateFlow<List<Conversation>> = repository.conversations
 
-    val unreadAppChatsCount: StateFlow<Int> = repository.conversations.map { all ->
-        all.filter { !isSmsConversation(it) && !it.isGroup }
-            .sumOf { it.unreadCount }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
-
-    companion object {
-        private val SMS_HEADER_REGEX = Regex("^[A-Z]{2}-[A-Za-z0-9\\-]+$")
-    }
-
-    val totalUnreadCount: StateFlow<Int> = repository.conversations.map { all ->
-        all.sumOf { it.unreadCount }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
-
     fun isSmsConversation(conv: Conversation): Boolean {
         if (conv.isSmsContact || conv.id.startsWith("sms_") || conv.labelIds.contains("sms")) return true
         if (conv.isGroup) return false
         val status = conv.onlineStatus
-        if (status != null && status.contains("Cellular SMS", ignoreCase = true)) return true
-        if (conv.lastMessageText.contains("SMS Chat", ignoreCase = true)) return true
-        return SMS_HEADER_REGEX.matches(conv.title)
+        if (status != null && status.startsWith("Cellular SMS", ignoreCase = true)) return true
+        return false
     }
 
-    val unreadCountsByLabel: StateFlow<Map<String, Int>> = combine(
-        repository.conversations,
-        repository.labels
-    ) { all, labelsList ->
-        val directCount = all.filter { !isSmsConversation(it) && !it.isGroup }
-            .sumOf { it.unreadCount }
-        val groupsCount = all.filter { (it.isGroup || it.labelIds.contains("groups")) && !isSmsConversation(it) }
-            .sumOf { it.unreadCount }
-        val smsCount = all.filter { isSmsConversation(it) }
-            .sumOf { it.unreadCount }
-
-        val map = mutableMapOf(
-            "all" to directCount,
-            "direct" to directCount,
-            "groups" to groupsCount,
-            "sms" to smsCount
-        )
-        for (label in labelsList) {
-            if (!map.containsKey(label.id)) {
-                map[label.id] = all.filter { !isSmsConversation(it) && (it.labelIds.contains(label.id) || label.chatIds.contains(it.id)) }
-                    .sumOf { it.unreadCount }
+    val unreadAppChatsCount: StateFlow<Int> = repository.conversations.map { all ->
+        var count = 0
+        for (conv in all) {
+            if (!isSmsConversation(conv) && !conv.isGroup) {
+                count += conv.unreadCount
             }
         }
-        map
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+        count
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val conversations: StateFlow<List<Conversation>> = combine(
-        repository.conversations,
-        _searchQuery,
-        _selectedLabelId,
-        repository.labels
-    ) { allConv, query, labelId, labelsList ->
-        allConv.filter { conv ->
-            val matchesLabel = when (labelId) {
-                // Chats tab: strictly app-to-app chats only (no text/SMS messages, no groups)
-                "direct" -> !isSmsConversation(conv) && !conv.isGroup
-                // Groups tab: app groups only
-                "groups" -> conv.isGroup && !isSmsConversation(conv)
-                // SMS tab: cellular text messages
-                "sms" -> isSmsConversation(conv)
-                else -> {
-                    val target = labelsList.find { it.id == labelId }
-                    !isSmsConversation(conv) && (target?.chatIds?.contains(conv.id) == true || conv.labelIds.contains(labelId))
+    val totalUnreadCount: StateFlow<Int> = repository.conversations.map { all ->
+        var count = 0
+        for (conv in all) {
+            count += conv.unreadCount
+        }
+        count
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val unreadCountsByLabel: StateFlow<Map<String, Int>> = repository.conversations.map { all ->
+        withContext(Dispatchers.Default) {
+            var directCount = 0
+            var groupsCount = 0
+            var smsCount = 0
+            val customCountMap = HashMap<String, Int>()
+
+            for (conv in all) {
+                val unread = conv.unreadCount
+                if (unread <= 0) continue
+
+                val isSms = isSmsConversation(conv)
+                if (isSms) {
+                    smsCount += unread
+                } else if (conv.isGroup) {
+                    groupsCount += unread
+                } else {
+                    directCount += unread
+                }
+
+                if (!isSms && conv.labelIds.isNotEmpty()) {
+                    for (lid in conv.labelIds) {
+                        customCountMap[lid] = (customCountMap[lid] ?: 0) + unread
+                    }
                 }
             }
-            val matchesQuery = if (query.isBlank()) true else {
-                conv.title.contains(query, ignoreCase = true) ||
-                        conv.lastMessageText.contains(query, ignoreCase = true)
+
+            val map = HashMap<String, Int>()
+            map["all"] = directCount
+            map["direct"] = directCount
+            map["groups"] = groupsCount
+            map["sms"] = smsCount
+            for ((k, v) in customCountMap) {
+                map[k] = v
             }
-            matchesLabel && matchesQuery
+            map
         }
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    val conversationsByLabel: StateFlow<Map<String, List<Conversation>>> = combine(
+        repository.conversations,
+        _searchQuery,
+        repository.labels
+    ) { allConv, query, labelsList ->
+        withContext(Dispatchers.Default) {
+            val q = query.trim()
+            val hasQuery = q.isNotEmpty()
+
+            val directList = ArrayList<Conversation>()
+            val groupsList = ArrayList<Conversation>()
+            val smsList = ArrayList<Conversation>()
+            val customMap = HashMap<String, ArrayList<Conversation>>()
+
+            for (label in labelsList) {
+                if (label.id !in listOf("all", "direct", "groups", "sms")) {
+                    customMap[label.id] = ArrayList()
+                }
+            }
+
+            for (conv in allConv) {
+                if (hasQuery) {
+                    val matchesQuery = conv.title.contains(q, ignoreCase = true) ||
+                            conv.lastMessageText.contains(q, ignoreCase = true)
+                    if (!matchesQuery) continue
+                }
+
+                val isSms = isSmsConversation(conv)
+                if (isSms) {
+                    smsList.add(conv)
+                } else if (conv.isGroup) {
+                    groupsList.add(conv)
+                } else {
+                    directList.add(conv)
+                }
+
+                if (!isSms && conv.labelIds.isNotEmpty()) {
+                    for (lid in conv.labelIds) {
+                        customMap[lid]?.add(conv)
+                    }
+                }
+            }
+
+            val map = HashMap<String, List<Conversation>>()
+            map["all"] = directList
+            map["direct"] = directList
+            map["groups"] = groupsList
+            map["sms"] = smsList
+            for ((k, v) in customMap) {
+                map[k] = v
+            }
+            map
+        }
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    val conversations: StateFlow<List<Conversation>> = combine(
+        conversationsByLabel,
+        _selectedLabelId
+    ) { map, labelId ->
+        map[labelId] ?: map["direct"] ?: emptyList()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val activeConversationMessages: StateFlow<List<Message>> = combine(
