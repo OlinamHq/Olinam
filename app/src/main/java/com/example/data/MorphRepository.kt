@@ -48,6 +48,7 @@ class MorphRepository(private val context: Context) {
 
     private val prefs = context.getSharedPreferences("omkun_morph_auth_v2", Context.MODE_PRIVATE)
     private val coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var activeWorkspaceId: String? = null
 
     private val _connectedAccountFlow = MutableStateFlow<MorphAccount?>(null)
     val connectedAccountFlow: StateFlow<MorphAccount?> = _connectedAccountFlow.asStateFlow()
@@ -504,7 +505,9 @@ class MorphRepository(private val context: Context) {
         val account = _connectedAccountFlow.value
         if (account == null) {
             _syncStatus.value = "Sign in required"
-            onComplete?.invoke(false, "Please sign in to your Omkun Morph account first.")
+            coroutineScope.launch(Dispatchers.Main) {
+                onComplete?.invoke(false, "Please sign in to your Omkun Morph account first.")
+            }
             return
         }
 
@@ -513,7 +516,18 @@ class MorphRepository(private val context: Context) {
             _syncStatus.value = "Syncing ${account.email}..."
             var syncedRemote = false
 
-            // 1. Sync with production Omkun Morph Cloud (/users/{accountId}/morph_notes)
+            // 1. Sync all workspace documents/pages from Omkun Morph cloud (morph.omkun.com /documents and /workspaces)
+            try {
+                val workspaceDocs = fetchWorkspaceDocumentsFromMorphCloud(account)
+                if (workspaceDocs.isNotEmpty()) {
+                    mergeRemoteNotesForAccount(account, workspaceDocs)
+                    syncedRemote = true
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Morph workspace documents sync notice: ${e.message}")
+            }
+
+            // 2. Sync with production Omkun Morph Cloud user subcollection (/users/{accountId}/morph_notes)
             try {
                 val cloudNotes = fetchAccountNotesFromMorphCloud(account)
                 if (cloudNotes.isNotEmpty()) {
@@ -524,7 +538,7 @@ class MorphRepository(private val context: Context) {
                 Log.d(TAG, "Morph Cloud REST sync notice: ${e.message}")
             }
 
-            // 2. Sync with local FirebaseFirestore if available
+            // 3. Sync with local FirebaseFirestore if available
             try {
                 val firestoreNotes = fetchAccountNotesFromFirestore(account)
                 if (firestoreNotes.isNotEmpty()) {
@@ -537,12 +551,182 @@ class MorphRepository(private val context: Context) {
 
             lastSyncTime = System.currentTimeMillis()
             _isSyncing.value = false
+            val currentCount = _notesFlow.value.count { !it.isArchived }
             _syncStatus.value = if (syncedRemote) {
-                "Synced • ${account.email}"
+                "Synced • $currentCount notes"
             } else {
                 "Active • ${account.email}"
             }
-            onComplete?.invoke(true, "Synced with ${account.email}")
+
+            // CRITICAL: onComplete callback MUST execute on Dispatchers.Main so UI Toasts never crash the app
+            withContext(Dispatchers.Main) {
+                onComplete?.invoke(true, if (syncedRemote) "Synced $currentCount notes for ${account.email}" else "Active • ${account.email}")
+            }
+        }
+    }
+
+    private fun fetchWorkspaceDocumentsFromMorphCloud(account: MorphAccount): List<MorphNote> {
+        return try {
+            val normalizedEmail = account.email.trim().lowercase(Locale.US)
+            val userWorkspaceIds = mutableSetOf<String>()
+
+            // 1. Query workspaces to detect user's workspaces
+            try {
+                val wsUrl = "$MORPH_FIRESTORE_REST_BASE/workspaces"
+                val wsReqBuilder = Request.Builder().url(wsUrl)
+                if (account.sessionToken.isNotBlank()) {
+                    wsReqBuilder.addHeader("Authorization", "Bearer ${account.sessionToken}")
+                }
+                val wsRes = client.newCall(wsReqBuilder.build()).execute()
+                if (wsRes.isSuccessful) {
+                    val wsBody = wsRes.body?.string().orEmpty()
+                    if (wsBody.isNotBlank()) {
+                        val root = JSONObject(wsBody)
+                        val docs = root.optJSONArray("documents")
+                        if (docs != null) {
+                            for (i in 0 until docs.length()) {
+                                val wsDoc = docs.getJSONObject(i)
+                                val wsDocId = wsDoc.optString("name", "").substringAfterLast("/")
+                                val fields = wsDoc.optJSONObject("fields") ?: continue
+                                val customId = fields.optJSONObject("id")?.optString("stringValue", "").orEmpty()
+                                val ownerId = fields.optJSONObject("ownerId")?.optString("stringValue", "").orEmpty()
+                                val effectiveId = customId.ifBlank { wsDocId }
+
+                                var isMember = (ownerId == account.accountId)
+                                val membersArr = fields.optJSONObject("members")?.optJSONObject("arrayValue")?.optJSONArray("values")
+                                if (membersArr != null) {
+                                    for (m in 0 until membersArr.length()) {
+                                        val mFields = membersArr.getJSONObject(m).optJSONObject("mapValue")?.optJSONObject("fields")
+                                        val mEmail = mFields?.optJSONObject("email")?.optString("stringValue", "").orEmpty().trim().lowercase(Locale.US)
+                                        val mUid = mFields?.optJSONObject("userId")?.optString("stringValue", "").orEmpty()
+                                        if (mEmail == normalizedEmail || mUid == account.accountId) {
+                                            isMember = true
+                                            break
+                                        }
+                                    }
+                                }
+
+                                if (isMember) {
+                                    userWorkspaceIds.add(effectiveId)
+                                    if (wsDocId.isNotBlank()) userWorkspaceIds.add(wsDocId)
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Workspace resolution notice: ${e.message}")
+            }
+
+            // Fallback: If no custom workspace ID matched, always include default 'ws-primary'
+            if (userWorkspaceIds.isEmpty()) {
+                userWorkspaceIds.add("ws-primary")
+            }
+            activeWorkspaceId = userWorkspaceIds.firstOrNull() ?: "ws-primary"
+
+            // 2. Query documents collection from morph-69d82
+            val docsUrl = "$MORPH_FIRESTORE_REST_BASE/documents?pageSize=300"
+            val docsReqBuilder = Request.Builder().url(docsUrl)
+            if (account.sessionToken.isNotBlank()) {
+                docsReqBuilder.addHeader("Authorization", "Bearer ${account.sessionToken}")
+            }
+            val docsRes = client.newCall(docsReqBuilder.build()).execute()
+            if (!docsRes.isSuccessful) return emptyList()
+            val docsBody = docsRes.body?.string().orEmpty()
+            if (docsBody.isBlank()) return emptyList()
+
+            val result = mutableListOf<MorphNote>()
+            val docsRoot = JSONObject(docsBody)
+            val docsArray = docsRoot.optJSONArray("documents") ?: return emptyList()
+
+            for (i in 0 until docsArray.length()) {
+                val docObj = docsArray.getJSONObject(i)
+                val docName = docObj.optString("name", "")
+                val docId = docName.substringAfterLast("/")
+                val fields = docObj.optJSONObject("fields") ?: continue
+
+                // Check isDeleted flag
+                val isDeleted = fields.optJSONObject("isDeleted")?.optBoolean("booleanValue", false) ?: false
+                if (isDeleted) continue
+
+                // Check workspaceId
+                val docWsId = fields.optJSONObject("workspaceId")?.optString("stringValue", "").orEmpty()
+                if (docWsId.isNotBlank() && !userWorkspaceIds.contains(docWsId)) {
+                    continue
+                }
+
+                val title = fields.optJSONObject("title")?.optString("stringValue", "").orEmpty().ifBlank { "Untitled Page" }
+                val description = fields.optJSONObject("description")?.optString("stringValue", "").orEmpty()
+                val rawContent = fields.optJSONObject("content")?.optString("stringValue", "").orEmpty()
+
+                val checklistItems = mutableListOf<MorphChecklistItem>()
+                val textParts = mutableListOf<String>()
+                if (description.isNotBlank()) {
+                    textParts.add(description)
+                }
+
+                val blocksArr = fields.optJSONObject("blocks")?.optJSONObject("arrayValue")?.optJSONArray("values")
+                if (blocksArr != null) {
+                    for (b in 0 until blocksArr.length()) {
+                        val bFields = blocksArr.getJSONObject(b).optJSONObject("mapValue")?.optJSONObject("fields") ?: continue
+                        val bType = bFields.optJSONObject("type")?.optString("stringValue", "").orEmpty()
+                        val bContent = bFields.optJSONObject("content")?.optString("stringValue", "").orEmpty()
+                        val bChecked = bFields.optJSONObject("checked")?.optBoolean("booleanValue", false) ?: false
+                        val bId = bFields.optJSONObject("id")?.optString("stringValue", "").orEmpty()
+
+                        if (bType == "todo") {
+                            if (bContent.isNotBlank()) {
+                                checklistItems.add(
+                                    MorphChecklistItem(
+                                        id = bId.ifBlank { UUID.randomUUID().toString() },
+                                        text = bContent,
+                                        isDone = bChecked
+                                    )
+                                )
+                            }
+                        } else if (bContent.isNotBlank()) {
+                            textParts.add(bContent)
+                        }
+                    }
+                }
+
+                val content = textParts.filter { it.isNotBlank() }.joinToString("\n\n").ifBlank { rawContent }
+                val isChecklist = checklistItems.isNotEmpty()
+
+                // Extract tags / labels
+                val labels = mutableListOf<String>()
+                val tagsArr = fields.optJSONObject("tags")?.optJSONObject("arrayValue")?.optJSONArray("values")
+                if (tagsArr != null) {
+                    for (t in 0 until tagsArr.length()) {
+                        val tagStr = tagsArr.getJSONObject(t).optString("stringValue", "")
+                        if (tagStr.isNotBlank()) labels.add(tagStr)
+                    }
+                }
+
+                val tsStr = fields.optJSONObject("updatedAtTimestamp")?.optString("integerValue", "")
+                val updatedAt = tsStr?.toLongOrNull() ?: System.currentTimeMillis()
+                val isPinned = fields.optJSONObject("isPinned")?.optBoolean("booleanValue", false) ?: false
+
+                result.add(
+                    MorphNote(
+                        id = docId,
+                        accountId = account.accountId,
+                        title = title,
+                        content = content,
+                        checklist = checklistItems,
+                        isChecklist = isChecklist,
+                        colorHex = MorphPalette.Default,
+                        isPinned = isPinned,
+                        labels = labels,
+                        updatedAt = updatedAt,
+                        isArchived = false
+                    )
+                )
+            }
+            result
+        } catch (e: Exception) {
+            Log.d(TAG, "fetchWorkspaceDocumentsFromMorphCloud notice: ${e.message}")
+            emptyList()
         }
     }
 
@@ -673,11 +857,71 @@ class MorphRepository(private val context: Context) {
                 .set(payload, SetOptions.merge())
         } catch (_: Throwable) {}
 
-        // 2. Sync directly with Omkun Morph Cloud Firestore REST (/users/{accountId}/morph_notes/{id})
+        // 2. Sync directly with Omkun Morph Cloud Firestore REST
         coroutineScope.launch {
             try {
-                val url = "$MORPH_FIRESTORE_REST_BASE/users/${account.accountId}/morph_notes/${note.id}"
+                val targetWs = activeWorkspaceId ?: "ws-primary"
+
+                // A. Save to morph-69d82 /documents/{note.id} so it shows on morph.omkun.com
                 val docPayload = JSONObject().apply {
+                    val fields = JSONObject().apply {
+                        put("id", JSONObject().apply { put("stringValue", note.id) })
+                        put("title", JSONObject().apply { put("stringValue", note.title.ifBlank { "Untitled Note" }) })
+                        put("workspaceId", JSONObject().apply { put("stringValue", targetWs) })
+                        put("description", JSONObject().apply { put("stringValue", "Synced via Olinam Morph App") })
+                        put("status", JSONObject().apply { put("stringValue", "In Progress") })
+                        put("isDeleted", JSONObject().apply { put("booleanValue", false) })
+                        put("updatedAt", JSONObject().apply { put("stringValue", "Just now") })
+                        put("updatedAtTimestamp", JSONObject().apply { put("integerValue", note.updatedAt.toString()) })
+                        put("owner", JSONObject().apply { put("stringValue", account.displayName) })
+                        put("icon", JSONObject().apply { put("stringValue", if (note.isChecklist) "☑️" else "📄") })
+
+                        val tagsArr = JSONArray()
+                        tagsArr.put(JSONObject().apply { put("stringValue", "Olinam") })
+                        for (tag in note.labels) {
+                            tagsArr.put(JSONObject().apply { put("stringValue", tag) })
+                        }
+                        put("tags", JSONObject().apply { put("arrayValue", JSONObject().apply { put("values", tagsArr) }) })
+
+                        val blocksArr = JSONArray()
+                        if (note.content.isNotBlank()) {
+                            blocksArr.put(JSONObject().apply {
+                                put("mapValue", JSONObject().apply {
+                                    put("fields", JSONObject().apply {
+                                        put("id", JSONObject().apply { put("stringValue", "b-${note.id}-text") })
+                                        put("type", JSONObject().apply { put("stringValue", "paragraph") })
+                                        put("content", JSONObject().apply { put("stringValue", note.content) })
+                                    })
+                                })
+                            })
+                        }
+                        note.checklist.forEachIndexed { idx, item ->
+                            blocksArr.put(JSONObject().apply {
+                                put("mapValue", JSONObject().apply {
+                                    put("fields", JSONObject().apply {
+                                        put("id", JSONObject().apply { put("stringValue", item.id.ifBlank { "b-${note.id}-$idx" }) })
+                                        put("type", JSONObject().apply { put("stringValue", "todo") })
+                                        put("content", JSONObject().apply { put("stringValue", item.text) })
+                                        put("checked", JSONObject().apply { put("booleanValue", item.isDone) })
+                                    })
+                                })
+                            })
+                        }
+                        put("blocks", JSONObject().apply { put("arrayValue", JSONObject().apply { put("values", blocksArr) }) })
+                    }
+                    put("fields", fields)
+                }
+
+                val req1 = Request.Builder()
+                    .url("$MORPH_FIRESTORE_REST_BASE/documents/${note.id}")
+                    .patch(docPayload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                if (account.sessionToken.isNotBlank()) {
+                    req1.addHeader("Authorization", "Bearer ${account.sessionToken}")
+                }
+                client.newCall(req1.build()).execute().close()
+
+                // B. Also save to user's personal /users/{accountId}/morph_notes/{note.id}
+                val userNotePayload = JSONObject().apply {
                     val fields = JSONObject().apply {
                         put("id", JSONObject().apply { put("stringValue", note.id) })
                         put("title", JSONObject().apply { put("stringValue", note.title) })
@@ -698,13 +942,13 @@ class MorphRepository(private val context: Context) {
                     put("fields", fields)
                 }
 
-                val reqBuilder = Request.Builder()
-                    .url(url)
-                    .patch(docPayload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                val req2 = Request.Builder()
+                    .url("$MORPH_FIRESTORE_REST_BASE/users/${account.accountId}/morph_notes/${note.id}")
+                    .patch(userNotePayload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
                 if (account.sessionToken.isNotBlank()) {
-                    reqBuilder.addHeader("Authorization", "Bearer ${account.sessionToken}")
+                    req2.addHeader("Authorization", "Bearer ${account.sessionToken}")
                 }
-                client.newCall(reqBuilder.build()).execute().close()
+                client.newCall(req2.build()).execute().close()
             } catch (e: Exception) {
                 Log.d(TAG, "Morph Cloud pushNote notice: ${e.message}")
             }
@@ -725,12 +969,23 @@ class MorphRepository(private val context: Context) {
         // 2. Delete from Omkun Morph Cloud Firestore REST
         coroutineScope.launch {
             try {
-                val url = "$MORPH_FIRESTORE_REST_BASE/users/${account.accountId}/morph_notes/$noteId"
-                val reqBuilder = Request.Builder().url(url).delete()
+                // Delete from /documents/{noteId}
+                val req1 = Request.Builder()
+                    .url("$MORPH_FIRESTORE_REST_BASE/documents/$noteId")
+                    .delete()
                 if (account.sessionToken.isNotBlank()) {
-                    reqBuilder.addHeader("Authorization", "Bearer ${account.sessionToken}")
+                    req1.addHeader("Authorization", "Bearer ${account.sessionToken}")
                 }
-                client.newCall(reqBuilder.build()).execute().close()
+                client.newCall(req1.build()).execute().close()
+
+                // Delete from /users/{accountId}/morph_notes/{noteId}
+                val req2 = Request.Builder()
+                    .url("$MORPH_FIRESTORE_REST_BASE/users/${account.accountId}/morph_notes/$noteId")
+                    .delete()
+                if (account.sessionToken.isNotBlank()) {
+                    req2.addHeader("Authorization", "Bearer ${account.sessionToken}")
+                }
+                client.newCall(req2.build()).execute().close()
             } catch (e: Exception) {
                 Log.d(TAG, "Morph Cloud deleteNote notice: ${e.message}")
             }

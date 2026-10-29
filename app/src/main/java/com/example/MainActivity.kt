@@ -62,25 +62,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = Color.White
                 ) {
-                    var showSplash by androidx.compose.runtime.saveable.rememberSaveable {
-                        mutableStateOf(!isIntentLaunch)
-                    }
-
-                    Crossfade(
-                        targetState = showSplash,
-                        animationSpec = tween(durationMillis = 150),
-                        label = "splashCrossfade"
-                    ) { isSplash ->
-                        if (isSplash) {
-                            SplashScreen(
-                                onSplashFinished = {
-                                    showSplash = false
-                                }
-                            )
-                        } else {
-                            HomeScreen(viewModel = chatViewModel)
-                        }
-                    }
+                    HomeScreen(viewModel = chatViewModel)
                 }
             }
         }

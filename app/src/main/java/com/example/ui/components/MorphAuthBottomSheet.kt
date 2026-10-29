@@ -349,7 +349,9 @@ fun MorphAuthBottomSheet(
                     Button(
                         onClick = {
                             repository.syncWithServer { _, msg ->
-                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                try {
+                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                } catch (_: Exception) {}
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MorphBlue),
