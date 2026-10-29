@@ -118,6 +118,7 @@ object SmsHelper {
 
                     seenAddresses[cleanAddr] = conv
                     personalList.add(conv)
+                    if (personalList.size >= 80) break
                 }
             }
         } catch (_: Exception) {

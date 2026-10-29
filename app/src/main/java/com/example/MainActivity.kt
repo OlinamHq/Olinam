@@ -52,17 +52,23 @@ class MainActivity : ComponentActivity() {
             )
         } catch (_: Exception) {}
 
+        val isIntentLaunch = intent?.hasExtra("OPEN_SMS_ADDRESS") == true ||
+                intent?.action == Intent.ACTION_SENDTO ||
+                intent?.action == Intent.ACTION_VIEW
+
         setContent {
             MyApplicationTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = Color.White
                 ) {
-                    var showSplash by remember { mutableStateOf(true) }
+                    var showSplash by androidx.compose.runtime.saveable.rememberSaveable {
+                        mutableStateOf(!isIntentLaunch)
+                    }
 
                     Crossfade(
                         targetState = showSplash,
-                        animationSpec = tween(durationMillis = 400),
+                        animationSpec = tween(durationMillis = 150),
                         label = "splashCrossfade"
                     ) { isSplash ->
                         if (isSplash) {

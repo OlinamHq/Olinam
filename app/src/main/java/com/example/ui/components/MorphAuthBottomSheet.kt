@@ -110,7 +110,7 @@ fun MorphAuthBottomSheet(
     val isSyncing by repository.isSyncing.collectAsState()
 
     var isSwitchingAccount by remember { mutableStateOf(false) }
-    var showEmailForm by remember { mutableStateOf(false) }
+    var isSignUpMode by remember { mutableStateOf(false) }
     var emailInput by remember { mutableStateOf("") }
     var nameInput by remember { mutableStateOf("") }
     var passwordInput by remember { mutableStateOf("") }
@@ -589,296 +589,201 @@ fun MorphAuthBottomSheet(
                     }
                 }
 
-                // 1. 1-Tap Olinam Verified Account SSO (if user is logged into Olinam)
-                val hasValidOlinamUser = currentUser != null &&
-                    (currentUser.isLoggedIn || currentUser.phoneNumber.isNotBlank() || currentUser.email.isNotBlank())
-
-                if (hasValidOlinamUser && currentUser != null && !showEmailForm) {
+                // Direct Omkun Account Authentication Form (Production Only)
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Mode Toggle: Sign In vs Create Account
                     Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = Color(0xFFEFF6FF),
-                        border = BorderStroke(1.2.dp, MorphBlue.copy(alpha = 0.4f)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .clickable(enabled = !isAuthenticating) {
-                                authError = null
-                                isAuthenticating = true
-                                scope.launch {
-                                    val res = repository.authorizeWithOlinamAccount(currentUser, selectedScopes)
-                                    isAuthenticating = false
-                                    res.onSuccess { account ->
-                                        isSwitchingAccount = false
-                                        Toast.makeText(
-                                            context,
-                                            "Connected to Morph as ${account.displayName}",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                        onAuthenticated(account)
-                                        onDismiss()
-                                    }.onFailure { err ->
-                                        authError = err.message ?: "Could not authorize Olinam account"
-                                    }
-                                }
-                            }
-                            .testTag("morph_continue_olinam_sso")
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFF1F5F9),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .padding(4.dp)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(MorphBlue),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = currentUser.name.ifBlank { "U" }.take(1).uppercase(),
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Continue as ${currentUser.name.ifBlank { "Olinam User" }}",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.5.sp,
-                                    color = Color(0xFF0F172A)
-                                )
-                                Text(
-                                    text = currentUser.email.ifBlank {
-                                        currentUser.phoneNumber.ifBlank { "Verified Olinam Account" }
-                                    },
-                                    fontSize = 12.sp,
-                                    color = Color(0xFF475569)
-                                )
-                            }
                             Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = MorphBlue
+                                shape = RoundedCornerShape(9.dp),
+                                color = if (!isSignUpMode) Color.White else Color.Transparent,
+                                shadowElevation = if (!isSignUpMode) 1.dp else 0.dp,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(9.dp))
+                                    .clickable {
+                                        isSignUpMode = false
+                                        authError = null
+                                    }
                             ) {
                                 Text(
-                                    text = "Connect",
-                                    color = Color.White,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                    text = "Sign In",
+                                    fontWeight = if (!isSignUpMode) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (!isSignUpMode) MorphBlue else Color(0xFF64748B),
+                                    fontSize = 13.5.sp,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(vertical = 8.dp)
+                                )
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(9.dp),
+                                color = if (isSignUpMode) Color.White else Color.Transparent,
+                                shadowElevation = if (isSignUpMode) 1.dp else 0.dp,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(9.dp))
+                                    .clickable {
+                                        isSignUpMode = true
+                                        authError = null
+                                    }
+                            ) {
+                                Text(
+                                    text = "Create Account",
+                                    fontWeight = if (isSignUpMode) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSignUpMode) MorphBlue else Color(0xFF64748B),
+                                    fontSize = 13.5.sp,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(vertical = 8.dp)
                                 )
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
-                }
-
-                // 2. Continue with Google (Jetpack Credential Manager)
-                if (!showEmailForm) {
-                    OutlinedButton(
-                        onClick = {
-                            authError = null
-                            isAuthenticating = true
-                            scope.launch {
-                                val res = repository.signInWithGoogle(context, selectedScopes)
-                                isAuthenticating = false
-                                res.onSuccess { account ->
-                                    isSwitchingAccount = false
-                                    Toast.makeText(
-                                        context,
-                                        "Connected to Morph as ${account.email}",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                    onAuthenticated(account)
-                                    onDismiss()
-                                }.onFailure {
-                                    // Smoothly transition to direct email sign-in if Play Services / OAuth client is unavailable on device
-                                    showEmailForm = true
-                                    authError = null
-                                }
-                            }
-                        },
-                        enabled = !isAuthenticating,
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                            .testTag("morph_continue_google_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AccountCircle,
-                            contentDescription = null,
-                            tint = MorphBlue,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Continue with Google Account",
-                            color = Color(0xFF0F172A),
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.5.sp
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    OutlinedButton(
-                        onClick = {
-                            authError = null
-                            showEmailForm = true
-                        },
-                        enabled = !isAuthenticating,
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                            .testTag("morph_use_email_account_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Email,
-                            contentDescription = null,
-                            tint = Color(0xFF475569),
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Sign in with Omkun Account",
-                            color = Color(0xFF0F172A),
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.5.sp
-                        )
-                    }
-                }
-
-                // 3. Direct Omkun / Email Account Sign-In Form
-                AnimatedVisibility(visible = showEmailForm) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = emailInput,
-                            onValueChange = {
-                                emailInput = it
-                                authError = null
-                            },
-                            label = { Text("Morph Account Email") },
-                            placeholder = { Text("you@example.com") },
-                            leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("morph_email_input")
-                        )
-
+                    if (isSignUpMode) {
                         OutlinedTextField(
                             value = nameInput,
                             onValueChange = { nameInput = it },
-                            label = { Text("Your Name (for new account)") },
+                            label = { Text("Your Full Name") },
                             placeholder = { Text("e.g. Om Kunwar") },
-                            leadingIcon = { Icon(Icons.Default.AccountCircle, contentDescription = null) },
+                            leadingIcon = { Icon(Icons.Default.AccountCircle, contentDescription = null, tint = MorphBlue) },
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("morph_name_input")
                         )
+                    }
 
-                        OutlinedTextField(
-                            value = passwordInput,
-                            onValueChange = {
-                                passwordInput = it
-                                authError = null
-                            },
-                            label = { Text("Account Password") },
-                            placeholder = { Text("Minimum 6 characters") },
-                            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-                            trailingIcon = {
-                                IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                                    Icon(
-                                        imageVector = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                        contentDescription = "Toggle password visibility"
-                                    )
-                                }
-                            },
-                            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("morph_password_input")
-                        )
+                    OutlinedTextField(
+                        value = emailInput,
+                        onValueChange = {
+                            emailInput = it
+                            authError = null
+                        },
+                        label = { Text("Omkun Account Email") },
+                        placeholder = { Text("you@omkun.com or your email") },
+                        leadingIcon = { Icon(Icons.Default.Email, contentDescription = null, tint = MorphBlue) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("morph_email_input")
+                    )
 
-                        Spacer(modifier = Modifier.height(4.dp))
+                    OutlinedTextField(
+                        value = passwordInput,
+                        onValueChange = {
+                            passwordInput = it
+                            authError = null
+                        },
+                        label = { Text("Account Password") },
+                        placeholder = { Text("Minimum 6 characters") },
+                        leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = MorphBlue) },
+                        trailingIcon = {
+                            IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                Icon(
+                                    imageVector = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = "Toggle password visibility"
+                                )
+                            }
+                        },
+                        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("morph_password_input")
+                    )
 
-                        Button(
-                            onClick = {
-                                authError = null
-                                isAuthenticating = true
-                                scope.launch {
-                                    val res = repository.signInWithOmkunCredentials(
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Button(
+                        onClick = {
+                            authError = null
+                            isAuthenticating = true
+                            scope.launch {
+                                val res = if (isSignUpMode) {
+                                    repository.signUpWithOmkunCredentials(
                                         email = emailInput,
                                         password = passwordInput,
                                         displayName = nameInput,
                                         scopes = selectedScopes
                                     )
-                                    isAuthenticating = false
-                                    res.onSuccess { account ->
-                                        isSwitchingAccount = false
-                                        Toast.makeText(
-                                            context,
-                                            "Morph activated for ${account.email}",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                        onAuthenticated(account)
-                                        onDismiss()
-                                    }.onFailure { err ->
-                                        authError = err.message ?: "Authentication failed"
-                                    }
+                                } else {
+                                    repository.signInWithOmkunCredentials(
+                                        email = emailInput,
+                                        password = passwordInput,
+                                        displayName = nameInput,
+                                        scopes = selectedScopes
+                                    )
                                 }
-                            },
-                            enabled = !isAuthenticating,
-                            colors = ButtonDefaults.buttonColors(containerColor = MorphBlue),
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(50.dp)
-                                .testTag("morph_authorize_submit_button")
-                        ) {
-                            if (isAuthenticating) {
-                                CircularProgressIndicator(
-                                    color = Color.White,
-                                    strokeWidth = 2.dp,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
+                                isAuthenticating = false
+                                res.onSuccess { account ->
+                                    isSwitchingAccount = false
+                                    Toast.makeText(
+                                        context,
+                                        if (isSignUpMode) "Omkun Morph account created: ${account.email}"
+                                        else "Connected as ${account.email}",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                    onAuthenticated(account)
+                                    onDismiss()
+                                }.onFailure { err ->
+                                    authError = err.message ?: "Authentication failed. Please verify credentials."
+                                }
                             }
-                            Text(
-                                text = "Authorize & Activate Morph",
+                        },
+                        enabled = !isAuthenticating,
+                        colors = ButtonDefaults.buttonColors(containerColor = MorphBlue),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .testTag("morph_authorize_submit_button")
+                    ) {
+                        if (isAuthenticating) {
+                            CircularProgressIndicator(
                                 color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(20.dp)
                             )
+                            Spacer(modifier = Modifier.width(10.dp))
                         }
+                        Text(
+                            text = if (isSignUpMode) "Create Omkun Account" else "Sign In to Omkun Morph",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        )
+                    }
 
-                        TextButton(
-                            onClick = {
-                                showEmailForm = false
-                                authError = null
-                            },
-                            modifier = Modifier.align(Alignment.CenterHorizontally)
-                        ) {
-                            Text("Back to sign-in options", color = Color(0xFF64748B))
-                        }
+                    TextButton(
+                        onClick = {
+                            isSignUpMode = !isSignUpMode
+                            authError = null
+                        },
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
+                    ) {
+                        Text(
+                            text = if (isSignUpMode) "Already have an Omkun account? Sign In" else "Don't have an Omkun account? Create one",
+                            color = MorphBlue,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
                     }
                 }
 

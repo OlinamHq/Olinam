@@ -195,20 +195,23 @@ class FirebaseChatRepository {
             val db = LocalChatDatabase.getInstance(context)
             localDb = db
 
-            // Purge any legacy dummy placeholder conversations from local storage
-            db.deleteConversation("conv_facebook")
-            db.markItemDeleted("conv_facebook", "conversation")
-            val mockAnkit = db.getAllConversations().find { it.phoneNumber == "+91 99887 76655" }
-            if (mockAnkit != null) {
-                db.deleteConversation(mockAnkit.id)
-                db.markItemDeleted(mockAnkit.id, "conversation")
-            }
-
             val cached = db.getAllConversations().filter {
                 it.id != "conv_facebook" && it.phoneNumber != "+91 99887 76655"
             }
             if (cached.isNotEmpty()) {
                 _conversations.value = cached
+            }
+
+            scope.launch(Dispatchers.IO) {
+                try {
+                    db.deleteConversation("conv_facebook")
+                    db.markItemDeleted("conv_facebook", "conversation")
+                    val mockAnkit = cached.find { it.phoneNumber == "+91 99887 76655" }
+                    if (mockAnkit != null) {
+                        db.deleteConversation(mockAnkit.id)
+                        db.markItemDeleted(mockAnkit.id, "conversation")
+                    }
+                } catch (_: Exception) {}
             }
         }
     }

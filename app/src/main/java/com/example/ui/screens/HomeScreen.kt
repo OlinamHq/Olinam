@@ -21,8 +21,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -144,22 +142,8 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
     val tabStateHolder = rememberSaveableStateHolder()
 
-    // Hoisted HorizontalPager state & per-label LazyListState map so vertical scroll position
-    // and horizontal left/right swipes stay butter-smooth without feedback loops
-    val chatsPagerState = rememberPagerState(
-        initialPage = remember(labels, selectedLabelId) {
-            labels.indexOfFirst { it.id == selectedLabelId }.coerceAtLeast(0)
-        },
-        pageCount = { labels.size.coerceAtLeast(1) }
-    )
+    // Per-label LazyListState map so vertical scroll position is preserved per tab
     val labelListStates = remember { mutableStateMapOf<String, LazyListState>() }
-
-    // Instant visual chip highlight derived from targetPage during finger swipe or tap animation
-    val activeVisualLabelId by remember(labels, chatsPagerState) {
-        derivedStateOf {
-            labels.getOrNull(chatsPagerState.targetPage)?.id ?: selectedLabelId
-        }
-    }
 
     var showNewChatDialog by remember { mutableStateOf(false) }
     var showSelectContactScreen by remember { mutableStateOf(false) }
@@ -257,9 +241,6 @@ fun HomeScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        viewModel.restoreSavedSession(context)
-    }
 
     LaunchedEffect(isLoggedIn) {
         if (isLoggedIn) {
@@ -823,16 +804,10 @@ fun HomeScreen(
                         // WhatsApp-style Compact Custom Labels / Folders Chips Row
                         LabelChipsRow(
                             labels = labels,
-                            selectedLabelId = activeVisualLabelId,
+                            selectedLabelId = selectedLabelId,
                             unreadCounts = unreadCountsByLabel,
                             onLabelClick = { label ->
                                 viewModel.selectLabel(label.id)
-                                val targetIndex = labels.indexOfFirst { it.id == label.id }
-                                if (targetIndex >= 0 && targetIndex != chatsPagerState.currentPage) {
-                                    scope.launch {
-                                        chatsPagerState.animateScrollToPage(targetIndex)
-                                    }
-                                }
                             },
                             onLabelLongClick = { label ->
                                 selectedLabelForAction = label
@@ -952,87 +927,68 @@ fun HomeScreen(
             tabStateHolder.SaveableStateProvider(currentTab.name) {
                 when (currentTab) {
                     AppTab.CHATS -> {
-                        // Sync ViewModel selectedLabelId ONLY when user swipe settles (one-way, zero feedback loop)
-                        val currentLabels by rememberUpdatedState(labels)
-                        LaunchedEffect(chatsPagerState) {
-                            snapshotFlow { chatsPagerState.settledPage }.collect { settledPage ->
-                                val targetLabel = currentLabels.getOrNull(settledPage)
-                                if (targetLabel != null && viewModel.selectedLabelId.value != targetLabel.id) {
-                                    viewModel.selectLabel(targetLabel.id)
+                        val pageConversations = conversationsByLabel[selectedLabelId]
+                            ?: (if (selectedLabelId in listOf("all", "direct")) conversationsByLabel["direct"] else null)
+                            ?: emptyList()
+
+                        val pageListState = labelListStates.getOrPut(selectedLabelId) {
+                            LazyListState()
+                        }
+
+                        ChatsTabContent(
+                            conversations = pageConversations,
+                            listState = pageListState,
+                            labels = labels,
+                            selectedLabelId = selectedLabelId,
+                            isDefaultSmsApp = isDefaultSmsApp,
+                            isSmsBannerDismissed = isSmsBannerDismissed,
+                            lockedChatIds = lockedChatIds,
+                            selectedConversationIds = selectedConversationIds,
+                            onToggleSelectConversation = { conv ->
+                                selectedConversationIds = if (selectedConversationIds.contains(conv.id)) {
+                                    selectedConversationIds - conv.id
+                                } else {
+                                    selectedConversationIds + conv.id
                                 }
-                            }
-                        }
-
-                        HorizontalPager(
-                            state = chatsPagerState,
-                            modifier = Modifier.fillMaxSize(),
-                            beyondViewportPageCount = 1,
-                            key = { pageIndex -> labels.getOrNull(pageIndex)?.id ?: pageIndex }
-                        ) { pageIndex ->
-                            val currentLabel = labels.getOrNull(pageIndex) ?: return@HorizontalPager
-                            val pageConversations = conversationsByLabel[currentLabel.id]
-                                ?: (if (currentLabel.id in listOf("all", "direct")) conversationsByLabel["direct"] else null)
-                                ?: emptyList()
-
-                            val pageListState = labelListStates.getOrPut(currentLabel.id) {
-                                LazyListState()
-                            }
-
-                            ChatsTabContent(
-                                conversations = pageConversations,
-                                listState = pageListState,
-                                labels = labels,
-                                selectedLabelId = currentLabel.id,
-                                isDefaultSmsApp = isDefaultSmsApp,
-                                isSmsBannerDismissed = isSmsBannerDismissed,
-                                lockedChatIds = lockedChatIds,
-                                selectedConversationIds = selectedConversationIds,
-                                onToggleSelectConversation = { conv ->
-                                    selectedConversationIds = if (selectedConversationIds.contains(conv.id)) {
-                                        selectedConversationIds - conv.id
-                                    } else {
-                                        selectedConversationIds + conv.id
+                            },
+                            onLongClickConversation = { conv ->
+                                selectedConversationIds = selectedConversationIds + conv.id
+                            },
+                            onSetDefaultSmsClick = {
+                                val intent = SmsHelper.createDefaultSmsIntent(context)
+                                if (intent != null) {
+                                    try {
+                                        defaultSmsLauncher.launch(intent)
+                                    } catch (_: Exception) {
+                                        try { context.startActivity(intent) } catch (_: Exception) {}
                                     }
-                                },
-                                onLongClickConversation = { conv ->
-                                    selectedConversationIds = selectedConversationIds + conv.id
-                                },
-                                onSetDefaultSmsClick = {
-                                    val intent = SmsHelper.createDefaultSmsIntent(context)
-                                    if (intent != null) {
-                                        try {
-                                            defaultSmsLauncher.launch(intent)
-                                        } catch (_: Exception) {
-                                            try { context.startActivity(intent) } catch (_: Exception) {}
+                                }
+                            },
+                            onDismissSmsBanner = { isSmsBannerDismissed = true },
+                            onConversationClick = { conv ->
+                                if (lockedChatIds.contains(conv.id)) {
+                                    lockedConvPrompt = conv
+                                    unlockPinInput = ""
+                                    unlockPinError = false
+                                    if (privacyState.isChatLockBiometricEnabled) {
+                                        val km = context.getSystemService(android.content.Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
+                                        val intent = km?.createConfirmDeviceCredentialIntent(
+                                            "Unlock Chat",
+                                            "Confirm fingerprint, face, or screen lock to open ${conv.title}"
+                                        )
+                                        if (intent != null) {
+                                            try { biometricLauncher.launch(intent) } catch (_: Exception) {}
                                         }
                                     }
-                                },
-                                onDismissSmsBanner = { isSmsBannerDismissed = true },
-                                onConversationClick = { conv ->
-                                    if (lockedChatIds.contains(conv.id)) {
-                                        lockedConvPrompt = conv
-                                        unlockPinInput = ""
-                                        unlockPinError = false
-                                        if (privacyState.isChatLockBiometricEnabled) {
-                                            val km = context.getSystemService(android.content.Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
-                                            val intent = km?.createConfirmDeviceCredentialIntent(
-                                                "Unlock Chat",
-                                                "Confirm fingerprint, face, or screen lock to open ${conv.title}"
-                                            )
-                                            if (intent != null) {
-                                                try { biometricLauncher.launch(intent) } catch (_: Exception) {}
-                                            }
-                                        }
-                                    } else {
-                                        viewModel.openConversation(conv.id, context)
-                                    }
-                                },
-                                onAvatarClick = { conv -> quickViewConversation = conv },
-                                onDeleteConversation = { conv -> viewModel.deleteConversation(conv.id) },
-                                onStartChatClick = { showSelectContactScreen = true },
-                                onNewGroupClick = { showNewGroupScreen = true }
-                            )
-                        }
+                                } else {
+                                    viewModel.openConversation(conv.id, context)
+                                }
+                            },
+                            onAvatarClick = { conv -> quickViewConversation = conv },
+                            onDeleteConversation = { conv -> viewModel.deleteConversation(conv.id) },
+                            onStartChatClick = { showSelectContactScreen = true },
+                            onNewGroupClick = { showNewGroupScreen = true }
+                        )
                     }
                     AppTab.STORIES -> {
                         StoriesScreen(
@@ -1080,17 +1036,11 @@ fun HomeScreen(
         ManageListsBottomSheet(
             sheetState = manageListsSheetState,
             labels = labels,
-            selectedLabelId = activeVisualLabelId,
+            selectedLabelId = selectedLabelId,
             onDismissRequest = { showManageListsSheet = false },
             onSelectList = { labelId ->
                 showManageListsSheet = false
                 viewModel.selectLabel(labelId)
-                val targetIndex = labels.indexOfFirst { it.id == labelId }
-                if (targetIndex >= 0 && targetIndex != chatsPagerState.currentPage) {
-                    scope.launch {
-                        chatsPagerState.animateScrollToPage(targetIndex)
-                    }
-                }
             },
             onCreateNewList = {
                 showManageListsSheet = false

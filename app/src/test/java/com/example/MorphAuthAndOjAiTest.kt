@@ -110,4 +110,14 @@ class MorphAuthAndOjAiTest {
         assertNotNull(deleteReply)
         assertTrue(morphRepo.notesFlow.value.isEmpty())
     }
+
+    @Test
+    fun `invalid credentials reject login and prevent dummy authentication`() = runBlocking {
+        val result = morphRepo.signInWithOmkunCredentials(
+            email = "rahul@omkun.com",
+            password = "CompletelyWrongPassword!"
+        )
+        assertTrue("Invalid password must be rejected by production backend", result.isFailure)
+        assertNull(morphRepo.connectedAccountFlow.value)
+    }
 }

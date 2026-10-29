@@ -677,7 +677,7 @@ fun ConversationListItem(
     onLongClick: () -> Unit = {},
     onAvatarClick: () -> Unit = onClick
 ) {
-    val context = LocalContext.current
+    val context = LocalContext.current.applicationContext
     val isItemLocked = isLocked
     val formattedTime = remember(conversation.lastMessageTimestamp) {
         formatMessageTime(conversation.lastMessageTimestamp)
@@ -731,10 +731,10 @@ fun ConversationListItem(
             ) {
                 val avatarUrl = conversation.avatarUrl
                 if (!avatarUrl.isNullOrBlank()) {
-                    val avatarRequest = remember(avatarUrl, context) {
+                    val avatarRequest = remember(avatarUrl) {
                         ImageRequest.Builder(context)
                             .data(avatarUrl)
-                            .size(150)
+                            .size(120)
                             .crossfade(false)
                             .memoryCacheKey(avatarUrl)
                             .diskCacheKey(avatarUrl)

@@ -279,8 +279,8 @@ class MorphRepository(private val context: Context) {
     }
 
     /**
-     * Option 3: Sign in or Register with an Omkun / Google Workspace Email & Password.
-     * Enforces real per-account credential verification and isolated note vaults.
+     * Production Omkun Morph Authentication via official backend (morph-69d82).
+     * Validates real account credentials on the production server.
      */
     suspend fun signInWithOmkunCredentials(
         email: String,
@@ -297,44 +297,173 @@ class MorphRepository(private val context: Context) {
             return@withContext Result.failure(IllegalArgumentException("Password must be at least 6 characters."))
         }
 
-        val accountId = deriveAccountId(normalizedEmail)
-        val passwordHash = sha256("$normalizedEmail::$password::morph_v2")
-        val storedHashKey = "cred_hash_$accountId"
-        val existingHash = prefs.getString(storedHashKey, null)
+        try {
+            val jsonBody = JSONObject().apply {
+                put("email", normalizedEmail)
+                put("password", password)
+                put("returnSecureToken", true)
+            }
+            val request = Request.Builder()
+                .url(MORPH_AUTH_SIGN_IN_URL)
+                .post(jsonBody.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
 
-        if (existingHash != null && existingHash != passwordHash) {
-            return@withContext Result.failure(IllegalArgumentException("Incorrect password for $normalizedEmail."))
+            val response = client.newCall(request).execute()
+            val responseString = response.body?.string().orEmpty()
+
+            if (response.isSuccessful) {
+                val resJson = JSONObject(responseString)
+                val localId = resJson.getString("localId")
+                val idToken = resJson.getString("idToken")
+                val serverDisplayName = resJson.optString("displayName", "")
+                val resolvedName = serverDisplayName.ifBlank {
+                    displayName.trim().ifBlank {
+                        normalizedEmail.substringBefore("@")
+                            .replace(".", " ")
+                            .replace("_", " ")
+                            .split(" ")
+                            .filter { it.isNotBlank() }
+                            .joinToString(" ") { part -> part.replaceFirstChar { it.uppercase() } }
+                            .ifBlank { "Omkun Morph User" }
+                    }
+                }
+
+                // Cache token and credentials for offline persistence
+                val accountId = localId
+                val sessionToken = idToken
+                val account = MorphAccount(
+                    accountId = accountId,
+                    email = normalizedEmail,
+                    displayName = resolvedName,
+                    avatarUrl = null,
+                    authProvider = providerLabel,
+                    sessionToken = sessionToken,
+                    authorizedScopes = scopes,
+                    connectedAt = System.currentTimeMillis()
+                )
+                activateAuthenticatedAccount(account)
+                Result.success(account)
+            } else {
+                val errorMsg = parseAuthErrorMessage(responseString, isSignUp = false)
+                Result.failure(IllegalArgumentException(errorMsg))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "signInWithOmkunCredentials network error: ${e.message}")
+            Result.failure(IllegalArgumentException("Network error connecting to Omkun Morph: ${e.message}"))
+        }
+    }
+
+    /**
+     * Create a new Omkun Morph Account on the production backend.
+     */
+    suspend fun signUpWithOmkunCredentials(
+        email: String,
+        password: String,
+        displayName: String = "",
+        scopes: List<String> = MorphAccount.DEFAULT_SCOPES
+    ): Result<MorphAccount> = withContext(Dispatchers.IO) {
+        val normalizedEmail = email.trim().lowercase(Locale.US)
+        if (normalizedEmail.isBlank() || !normalizedEmail.contains("@") || !normalizedEmail.contains(".")) {
+            return@withContext Result.failure(IllegalArgumentException("Please enter a valid email address."))
+        }
+        if (password.length < 6) {
+            return@withContext Result.failure(IllegalArgumentException("Password must be at least 6 characters."))
         }
 
-        val resolvedName = displayName.trim().ifBlank {
-            prefs.getString("cred_name_$accountId", null)
-                ?: normalizedEmail.substringBefore("@")
-                    .replace(".", " ")
-                    .replace("_", " ")
-                    .split(" ")
-                    .filter { it.isNotBlank() }
-                    .joinToString(" ") { part -> part.replaceFirstChar { it.uppercase() } }
-                    .ifBlank { "Morph User" }
+        try {
+            val jsonBody = JSONObject().apply {
+                put("email", normalizedEmail)
+                put("password", password)
+                put("returnSecureToken", true)
+            }
+            val request = Request.Builder()
+                .url(MORPH_AUTH_SIGN_UP_URL)
+                .post(jsonBody.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+
+            val response = client.newCall(request).execute()
+            val responseString = response.body?.string().orEmpty()
+
+            if (response.isSuccessful) {
+                val resJson = JSONObject(responseString)
+                val localId = resJson.getString("localId")
+                val idToken = resJson.getString("idToken")
+                val resolvedName = displayName.trim().ifBlank {
+                    normalizedEmail.substringBefore("@")
+                        .replace(".", " ")
+                        .replace("_", " ")
+                        .split(" ")
+                        .filter { it.isNotBlank() }
+                        .joinToString(" ") { part -> part.replaceFirstChar { it.uppercase() } }
+                        .ifBlank { "Omkun Morph User" }
+                }
+
+                // Update display name in Omkun Morph profile if provided
+                try {
+                    val updateBody = JSONObject().apply {
+                        put("idToken", idToken)
+                        put("displayName", resolvedName)
+                        put("returnSecureToken", true)
+                    }
+                    val updateReq = Request.Builder()
+                        .url(MORPH_AUTH_UPDATE_URL)
+                        .post(updateBody.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                        .build()
+                    client.newCall(updateReq).execute().close()
+                } catch (_: Exception) {}
+
+                val account = MorphAccount(
+                    accountId = localId,
+                    email = normalizedEmail,
+                    displayName = resolvedName,
+                    avatarUrl = null,
+                    authProvider = "OMKUN_ID",
+                    sessionToken = idToken,
+                    authorizedScopes = scopes,
+                    connectedAt = System.currentTimeMillis()
+                )
+                activateAuthenticatedAccount(account)
+                Result.success(account)
+            } else {
+                val errorMsg = parseAuthErrorMessage(responseString, isSignUp = true)
+                Result.failure(IllegalArgumentException(errorMsg))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "signUpWithOmkunCredentials network error: ${e.message}")
+            Result.failure(IllegalArgumentException("Network error connecting to Omkun Morph: ${e.message}"))
         }
+    }
 
-        prefs.edit()
-            .putString(storedHashKey, passwordHash)
-            .putString("cred_name_$accountId", resolvedName)
-            .apply()
-
-        val sessionToken = issueUserSessionToken(accountId, normalizedEmail, passwordHash)
-        val account = MorphAccount(
-            accountId = accountId,
-            email = normalizedEmail,
-            displayName = resolvedName,
-            avatarUrl = null,
-            authProvider = providerLabel,
-            sessionToken = sessionToken,
-            authorizedScopes = scopes,
-            connectedAt = System.currentTimeMillis()
-        )
-        activateAuthenticatedAccount(account)
-        Result.success(account)
+    private fun parseAuthErrorMessage(responseJson: String, isSignUp: Boolean): String {
+        return try {
+            val root = JSONObject(responseJson)
+            val error = root.optJSONObject("error")
+            val rawMsg = error?.optString("message", "") ?: ""
+            when {
+                rawMsg.contains("INVALID_LOGIN_CREDENTIALS") || rawMsg.contains("INVALID_PASSWORD") ->
+                    "Invalid email or password. Please verify your credentials or create a new Omkun Morph account."
+                rawMsg.contains("EMAIL_NOT_FOUND") ->
+                    "No Omkun Morph account found for this email. Please switch to 'Create Account' to sign up."
+                rawMsg.contains("EMAIL_EXISTS") ->
+                    "An Omkun Morph account with this email already exists. Please switch to 'Sign In'."
+                rawMsg.contains("USER_DISABLED") ->
+                    "This Omkun Morph account has been disabled."
+                rawMsg.contains("TOO_MANY_ATTEMPTS_TRY_LATER") ->
+                    "Too many failed login attempts. Please wait a moment and try again."
+                rawMsg.contains("WEAK_PASSWORD") ->
+                    "Password should be at least 6 characters long."
+                rawMsg.contains("INVALID_EMAIL") ->
+                    "Please enter a valid email address."
+                rawMsg.isNotBlank() ->
+                    "Authentication error: $rawMsg"
+                else ->
+                    if (isSignUp) "Could not create Omkun account. Please try again."
+                    else "Could not sign in to Omkun Morph. Please check your credentials."
+            }
+        } catch (_: Exception) {
+            if (isSignUp) "Could not create Omkun account."
+            else "Invalid email or password. Please verify your credentials."
+        }
     }
 
     private fun activateAuthenticatedAccount(account: MorphAccount) {
@@ -384,7 +513,18 @@ class MorphRepository(private val context: Context) {
             _syncStatus.value = "Syncing ${account.email}..."
             var syncedRemote = false
 
-            // 1. Sync with Firestore user-scoped collection if available
+            // 1. Sync with production Omkun Morph Cloud (/users/{accountId}/morph_notes)
+            try {
+                val cloudNotes = fetchAccountNotesFromMorphCloud(account)
+                if (cloudNotes.isNotEmpty()) {
+                    mergeRemoteNotesForAccount(account, cloudNotes)
+                    syncedRemote = true
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Morph Cloud REST sync notice: ${e.message}")
+            }
+
+            // 2. Sync with local FirebaseFirestore if available
             try {
                 val firestoreNotes = fetchAccountNotesFromFirestore(account)
                 if (firestoreNotes.isNotEmpty()) {
@@ -395,35 +535,6 @@ class MorphRepository(private val context: Context) {
                 Log.d(TAG, "Firestore Morph sync note: ${e.message}")
             }
 
-            // 2. Sync with Morph Cloud Service scoped to authenticated account headers
-            try {
-                val url = "${INTERNAL_MORPH_CLOUD_URL.trimEnd('/')}/notes?accountId=${account.accountId}"
-                val request = Request.Builder()
-                    .url(url)
-                    .addHeader("Authorization", "Bearer $INTERNAL_SERVICE_BRIDGE_TOKEN")
-                    .addHeader("X-Morph-User-Id", account.accountId)
-                    .addHeader("X-Morph-User-Email", account.email)
-                    .addHeader("X-Morph-Session-Token", account.sessionToken)
-                    .addHeader("Content-Type", "application/json")
-                    .get()
-                    .build()
-
-                client.newCall(request).execute().use { response ->
-                    if (response.isSuccessful) {
-                        val bodyString = response.body?.string().orEmpty()
-                        if (bodyString.isNotBlank()) {
-                            val parsed = parseNotesFromJson(bodyString, account.accountId)
-                            if (parsed.isNotEmpty()) {
-                                mergeRemoteNotesForAccount(account, parsed)
-                            }
-                        }
-                        syncedRemote = true
-                    }
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Morph Cloud sync notice: ${e.message}")
-            }
-
             lastSyncTime = System.currentTimeMillis()
             _isSyncing.value = false
             _syncStatus.value = if (syncedRemote) {
@@ -432,6 +543,54 @@ class MorphRepository(private val context: Context) {
                 "Active • ${account.email}"
             }
             onComplete?.invoke(true, "Synced with ${account.email}")
+        }
+    }
+
+    private fun fetchAccountNotesFromMorphCloud(account: MorphAccount): List<MorphNote> {
+        return try {
+            val url = "$MORPH_FIRESTORE_REST_BASE/users/${account.accountId}/morph_notes"
+            val builder = Request.Builder().url(url)
+            if (account.sessionToken.isNotBlank()) {
+                builder.addHeader("Authorization", "Bearer ${account.sessionToken}")
+            }
+            val response = client.newCall(builder.get().build()).execute()
+            if (!response.isSuccessful) return emptyList()
+            val body = response.body?.string().orEmpty()
+            if (body.isBlank()) return emptyList()
+
+            val result = mutableListOf<MorphNote>()
+            val root = JSONObject(body)
+            val docsArray = root.optJSONArray("documents") ?: return emptyList()
+            for (i in 0 until docsArray.length()) {
+                val docObj = docsArray.getJSONObject(i)
+                val docName = docObj.optString("name", "")
+                val id = docName.substringAfterLast("/")
+                val fields = docObj.optJSONObject("fields") ?: continue
+                val title = fields.optJSONObject("title")?.optString("stringValue", "").orEmpty()
+                val content = fields.optJSONObject("content")?.optString("stringValue", "").orEmpty()
+                val colorHex = fields.optJSONObject("colorHex")?.optString("stringValue", MorphPalette.Default) ?: MorphPalette.Default
+                val isPinned = fields.optJSONObject("isPinned")?.optBoolean("booleanValue", false) ?: false
+                val isChecklist = fields.optJSONObject("isChecklist")?.optBoolean("booleanValue", false) ?: false
+                val updatedAtStr = fields.optJSONObject("updatedAt")?.optString("integerValue", "")
+                val updatedAt = updatedAtStr?.toLongOrNull() ?: System.currentTimeMillis()
+
+                result.add(
+                    MorphNote(
+                        id = id,
+                        accountId = account.accountId,
+                        title = title,
+                        content = content,
+                        colorHex = colorHex,
+                        isPinned = isPinned,
+                        isChecklist = isChecklist,
+                        updatedAt = updatedAt
+                    )
+                )
+            }
+            result
+        } catch (e: Exception) {
+            Log.d(TAG, "fetchAccountNotesFromMorphCloud notice: ${e.message}")
+            emptyList()
         }
     }
 
@@ -488,6 +647,7 @@ class MorphRepository(private val context: Context) {
     }
 
     private fun pushNoteToFirestore(account: MorphAccount, note: MorphNote) {
+        // 1. Sync with local FirebaseFirestore if configured
         try {
             val db = FirebaseFirestore.getInstance()
             val payload = hashMapOf(
@@ -512,9 +672,47 @@ class MorphRepository(private val context: Context) {
                 .document(note.id)
                 .set(payload, SetOptions.merge())
         } catch (_: Throwable) {}
+
+        // 2. Sync directly with Omkun Morph Cloud Firestore REST (/users/{accountId}/morph_notes/{id})
+        coroutineScope.launch {
+            try {
+                val url = "$MORPH_FIRESTORE_REST_BASE/users/${account.accountId}/morph_notes/${note.id}"
+                val docPayload = JSONObject().apply {
+                    val fields = JSONObject().apply {
+                        put("id", JSONObject().apply { put("stringValue", note.id) })
+                        put("title", JSONObject().apply { put("stringValue", note.title) })
+                        put("content", JSONObject().apply {
+                            val c = if (note.isChecklist) {
+                                note.checklist.joinToString("\n") { (if (it.isDone) "☑ " else "☐ ") + it.text }
+                            } else {
+                                note.content
+                            }
+                            put("stringValue", c)
+                        })
+                        put("isChecklist", JSONObject().apply { put("booleanValue", note.isChecklist) })
+                        put("colorHex", JSONObject().apply { put("stringValue", note.colorHex) })
+                        put("isPinned", JSONObject().apply { put("booleanValue", note.isPinned) })
+                        put("isArchived", JSONObject().apply { put("booleanValue", note.isArchived) })
+                        put("updatedAt", JSONObject().apply { put("integerValue", note.updatedAt.toString()) })
+                    }
+                    put("fields", fields)
+                }
+
+                val reqBuilder = Request.Builder()
+                    .url(url)
+                    .patch(docPayload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                if (account.sessionToken.isNotBlank()) {
+                    reqBuilder.addHeader("Authorization", "Bearer ${account.sessionToken}")
+                }
+                client.newCall(reqBuilder.build()).execute().close()
+            } catch (e: Exception) {
+                Log.d(TAG, "Morph Cloud pushNote notice: ${e.message}")
+            }
+        }
     }
 
     private fun deleteNoteFromFirestore(account: MorphAccount, noteId: String) {
+        // 1. Delete from local FirebaseFirestore if configured
         try {
             FirebaseFirestore.getInstance()
                 .collection("users")
@@ -523,6 +721,20 @@ class MorphRepository(private val context: Context) {
                 .document(noteId)
                 .delete()
         } catch (_: Throwable) {}
+
+        // 2. Delete from Omkun Morph Cloud Firestore REST
+        coroutineScope.launch {
+            try {
+                val url = "$MORPH_FIRESTORE_REST_BASE/users/${account.accountId}/morph_notes/$noteId"
+                val reqBuilder = Request.Builder().url(url).delete()
+                if (account.sessionToken.isNotBlank()) {
+                    reqBuilder.addHeader("Authorization", "Bearer ${account.sessionToken}")
+                }
+                client.newCall(reqBuilder.build()).execute().close()
+            } catch (e: Exception) {
+                Log.d(TAG, "Morph Cloud deleteNote notice: ${e.message}")
+            }
+        }
     }
 
     private fun mergeRemoteNotesForAccount(account: MorphAccount, remoteNotes: List<MorphNote>) {
@@ -928,9 +1140,23 @@ class MorphRepository(private val context: Context) {
         private const val KEY_ACTIVE_ACCOUNT_JSON = "active_morph_account_v2"
         private const val KEY_OJ_AI_LINK_ENABLED = "morph_oj_ai_link_enabled_v2"
 
+        // Production Omkun Morph Cloud & Backend Configuration
+        const val MORPH_PROJECT_ID = "morph-69d82"
+        const val MORPH_FIREBASE_API_KEY = "AIzaSyCvODN-txDr2tcx-vMmnZPzXcaJlCtRyjQ"
+        const val MORPH_AUTH_SIGN_IN_URL =
+            "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=$MORPH_FIREBASE_API_KEY"
+        const val MORPH_AUTH_SIGN_UP_URL =
+            "https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=$MORPH_FIREBASE_API_KEY"
+        const val MORPH_AUTH_UPDATE_URL =
+            "https://identitytoolkit.googleapis.com/v1/accounts:update?key=$MORPH_FIREBASE_API_KEY"
+        const val MORPH_FIRESTORE_REST_BASE =
+            "https://firestore.googleapis.com/v1/projects/$MORPH_PROJECT_ID/databases/(default)/documents"
+        const val MORPH_DEV_API_BASE = "https://morph.omkun.com/api/v1"
+        const val MORPH_DEV_BEARER_TOKEN = "omk_live_test_7f8a9b2c"
+
         // Strictly internal service constants — never exposed to UI components
         private const val INTERNAL_MORPH_CLOUD_URL =
-            "https://ais-dev-kps2metajswcv3lmn3d4iq-193817906370.asia-southeast1.run.app/api/v1"
+            "https://morph.omkun.com/api/v1"
         private const val INTERNAL_SERVICE_BRIDGE_TOKEN = "omk_live_test_7f8a9b2c"
 
         fun mapHexToApiColor(hex: String): String {
