@@ -618,11 +618,14 @@ class MorphRepository(private val context: Context) {
                 Log.d(TAG, "Workspace resolution notice: ${e.message}")
             }
 
-            // Fallback: If no custom workspace ID matched, always include default 'ws-primary'
-            if (userWorkspaceIds.isEmpty()) {
-                userWorkspaceIds.add("ws-primary")
+            // Personal workspace IDs for this user
+            if (account.accountId.isNotBlank()) {
+                userWorkspaceIds.add("ws-${account.accountId.take(10)}")
+                userWorkspaceIds.add("ws-user-${account.accountId.take(12)}")
             }
-            activeWorkspaceId = userWorkspaceIds.firstOrNull() ?: "ws-primary"
+            // Primary shared workspace
+            userWorkspaceIds.add("ws-primary")
+            activeWorkspaceId = userWorkspaceIds.firstOrNull { it != "ws-primary" } ?: "ws-primary"
 
             // 2. Query documents collection from morph-69d82
             val docsUrl = "$MORPH_FIRESTORE_REST_BASE/documents?pageSize=300"
@@ -1019,7 +1022,10 @@ class MorphRepository(private val context: Context) {
             }
         }
         val sorted = merged.sortedByDescending { it.updatedAt }
-        if (_connectedAccountFlow.value?.accountId == account.accountId) {
+        val activeAccount = _connectedAccountFlow.value
+        val isAccountActive = activeAccount?.accountId == account.accountId ||
+                (activeAccount != null && activeAccount.email.equals(account.email, ignoreCase = true))
+        if (isAccountActive) {
             _notesFlow.value = sorted
             saveToDiskForAccount(account.accountId, sorted)
         }
