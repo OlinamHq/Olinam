@@ -149,4 +149,153 @@ class MorphAuthAndOjAiTest {
         assertFalse(readOnlyAccount.hasFullAccess())
         assertEquals("omk_live_••••9k1p", readOnlyAccount.maskedApiKey())
     }
+
+    @Test
+    fun `1-tap olinam sso requires verified morph credentials when none saved`() = runBlocking {
+        val unlinkedUser = com.example.model.UserProfile(
+            id = "olinam_user_99",
+            name = "Ankit",
+            email = "unlinked_user_test@example.com",
+            phoneNumber = "+919999999999"
+        )
+        val res = morphRepo.authorizeWithOlinamAccount(unlinkedUser)
+        assertTrue(res.isFailure)
+        assertEquals("MORPH_CREDENTIALS_REQUIRED", res.exceptionOrNull()?.message)
+        assertNull(morphRepo.connectedAccountFlow.value)
+    }
+
+    @Test
+    fun `morph rest parsers decode files tasks and databases schemas cleanly`() {
+        val filesJson = """
+            {
+              "object": "list",
+              "data": [
+                {
+                  "id": "doc-welcome",
+                  "title": "Project Roadmap",
+                  "favorite": true,
+                  "status": "Published",
+                  "tags": ["Planning", "Q4"],
+                  "blocks": [
+                    { "id": "b1", "type": "heading1", "content": "Overview" },
+                    { "id": "b2", "type": "paragraph", "content": "Launch mobile sync." },
+                    { "id": "b3", "type": "todo", "content": "Verify REST parser", "checked": true }
+                  ]
+                }
+              ]
+            }
+        """.trimIndent()
+        val parsedDocs = morphRepo.parseFilesResponse(filesJson, "acc_test")
+        assertEquals(1, parsedDocs.size)
+        val doc = parsedDocs.first()
+        assertEquals("doc-welcome", doc.id)
+        assertEquals("Project Roadmap", doc.title)
+        assertTrue(doc.isPinned)
+        assertTrue(doc.content.contains("# Overview"))
+        assertTrue(doc.content.contains("Launch mobile sync."))
+        assertEquals(1, doc.checklist.size)
+        assertTrue(doc.checklist.first().isDone)
+        assertEquals(listOf("Planning", "Q4"), doc.labels)
+
+        val tasksJson = """
+            {
+              "object": "list",
+              "data": [
+                {
+                  "id": "tsk-1",
+                  "title": "Ship Android release",
+                  "project": "Olinam",
+                  "priority": "High",
+                  "dueDate": "2026-12-01",
+                  "status": "In Progress",
+                  "favorite": true
+                }
+              ]
+            }
+        """.trimIndent()
+        val parsedTasks = morphRepo.parseTasksResponse(tasksJson, "acc_test")
+        assertEquals(1, parsedTasks.size)
+        assertEquals("task_tsk-1", parsedTasks.first().id)
+        assertTrue(parsedTasks.first().isPinned)
+        assertTrue(parsedTasks.first().content.contains("Olinam"))
+        assertTrue(parsedTasks.first().content.contains("High"))
+
+        val dbsJson = """
+            {
+              "object": "list",
+              "data": [
+                {
+                  "id": "db-roadmap",
+                  "title": "Feature Tracker",
+                  "description": "Release items",
+                  "rows": [{ "id": "r1" }, { "id": "r2" }]
+                }
+              ]
+            }
+        """.trimIndent()
+        val parsedDbs = morphRepo.parseDatabasesResponse(dbsJson)
+        assertEquals(1, parsedDbs.size)
+        assertEquals(2, parsedDbs.first().recordCount)
+    }
+
+    @Test
+    fun `firestore document parser handles doubleValue timestamps nested arrays and favorite flag`() {
+        val firestoreDoc = org.json.JSONObject(
+            """
+            {
+              "name": "projects/morph-69d82/databases/(default)/documents/documents/page-123",
+              "fields": {
+                "title": { "stringValue": "Design Spec" },
+                "favorite": { "booleanValue": true },
+                "updatedAt": { "doubleValue": 1732100000000.0 },
+                "blocks": {
+                  "mapValue": {
+                    "fields": {
+                      "_firestoreNestedArr": { "booleanValue": true },
+                      "values": {
+                        "arrayValue": {
+                          "values": [
+                            {
+                              "mapValue": {
+                                "fields": {
+                                  "id": { "stringValue": "blk-1" },
+                                  "type": { "stringValue": "heading2" },
+                                  "content": { "stringValue": "Architecture" }
+                                }
+                              }
+                            },
+                            {
+                              "mapValue": {
+                                "fields": {
+                                  "id": { "stringValue": "blk-2" },
+                                  "type": { "stringValue": "todo" },
+                                  "content": { "stringValue": "Review schema" },
+                                  "checked": { "booleanValue": false }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            """.trimIndent()
+        )
+        val parsed = morphRepo.parseFirestoreDocumentToMorphNote(
+            docObj = firestoreDoc,
+            accountId = "uid_123",
+            defaultSourceType = com.example.model.MorphNote.SOURCE_DOC
+        )
+        assertNotNull(parsed)
+        assertEquals("page-123", parsed!!.id)
+        assertEquals("Design Spec", parsed.title)
+        assertTrue(parsed.isPinned)
+        assertEquals(1732100000000L, parsed.updatedAt)
+        assertTrue(parsed.content.contains("## Architecture"))
+        assertEquals(1, parsed.checklist.size)
+        assertEquals("Review schema", parsed.checklist.first().text)
+    }
 }

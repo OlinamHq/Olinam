@@ -257,6 +257,7 @@ class MorphRepository(private val context: Context) {
             connectedAt = System.currentTimeMillis()
         )
         _lastApiError.value = null
+        savePerEmailApiKey(resolvedAccount.email, cleanKey)
         activateAuthenticatedAccount(resolvedAccount, skipImmediateSync = true)
 
         // Immediately hydrate fetched documents, tasks & databases from the probe responses
@@ -281,7 +282,7 @@ class MorphRepository(private val context: Context) {
     }
 
     /**
-     * Attaches or updates a Developer API Key (`omk_live_...`) on an already authenticated account.
+     * Attaches or updates a Morph Workspace Access Key (`omk_live_...`) on an already authenticated account.
      */
     suspend fun attachApiKeyToCurrentAccount(
         apiKey: String,
@@ -295,6 +296,7 @@ class MorphRepository(private val context: Context) {
             val updated = current.copy(apiKey = "", endpointEnvironment = endpointEnvironment)
             _connectedAccountFlow.value = updated
             persistActiveAccount(updated)
+            clearPerEmailApiKey(current.email)
             return@withContext Result.success(updated)
         }
 
@@ -309,9 +311,9 @@ class MorphRepository(private val context: Context) {
             }
             if (!is403Scope) {
                 val msg = if (filesProbe.httpCode == 401) {
-                    "Invalid or revoked Morph API key."
+                    "Invalid or revoked Morph access key."
                 } else {
-                    filesProbe.errorMessage.ifBlank { "Unable to verify Morph API key." }
+                    filesProbe.errorMessage.ifBlank { "Unable to verify Morph access key." }
                 }
                 return@withContext Result.failure(IllegalArgumentException(msg))
             }
@@ -321,6 +323,7 @@ class MorphRepository(private val context: Context) {
         val updated = probeAcc.copy(authorizedScopes = detectedScopes)
         _connectedAccountFlow.value = updated
         persistActiveAccount(updated)
+        savePerEmailApiKey(updated.email, cleanKey)
         _lastApiError.value = null
 
         val fetched = mutableListOf<MorphNote>()
@@ -468,55 +471,97 @@ class MorphRepository(private val context: Context) {
     }
 
     /**
-     * 1-Tap OAuth Authorization using the user's verified Olinam Account.
+     * 1-Tap OAuth Authorization using a previously verified Omkun Morph session or linked Workspace Key
+     * for the user's Olinam email. Never creates a dead-end fake session token when Morph credentials
+     * are not yet linked.
      */
     suspend fun authorizeWithOlinamAccount(
         user: UserProfile,
         scopes: List<String> = MorphAccount.DEFAULT_SCOPES
     ): Result<MorphAccount> = withContext(Dispatchers.IO) {
-        val rawIdentity = when {
-            user.email.isNotBlank() -> user.email.trim().lowercase(Locale.US)
-            user.phoneNumber.isNotBlank() -> user.phoneNumber.trim()
-            user.id.isNotBlank() && user.id != "me" -> user.id.trim()
-            else -> return@withContext Result.failure(IllegalArgumentException("Please sign in with your email or Olinam account first."))
+        val email = user.email.trim().lowercase(Locale.US)
+        if (email.isBlank()) {
+            return@withContext Result.failure(IllegalStateException("MORPH_CREDENTIALS_REQUIRED"))
         }
 
-        val firebaseUid = try {
-            FirebaseAuth.getInstance().currentUser?.uid
-        } catch (_: Throwable) {
-            null
+        val savedUid = getSavedUidForEmail(email)
+        val savedRefresh = getSavedRefreshTokenForEmail(email)
+        val savedApiKey = getSavedApiKeyForEmail(email)
+
+        if (savedRefresh.isBlank() && savedApiKey.isBlank()) {
+            return@withContext Result.failure(IllegalStateException("MORPH_CREDENTIALS_REQUIRED"))
         }
 
-        val accountId = when {
-            !firebaseUid.isNullOrBlank() -> firebaseUid
-            user.id.isNotBlank() && user.id != "me" -> "olinam_${sanitizeKey(user.id)}"
-            else -> deriveAccountId(rawIdentity)
+        if (savedApiKey.isNotBlank() && savedRefresh.isBlank()) {
+            return@withContext connectWithApiKey(
+                apiKey = savedApiKey,
+                accountLabel = user.name.ifBlank { email }
+            )
         }
 
-        val displayIdentifier = when {
-            user.email.isNotBlank() -> user.email.trim()
-            user.phoneNumber.isNotBlank() -> "${user.phoneNumber.trim()} (Olinam ID)"
-            else -> "${user.name.ifBlank { "Olinam User" }} (${accountId.takeLast(6)})"
-        }
-
-        val sessionToken = issueUserSessionToken(accountId, displayIdentifier, "olinam_sso")
-        val account = MorphAccount(
-            accountId = accountId,
-            email = displayIdentifier,
-            displayName = user.name.ifBlank { "Olinam User" },
+        val candidate = MorphAccount(
+            accountId = savedUid.ifBlank { deriveAccountId(email) },
+            email = email,
+            displayName = user.name.ifBlank { email.substringBefore("@") },
             avatarUrl = user.avatarUrl,
-            authProvider = "OLINAM_SSO",
-            sessionToken = sessionToken,
+            authProvider = "OMKUN_ID",
+            sessionToken = "",
+            refreshToken = savedRefresh,
+            apiKey = savedApiKey,
             authorizedScopes = scopes,
             connectedAt = System.currentTimeMillis()
         )
-        activateAuthenticatedAccount(account)
-        Result.success(account)
+        val refreshed = refreshIdTokenIfNeeded(candidate)
+        if (refreshed.sessionToken.isBlank() && refreshed.apiKey.isBlank()) {
+            return@withContext Result.failure(IllegalStateException("MORPH_CREDENTIALS_REQUIRED"))
+        }
+
+        activateAuthenticatedAccount(refreshed)
+        Result.success(refreshed)
     }
+
+    fun hasSavedMorphCredentials(email: String): Boolean {
+        val clean = email.trim().lowercase(Locale.US)
+        if (clean.isBlank()) return false
+        return getSavedRefreshTokenForEmail(clean).isNotBlank() || getSavedApiKeyForEmail(clean).isNotBlank()
+    }
+
+    private fun savePerEmailCloudAuth(email: String, uid: String, refreshToken: String) {
+        val clean = email.trim().lowercase(Locale.US)
+        if (clean.isBlank()) return
+        val hash = sha256(clean).take(24)
+        prefs.edit().apply {
+            if (uid.isNotBlank()) putString("morph_uid_$hash", uid)
+            if (refreshToken.isNotBlank()) putString("morph_refresh_$hash", refreshToken)
+        }.apply()
+    }
+
+    private fun savePerEmailApiKey(email: String, apiKey: String) {
+        val clean = email.trim().lowercase(Locale.US)
+        if (clean.isBlank() || apiKey.isBlank() || clean.startsWith("omk_live_")) return
+        val hash = sha256(clean).take(24)
+        prefs.edit().putString("morph_apikey_$hash", apiKey.trim()).apply()
+    }
+
+    private fun clearPerEmailApiKey(email: String) {
+        val clean = email.trim().lowercase(Locale.US)
+        if (clean.isBlank()) return
+        val hash = sha256(clean).take(24)
+        prefs.edit().remove("morph_apikey_$hash").apply()
+    }
+
+    private fun getSavedUidForEmail(email: String): String =
+        prefs.getString("morph_uid_${sha256(email.trim().lowercase(Locale.US)).take(24)}", "") ?: ""
+
+    private fun getSavedRefreshTokenForEmail(email: String): String =
+        prefs.getString("morph_refresh_${sha256(email.trim().lowercase(Locale.US)).take(24)}", "") ?: ""
+
+    private fun getSavedApiKeyForEmail(email: String): String =
+        prefs.getString("morph_apikey_${sha256(email.trim().lowercase(Locale.US)).take(24)}", "") ?: ""
 
     /**
      * Production Omkun Morph Authentication via official backend (morph-69d82)
-     * with optional Scoped Developer API Key (`omk_live_...`) linking.
+     * with optional Morph Workspace Access Key (`omk_live_...`) linking.
      */
     suspend fun signInWithOmkunCredentials(
         email: String,
@@ -566,6 +611,12 @@ class MorphRepository(private val context: Context) {
                     }
                 }
 
+                savePerEmailCloudAuth(normalizedEmail, localId, refreshToken)
+                val effectiveApiKey = optionalApiKey.trim().ifBlank { getSavedApiKeyForEmail(normalizedEmail) }
+                if (effectiveApiKey.isNotBlank()) {
+                    savePerEmailApiKey(normalizedEmail, effectiveApiKey)
+                }
+
                 val account = MorphAccount(
                     accountId = localId,
                     email = normalizedEmail,
@@ -574,7 +625,7 @@ class MorphRepository(private val context: Context) {
                     authProvider = providerLabel,
                     sessionToken = idToken,
                     refreshToken = refreshToken,
-                    apiKey = optionalApiKey.trim(),
+                    apiKey = effectiveApiKey,
                     authorizedScopes = scopes,
                     connectedAt = System.currentTimeMillis()
                 )
@@ -650,6 +701,12 @@ class MorphRepository(private val context: Context) {
                     client.newCall(updateReq).execute().close()
                 } catch (_: Exception) {}
 
+                savePerEmailCloudAuth(normalizedEmail, localId, refreshToken)
+                val effectiveApiKey = optionalApiKey.trim().ifBlank { getSavedApiKeyForEmail(normalizedEmail) }
+                if (effectiveApiKey.isNotBlank()) {
+                    savePerEmailApiKey(normalizedEmail, effectiveApiKey)
+                }
+
                 val account = MorphAccount(
                     accountId = localId,
                     email = normalizedEmail,
@@ -658,7 +715,7 @@ class MorphRepository(private val context: Context) {
                     authProvider = "OMKUN_ID",
                     sessionToken = idToken,
                     refreshToken = refreshToken,
-                    apiKey = optionalApiKey.trim(),
+                    apiKey = effectiveApiKey,
                     authorizedScopes = scopes,
                     connectedAt = System.currentTimeMillis()
                 )
@@ -757,8 +814,8 @@ class MorphRepository(private val context: Context) {
             val account = refreshIdTokenIfNeeded(initialAccount)
             var syncedRemote = false
 
-            // 1. Sync via Morph REST API (works with API Key or authenticated session token)
-            if (account.apiKey.isNotBlank() || account.sessionToken.isNotBlank()) {
+            // 1. Sync via Morph REST API (when Workspace Access Key `omk_live_...` is linked)
+            if (account.apiKey.isNotBlank()) {
                 try {
                     if (account.canReadDocs()) {
                         val (ok, restFiles) = fetchFilesFromMorphRestApi(account)
@@ -768,7 +825,7 @@ class MorphRepository(private val context: Context) {
                         }
                     }
                 } catch (e: Exception) {
-                    Log.d(TAG, "Morph REST /files sync notice: ${e.message}")
+                    Log.w(TAG, "Morph REST /files sync notice: ${e.message}")
                 }
 
                 try {
@@ -780,7 +837,7 @@ class MorphRepository(private val context: Context) {
                         }
                     }
                 } catch (e: Exception) {
-                    Log.d(TAG, "Morph REST /tasks sync notice: ${e.message}")
+                    Log.w(TAG, "Morph REST /tasks sync notice: ${e.message}")
                 }
 
                 try {
@@ -792,12 +849,15 @@ class MorphRepository(private val context: Context) {
                         }
                     }
                 } catch (e: Exception) {
-                    Log.d(TAG, "Morph REST /databases sync notice: ${e.message}")
+                    Log.w(TAG, "Morph REST /databases sync notice: ${e.message}")
                 }
             }
 
-            // 2. Sync user's Morph Cloud documents & notes from morph-69d82 Firestore
-            if (account.authProvider != "API_KEY") {
+            // 2. Sync user's Morph Cloud documents, tasks & databases from morph-69d82 Firestore
+            val hasMorphCloudToken = account.authProvider != "API_KEY" &&
+                account.sessionToken.isNotBlank() &&
+                !account.sessionToken.startsWith("msess_")
+            if (hasMorphCloudToken) {
                 try {
                     val (cloudReachable, workspaceDocs) = fetchWorkspaceDocumentsFromMorphCloud(account)
                     if (cloudReachable) syncedRemote = true
@@ -805,7 +865,7 @@ class MorphRepository(private val context: Context) {
                         mergeRemoteNotesForAccount(account, workspaceDocs)
                     }
                 } catch (e: Exception) {
-                    Log.d(TAG, "Morph workspace documents sync notice: ${e.message}")
+                    Log.w(TAG, "Morph workspace documents sync notice: ${e.message}")
                 }
 
                 try {
@@ -815,7 +875,7 @@ class MorphRepository(private val context: Context) {
                         mergeRemoteNotesForAccount(account, cloudNotes)
                     }
                 } catch (e: Exception) {
-                    Log.d(TAG, "Morph Cloud REST sync notice: ${e.message}")
+                    Log.w(TAG, "Morph Cloud REST sync notice: ${e.message}")
                 }
 
                 try {
@@ -834,6 +894,8 @@ class MorphRepository(private val context: Context) {
             val currentCount = _notesFlow.value.count { !it.isArchived }
             _syncStatus.value = if (syncedRemote) {
                 "Synced • $currentCount items"
+            } else if (account.apiKey.isBlank() && !hasMorphCloudToken) {
+                "Link Workspace Key or sign in"
             } else {
                 "Connected • $currentCount items"
             }
@@ -882,30 +944,46 @@ class MorphRepository(private val context: Context) {
     }
 
     /**
-     * Fetches full document details (`GET /api/v1/files/:id` with fallback `/files/:id/export`)
-     * when opening a note whose blocks/content were summarized in `files.list`.
+     * Fetches full document details (`GET /api/v1/files/:id` with fallback `/files/:id/export` or Firestore document)
+     * when opening a note whose blocks/content were summarized in list view.
      */
     suspend fun fetchFileDetailsIfNeeded(noteId: String): MorphNote? = withContext(Dispatchers.IO) {
         val account = _connectedAccountFlow.value ?: return@withContext null
-        if ((account.apiKey.isBlank() && account.sessionToken.isBlank()) || !account.canReadDocs()) return@withContext null
+        if (!account.canReadDocs()) return@withContext null
 
-        val detailRes = executeMorphApiRequest(account, "/files/${encodePath(noteId)}", "GET")
-        if (detailRes.isSuccess && detailRes.body.isNotBlank()) {
-            val parsed = parseSingleFileResponse(detailRes.body, account.accountId, noteId)
-            if (parsed != null) {
-                mergeRemoteNotesForAccount(account, listOf(parsed))
-                return@withContext parsed
+        if (account.apiKey.isNotBlank()) {
+            val detailRes = executeMorphApiRequest(account, "/files/${encodePath(noteId)}", "GET")
+            if (detailRes.isSuccess && detailRes.body.isNotBlank()) {
+                val parsed = parseSingleFileResponse(detailRes.body, account.accountId, noteId)
+                if (parsed != null) {
+                    mergeRemoteNotesForAccount(account, listOf(parsed))
+                    return@withContext parsed
+                }
+            }
+
+            val exportRes = executeMorphApiRequest(account, "/files/${encodePath(noteId)}/export", "GET")
+            if (exportRes.isSuccess && exportRes.body.isNotBlank()) {
+                val exportedText = extractExportedContent(exportRes.body)
+                val existing = _notesFlow.value.find { it.id == noteId }
+                if (existing != null && exportedText.isNotBlank() && existing.content.isBlank()) {
+                    val updated = existing.copy(content = exportedText, remoteSynced = true)
+                    mergeRemoteNotesForAccount(account, listOf(updated))
+                    return@withContext updated
+                }
             }
         }
 
-        val exportRes = executeMorphApiRequest(account, "/files/${encodePath(noteId)}/export", "GET")
-        if (exportRes.isSuccess && exportRes.body.isNotBlank()) {
-            val exportedText = extractExportedContent(exportRes.body)
-            val existing = _notesFlow.value.find { it.id == noteId }
-            if (existing != null && exportedText.isNotBlank() && existing.content.isBlank()) {
-                val updated = existing.copy(content = exportedText, remoteSynced = true)
-                mergeRemoteNotesForAccount(account, listOf(updated))
-                return@withContext updated
+        val hasCloudToken = account.authProvider != "API_KEY" &&
+            account.sessionToken.isNotBlank() &&
+            !account.sessionToken.startsWith("msess_")
+        if (hasCloudToken && !noteId.startsWith("task_")) {
+            val docObj = getFirestoreDocument(account.sessionToken, "documents/${encodePath(noteId)}")
+            if (docObj != null) {
+                val parsed = parseFirestoreDocumentToMorphNote(docObj, account.accountId, MorphNote.SOURCE_DOC)
+                if (parsed != null) {
+                    mergeRemoteNotesForAccount(account, listOf(parsed))
+                    return@withContext parsed
+                }
             }
         }
         null
@@ -939,7 +1017,7 @@ class MorphRepository(private val context: Context) {
     }
 
     /**
-     * Unified workspace search via `GET /api/v1/search?q=...`.
+     * Unified workspace search via `GET /api/v1/search?q=...` (with local fallback).
      */
     suspend fun searchMorphWorkspace(query: String): Result<List<MorphNote>> = withContext(Dispatchers.IO) {
         val account = _connectedAccountFlow.value
@@ -947,7 +1025,7 @@ class MorphRepository(private val context: Context) {
         val trimmed = query.trim()
         if (trimmed.isBlank()) return@withContext Result.success(_notesFlow.value.filter { !it.isArchived })
 
-        if ((account.apiKey.isNotBlank() || account.sessionToken.isNotBlank()) && account.canReadDocs()) {
+        if (account.apiKey.isNotBlank() && account.canReadDocs()) {
             val encoded = URLEncoder.encode(trimmed, "UTF-8")
             val res = executeMorphApiRequest(account, "/search?q=$encoded", "GET")
             if (res.isSuccess) {
@@ -975,25 +1053,35 @@ class MorphRepository(private val context: Context) {
         withContext(Dispatchers.IO) {
             val account = _connectedAccountFlow.value
                 ?: return@withContext Result.failure(IllegalStateException("NOT_AUTHENTICATED"))
-            if (account.apiKey.isBlank() && account.sessionToken.isBlank()) {
-                return@withContext Result.failure(IllegalStateException("Please sign in to your Omkun Morph account first."))
-            }
             if (!account.canReadDatabases()) {
                 return@withContext Result.failure(IllegalStateException("Permission needed to view workspace databases."))
             }
 
-            val body = filterJson ?: JSONObject().apply { put("limit", 25) }
-            val res = executeMorphApiRequest(
-                account = account,
-                relativePath = "/databases/${encodePath(databaseId)}/query",
-                method = "POST",
-                jsonBody = body
-            )
-            if (res.isSuccess) {
-                Result.success(res.body)
-            } else {
-                Result.failure(IllegalStateException(res.formattedError()))
+            if (account.apiKey.isNotBlank()) {
+                val body = filterJson ?: JSONObject().apply { put("limit", 25) }
+                val res = executeMorphApiRequest(
+                    account = account,
+                    relativePath = "/databases/${encodePath(databaseId)}/query",
+                    method = "POST",
+                    jsonBody = body
+                )
+                return@withContext if (res.isSuccess) {
+                    Result.success(res.body)
+                } else {
+                    Result.failure(IllegalStateException(res.formattedError()))
+                }
             }
+
+            val hasCloudToken = account.authProvider != "API_KEY" &&
+                account.sessionToken.isNotBlank() &&
+                !account.sessionToken.startsWith("msess_")
+            if (hasCloudToken) {
+                val dbDoc = getFirestoreDocument(account.sessionToken, "databases/${encodePath(databaseId)}")
+                if (dbDoc != null) {
+                    return@withContext Result.success(dbDoc.toString())
+                }
+            }
+            Result.failure(IllegalStateException("Link a Morph Workspace Access Key to query databases."))
         }
 
     // =========================================================================
@@ -1022,14 +1110,14 @@ class MorphRepository(private val context: Context) {
         method: String = "GET",
         jsonBody: JSONObject? = null
     ): MorphApiResult {
-        val token = account.apiKey.ifBlank { account.sessionToken }
+        val token = account.apiKey.trim()
         if (token.isBlank()) {
             return MorphApiResult(
                 isSuccess = false,
                 httpCode = 401,
                 body = "",
                 errorCode = "UNAUTHORIZED",
-                errorMessage = "Missing API bearer token"
+                errorMessage = "Missing Morph access key"
             )
         }
 
@@ -1046,8 +1134,8 @@ class MorphRepository(private val context: Context) {
         }
 
         val firstAttempt = executeSingleMorphHttpCall(primaryBase + normalizedPath, method, token, jsonBody, account)
-        // Fallback to secondary host only on transport failures or 5xx/404 edge routing glitches
-        if (!firstAttempt.isSuccess && (firstAttempt.httpCode == 0 || firstAttempt.httpCode >= 500 || firstAttempt.httpCode == 404)) {
+        // Fallback to secondary host on transport errors, 404/5xx, or SPA HTML fallback responses
+        if (!firstAttempt.isSuccess && (firstAttempt.httpCode == 0 || firstAttempt.httpCode >= 500 || firstAttempt.httpCode == 404 || firstAttempt.errorCode == "HTML_FALLBACK")) {
             val secondAttempt = executeSingleMorphHttpCall(fallbackBase + normalizedPath, method, token, jsonBody, account)
             if (secondAttempt.isSuccess || secondAttempt.httpCode in 400..499) {
                 return secondAttempt
@@ -1068,10 +1156,9 @@ class MorphRepository(private val context: Context) {
             val builder = Request.Builder()
                 .url(fullUrl)
                 .addHeader("Authorization", "Bearer $bearerToken")
+                .addHeader("X-API-Key", bearerToken)
                 .addHeader("Accept", "application/json")
             if (account != null) {
-                if (account.accountId.isNotBlank()) builder.addHeader("X-User-Id", account.accountId)
-                if (account.email.isNotBlank()) builder.addHeader("X-User-Email", account.email)
                 val ws = account.workspaceId.ifBlank { activeWorkspaceId.orEmpty() }
                 if (ws.isNotBlank()) builder.addHeader("X-Workspace-Id", ws)
             }
@@ -1090,6 +1177,18 @@ class MorphRepository(private val context: Context) {
                     ?: response.header("X-Api-Scopes")
                     ?: response.header("X-Scopes")
                     ?: ""
+
+                // morph.omkun.com SPA returns HTTP 200 HTML for unknown /api/v1/* routes; reject non-JSON HTML
+                val contentType = response.header("Content-Type").orEmpty()
+                if (response.isSuccessful && (respBody.trimStart().startsWith("<") || contentType.contains("text/html", ignoreCase = true))) {
+                    return MorphApiResult(
+                        isSuccess = false,
+                        httpCode = 404,
+                        body = "",
+                        errorCode = "HTML_FALLBACK",
+                        errorMessage = "Endpoint returned HTML instead of JSON"
+                    )
+                }
 
                 if (response.isSuccessful) {
                     return MorphApiResult(
@@ -1170,7 +1269,7 @@ class MorphRepository(private val context: Context) {
         return true to parseDatabasesResponse(res.body)
     }
 
-    private fun parseFilesResponse(body: String, accountId: String): List<MorphNote> {
+    internal fun parseFilesResponse(body: String, accountId: String): List<MorphNote> {
         val array = extractJsonArray(body, "files", "documents", "docs", "data", "items", "results")
             ?: return emptyList()
         val list = mutableListOf<MorphNote>()
@@ -1230,10 +1329,10 @@ class MorphRepository(private val context: Context) {
             textParts.add(directContent)
         }
 
-        val blocksArr = item.optJSONArray("blocks")
-        if (blocksArr != null) {
-            for (b in 0 until blocksArr.length()) {
-                val block = blocksArr.optJSONObject(b) ?: continue
+        fun collectJsonBlocks(arr: JSONArray?) {
+            if (arr == null) return
+            for (b in 0 until arr.length()) {
+                val block = arr.optJSONObject(b) ?: continue
                 val bType = block.optString("type", "paragraph").lowercase(Locale.US)
                 val bText = block.optString("content")
                     .ifBlank { block.optString("text") }
@@ -1246,10 +1345,23 @@ class MorphRepository(private val context: Context) {
                         checklistItems.add(MorphChecklistItem(id = bId, text = bText, isDone = bChecked))
                     }
                 } else if (bText.isNotBlank() && !textParts.contains(bText)) {
-                    textParts.add(bText)
+                    val formatted = when (bType) {
+                        "heading1", "h1" -> "# $bText"
+                        "heading2", "h2" -> "## $bText"
+                        "heading3", "h3" -> "### $bText"
+                        "bullet", "bullet_list" -> "• $bText"
+                        "quote" -> "> $bText"
+                        else -> bText
+                    }
+                    textParts.add(formatted)
                 }
+
+                collectJsonBlocks(block.optJSONArray("children"))
+                collectJsonBlocks(block.optJSONArray("items"))
             }
         }
+
+        collectJsonBlocks(item.optJSONArray("blocks"))
 
         val labels = mutableListOf<String>()
         val tagsArr = item.optJSONArray("tags") ?: item.optJSONArray("labels")
@@ -1261,7 +1373,7 @@ class MorphRepository(private val context: Context) {
         }
 
         val status = item.optString("status", "")
-        val isPinned = item.optBoolean("isPinned", item.optBoolean("pinned", false))
+        val isPinned = item.optBoolean("isPinned", item.optBoolean("pinned", item.optBoolean("favorite", false)))
         val colorStr = item.optString("color", item.optString("colorHex", ""))
         val colorHex = if (colorStr.isNotBlank()) mapApiColorToHex(colorStr) else MorphPalette.Default
         val updatedAt = parseTimestamp(item)
@@ -1284,7 +1396,7 @@ class MorphRepository(private val context: Context) {
         )
     }
 
-    private fun parseTasksResponse(body: String, accountId: String): List<MorphNote> {
+    internal fun parseTasksResponse(body: String, accountId: String): List<MorphNote> {
         val array = extractJsonArray(body, "tasks", "data", "items", "results") ?: return emptyList()
         val list = mutableListOf<MorphNote>()
         for (i in 0 until array.length()) {
@@ -1292,7 +1404,15 @@ class MorphRepository(private val context: Context) {
             val rawId = item.optString("id").ifBlank { item.optString("_id") }.ifBlank { UUID.randomUUID().toString() }
             val id = if (rawId.startsWith("task_")) rawId else "task_$rawId"
             val title = item.optString("title").ifBlank { item.optString("name") }.ifBlank { "Morph Task" }
-            val desc = item.optString("description").ifBlank { item.optString("notes") }
+            val project = item.optString("project", "")
+            val priority = item.optString("priority", "")
+            val dueDate = item.optString("dueDate", "")
+            val metaLine = listOfNotNull(
+                project.takeIf { it.isNotBlank() },
+                priority.takeIf { it.isNotBlank() }?.let { "Priority: $it" },
+                dueDate.takeIf { it.isNotBlank() }?.let { "Due: $it" }
+            ).joinToString(" • ")
+            val desc = item.optString("description").ifBlank { item.optString("notes") }.ifBlank { metaLine }
             val status = item.optString("status", "Todo")
             val isDone = item.optBoolean("completed", false) ||
                 status.equals("done", ignoreCase = true) ||
@@ -1326,6 +1446,7 @@ class MorphRepository(private val context: Context) {
 
             val labels = mutableListOf("Task")
             if (status.isNotBlank()) labels.add(status)
+            if (priority.isNotBlank()) labels.add(priority)
 
             list.add(
                 MorphNote(
@@ -1336,7 +1457,7 @@ class MorphRepository(private val context: Context) {
                     checklist = subItems,
                     isChecklist = true,
                     colorHex = MorphPalette.Sky,
-                    isPinned = item.optBoolean("priorityPinned", false),
+                    isPinned = item.optBoolean("priorityPinned", item.optBoolean("favorite", false)),
                     labels = labels.distinct(),
                     updatedAt = parseTimestamp(item),
                     isArchived = false,
@@ -1349,7 +1470,7 @@ class MorphRepository(private val context: Context) {
         return list
     }
 
-    private fun parseDatabasesResponse(body: String): List<MorphDatabaseInfo> {
+    internal fun parseDatabasesResponse(body: String): List<MorphDatabaseInfo> {
         val array = extractJsonArray(body, "databases", "data", "items", "results") ?: return emptyList()
         val list = mutableListOf<MorphDatabaseInfo>()
         for (i in 0 until array.length()) {
@@ -1357,7 +1478,15 @@ class MorphRepository(private val context: Context) {
             val id = item.optString("id").ifBlank { continue }
             val title = item.optString("title").ifBlank { item.optString("name", id) }
             val desc = item.optString("description", "")
-            val count = item.optInt("recordCount", item.optInt("rowCount", 0))
+            val count = item.optInt(
+                "recordCount",
+                item.optInt(
+                    "rowCount",
+                    item.optJSONArray("rows")?.length()
+                        ?: item.optJSONArray("records")?.length()
+                        ?: 0
+                )
+            )
             list.add(MorphDatabaseInfo(id = id, title = title, description = desc, recordCount = count))
         }
         return list
@@ -1461,6 +1590,32 @@ class MorphRepository(private val context: Context) {
             val userWorkspaceIds = mutableSetOf<String>()
             var anyReachable = false
 
+            // 1-Zero. Read `/users/{uid}` profile directly (this is how morph.omkun.com stores user's `workspaces` IDs)
+            if (account.accountId.isNotBlank()) {
+                val userDoc = getFirestoreDocument(account.sessionToken, "users/${encodePath(account.accountId)}")
+                if (userDoc != null) {
+                    anyReachable = true
+                    val uFields = userDoc.optJSONObject("fields")
+                    if (uFields != null) {
+                        val wsArray = uFields.optJSONObject("workspaces")?.optJSONObject("arrayValue")?.optJSONArray("values")
+                        if (wsArray != null) {
+                            for (i in 0 until wsArray.length()) {
+                                val entry = wsArray.optJSONObject(i) ?: continue
+                                val strWs = entry.optString("stringValue", "").trim()
+                                val mapWs = entry.optJSONObject("mapValue")?.optJSONObject("fields")
+                                    ?.optJSONObject("id")?.optString("stringValue", "")?.trim().orEmpty()
+                                val resolvedWs = strWs.ifBlank { mapWs }
+                                if (resolvedWs.isNotBlank()) userWorkspaceIds.add(resolvedWs)
+                            }
+                        }
+                        listOf("workspaceId", "activeWorkspaceId", "defaultWorkspaceId").forEach { key ->
+                            val v = uFields.optJSONObject(key)?.optString("stringValue", "")?.trim().orEmpty()
+                            if (v.isNotBlank()) userWorkspaceIds.add(v)
+                        }
+                    }
+                }
+            }
+
             fun isUserWorkspaceDoc(fields: JSONObject): Boolean {
                 val ownerCandidates = listOf("ownerId", "ownerUid", "userId", "uid", "createdBy", "authorId")
                     .mapNotNull { fields.optJSONObject(it)?.optString("stringValue", "")?.takeIf { s -> s.isNotBlank() } }
@@ -1499,7 +1654,7 @@ class MorphRepository(private val context: Context) {
                     return true
                 }
 
-                // Check `memberIds` / `memberEmails`
+                // Check `memberIds` / `memberUids` / `users` / `collaborators`
                 listOf("memberIds", "memberUids", "users", "collaborators").forEach { arrKey ->
                     val arr = fields.optJSONObject(arrKey)?.optJSONObject("arrayValue")?.optJSONArray("values")
                     if (arr != null) {
@@ -1542,6 +1697,7 @@ class MorphRepository(private val context: Context) {
                     add(Triple("uid", "EQUAL", JSONObject().apply { put("stringValue", account.accountId) }))
                     add(Triple("createdBy", "EQUAL", JSONObject().apply { put("stringValue", account.accountId) }))
                     add(Triple("memberIds", "ARRAY_CONTAINS", JSONObject().apply { put("stringValue", account.accountId) }))
+                    add(Triple("memberUids", "ARRAY_CONTAINS", JSONObject().apply { put("stringValue", account.accountId) }))
                     add(Triple("members", "ARRAY_CONTAINS", JSONObject().apply { put("stringValue", account.accountId) }))
                 }
                 if (normalizedEmail.isNotBlank()) {
@@ -1668,6 +1824,32 @@ class MorphRepository(private val context: Context) {
                 fallbackDocs.forEach { addMatchingDoc(it, MorphNote.SOURCE_DOC, requireOwnershipOrWsMatch = true) }
             }
 
+            // 2E. Databases in `databases` collection scoped to user's workspaces
+            val foundDbs = linkedMapOf<String, MorphDatabaseInfo>()
+            for (wsId in userWorkspaceIds) {
+                val (dbOk, dbDocs) = runFirestoreStructuredQuery(
+                    account.sessionToken, "", "databases", "workspaceId", "EQUAL",
+                    JSONObject().apply { put("stringValue", wsId) }
+                )
+                if (dbOk) anyReachable = true
+                dbDocs.forEach { dbObj ->
+                    val dId = dbObj.optString("name", "").substringAfterLast("/")
+                    val dFields = dbObj.optJSONObject("fields") ?: return@forEach
+                    val dTitle = dFields.optJSONObject("title")?.optString("stringValue", "").orEmpty()
+                        .ifBlank { dFields.optJSONObject("name")?.optString("stringValue", "").orEmpty() }
+                        .ifBlank { dId }
+                    val dDesc = dFields.optJSONObject("description")?.optString("stringValue", "").orEmpty()
+                    val rowArr = dFields.optJSONObject("rows")?.optJSONObject("arrayValue")?.optJSONArray("values")
+                    val rCount = rowArr?.length() ?: 0
+                    if (dId.isNotBlank()) {
+                        foundDbs[dId] = MorphDatabaseInfo(id = dId, title = dTitle, description = dDesc, recordCount = rCount)
+                    }
+                }
+            }
+            if (foundDbs.isNotEmpty()) {
+                _databasesFlow.value = foundDbs.values.toList()
+            }
+
             val parsed = rawDocsById.values.mapNotNull { (docObj, srcHint) ->
                 parseFirestoreDocumentToMorphNote(docObj, account.accountId, srcHint)
             }
@@ -1675,6 +1857,24 @@ class MorphRepository(private val context: Context) {
         } catch (e: Exception) {
             Log.d(TAG, "fetchWorkspaceDocumentsFromMorphCloud notice: ${e.message}")
             false to emptyList()
+        }
+    }
+
+    private fun getFirestoreDocument(sessionToken: String, documentRelativePath: String): JSONObject? {
+        return try {
+            val url = "$MORPH_FIRESTORE_REST_BASE/${documentRelativePath.trimStart('/')}"
+            val req = Request.Builder().url(url).get()
+            if (sessionToken.isNotBlank()) {
+                req.addHeader("Authorization", "Bearer $sessionToken")
+            }
+            client.newCall(req.build()).execute().use { res ->
+                if (!res.isSuccessful) return null
+                val body = res.body?.string().orEmpty()
+                if (body.isBlank() || !body.trimStart().startsWith("{")) return null
+                JSONObject(body)
+            }
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -1773,7 +1973,7 @@ class MorphRepository(private val context: Context) {
         }
     }
 
-    private fun parseFirestoreDocumentToMorphNote(
+    internal fun parseFirestoreDocumentToMorphNote(
         docObj: JSONObject,
         accountId: String,
         defaultSourceType: String
@@ -1796,13 +1996,40 @@ class MorphRepository(private val context: Context) {
         val textParts = mutableListOf<String>()
         if (description.isNotBlank() && description != rawContent) textParts.add(description)
 
-        val blocksArr = fields.optJSONObject("blocks")?.optJSONObject("arrayValue")?.optJSONArray("values")
-        if (blocksArr != null) {
+        fun unwrapFirestoreArray(valueWrapper: JSONObject?): JSONArray? {
+            if (valueWrapper == null) return null
+            val directArr = valueWrapper.optJSONObject("arrayValue")?.optJSONArray("values")
+            if (directArr != null) return directArr
+            val mapFields = valueWrapper.optJSONObject("mapValue")?.optJSONObject("fields") ?: return null
+            if (mapFields.optJSONObject("_firestoreNestedArr")?.optBoolean("booleanValue", false) == true) {
+                return mapFields.optJSONObject("values")?.optJSONObject("arrayValue")?.optJSONArray("values")
+            }
+            return null
+        }
+
+        fun extractBlockFieldsFromEntry(entry: JSONObject?): JSONObject? {
+            if (entry == null) return null
+            val mf = entry.optJSONObject("mapValue")?.optJSONObject("fields")
+            if (mf != null) return mf
+            // Unwrap nested `_firestoreNestedArr` wrapper if encountered inside array
+            return null
+        }
+
+        fun collectFirestoreBlocks(blocksArr: JSONArray?) {
+            if (blocksArr == null) return
             for (b in 0 until blocksArr.length()) {
-                val bFields = blocksArr.optJSONObject(b)?.optJSONObject("mapValue")?.optJSONObject("fields") ?: continue
+                val bFields = extractBlockFieldsFromEntry(blocksArr.optJSONObject(b)) ?: continue
+                if (bFields.optJSONObject("_firestoreNestedArr")?.optBoolean("booleanValue", false) == true) {
+                    collectFirestoreBlocks(bFields.optJSONObject("values")?.optJSONObject("arrayValue")?.optJSONArray("values"))
+                    continue
+                }
                 val bType = bFields.optJSONObject("type")?.optString("stringValue", "").orEmpty().lowercase(Locale.US)
                 val bContent = bFields.optJSONObject("content")?.optString("stringValue", "").orEmpty()
                     .ifBlank { bFields.optJSONObject("text")?.optString("stringValue", "").orEmpty() }
+                    .ifBlank {
+                        bFields.optJSONObject("data")?.optJSONObject("mapValue")?.optJSONObject("fields")
+                            ?.optJSONObject("text")?.optString("stringValue", "").orEmpty()
+                    }
                 val bChecked = bFields.optJSONObject("checked")?.optBoolean("booleanValue", false)
                     ?: bFields.optJSONObject("isDone")?.optBoolean("booleanValue", false)
                     ?: false
@@ -1819,13 +2046,26 @@ class MorphRepository(private val context: Context) {
                         )
                     }
                 } else if (bContent.isNotBlank() && !textParts.contains(bContent)) {
-                    textParts.add(bContent)
+                    val formatted = when (bType) {
+                        "heading1", "h1" -> "# $bContent"
+                        "heading2", "h2" -> "## $bContent"
+                        "heading3", "h3" -> "### $bContent"
+                        "bullet", "bullet_list" -> "• $bContent"
+                        "quote" -> "> $bContent"
+                        else -> bContent
+                    }
+                    textParts.add(formatted)
                 }
+
+                unwrapFirestoreArray(bFields.optJSONObject("children"))?.let { collectFirestoreBlocks(it) }
+                unwrapFirestoreArray(bFields.optJSONObject("items"))?.let { collectFirestoreBlocks(it) }
             }
         }
 
+        collectFirestoreBlocks(unwrapFirestoreArray(fields.optJSONObject("blocks")))
+
         // Also parse direct checklist array if stored on doc/note
-        val directChecklist = fields.optJSONObject("checklist")?.optJSONObject("arrayValue")?.optJSONArray("values")
+        val directChecklist = unwrapFirestoreArray(fields.optJSONObject("checklist"))
         if (directChecklist != null && checklistItems.isEmpty()) {
             for (c in 0 until directChecklist.length()) {
                 val cFields = directChecklist.optJSONObject(c)?.optJSONObject("mapValue")?.optJSONObject("fields") ?: continue
@@ -1840,8 +2080,7 @@ class MorphRepository(private val context: Context) {
 
         val content = textParts.filter { it.isNotBlank() }.joinToString("\n\n").ifBlank { rawContent }
         val labels = mutableListOf<String>()
-        val tagsArr = (fields.optJSONObject("tags") ?: fields.optJSONObject("labels"))
-            ?.optJSONObject("arrayValue")?.optJSONArray("values")
+        val tagsArr = unwrapFirestoreArray(fields.optJSONObject("tags") ?: fields.optJSONObject("labels"))
         if (tagsArr != null) {
             for (t in 0 until tagsArr.length()) {
                 val tagStr = tagsArr.optJSONObject(t)?.optString("stringValue", "").orEmpty()
@@ -1849,12 +2088,10 @@ class MorphRepository(private val context: Context) {
             }
         }
 
-        val tsStr = fields.optJSONObject("updatedAtTimestamp")?.optString("integerValue", "")
-            ?.takeIf { it.isNotBlank() }
-            ?: fields.optJSONObject("updatedAt")?.optString("integerValue", "")
-        val updatedAt = tsStr?.toLongOrNull() ?: System.currentTimeMillis()
+        val updatedAt = extractFirestoreTimestamp(fields)
         val isPinned = fields.optJSONObject("isPinned")?.optBoolean("booleanValue", false)
             ?: fields.optJSONObject("pinned")?.optBoolean("booleanValue", false)
+            ?: fields.optJSONObject("favorite")?.optBoolean("booleanValue", false)
             ?: false
         val colorStr = fields.optJSONObject("colorHex")?.optString("stringValue", "")
             ?.takeIf { it.isNotBlank() }
@@ -1886,6 +2123,40 @@ class MorphRepository(private val context: Context) {
             status = status,
             remoteSynced = true
         )
+    }
+
+    private fun extractFirestoreTimestamp(fields: JSONObject): Long {
+        val candidateKeys = listOf("updatedAtTimestamp", "updatedAt", "createdAt")
+        for (key in candidateKeys) {
+            val valObj = fields.optJSONObject(key) ?: continue
+            val intStr = valObj.optString("integerValue", "")
+            intStr.toLongOrNull()?.takeIf { it > 0L }?.let { return it }
+
+            if (valObj.has("doubleValue")) {
+                val d = valObj.optDouble("doubleValue", 0.0)
+                if (d > 1_000_000_000.0) return d.toLong()
+            }
+
+            val tsIso = valObj.optString("timestampValue", "")
+                .ifBlank { valObj.optString("stringValue", "") }
+            if (tsIso.isNotBlank()) {
+                tsIso.toLongOrNull()?.takeIf { it > 0L }?.let { return it }
+                val patterns = listOf(
+                    "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'",
+                    "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+                    "yyyy-MM-dd'T'HH:mm:ss'Z'"
+                )
+                for (p in patterns) {
+                    try {
+                        val sdf = SimpleDateFormat(p, Locale.US).apply {
+                            timeZone = TimeZone.getTimeZone("UTC")
+                        }
+                        sdf.parse(tsIso)?.time?.let { return it }
+                    } catch (_: Exception) {}
+                }
+            }
+        }
+        return System.currentTimeMillis()
     }
 
     private fun fetchAccountNotesFromMorphCloud(account: MorphAccount): Pair<Boolean, List<MorphNote>> {
@@ -1987,6 +2258,7 @@ class MorphRepository(private val context: Context) {
         coroutineScope.launch {
             try {
                 val freshAcc = refreshIdTokenIfNeeded(account)
+                if (freshAcc.sessionToken.isBlank() || freshAcc.sessionToken.startsWith("msess_")) return@launch
                 val targetWs = activeWorkspaceId
                     ?: freshAcc.workspaceId.takeIf { it.isNotBlank() }
                     ?: "ws-user-${freshAcc.accountId.take(12)}"
@@ -2115,7 +2387,7 @@ class MorphRepository(private val context: Context) {
      * - `POST /api/v1/tasks` (`tasks.create`)
      */
     private fun pushNoteToMorphRestApi(account: MorphAccount, note: MorphNote, isNew: Boolean) {
-        if (account.apiKey.isBlank() && account.sessionToken.isBlank()) return
+        if (account.apiKey.isBlank()) return
 
         coroutineScope.launch {
             try {
@@ -2255,24 +2527,23 @@ class MorphRepository(private val context: Context) {
         coroutineScope.launch {
             try {
                 val freshAcc = refreshIdTokenIfNeeded(account)
-                if (freshAcc.authProvider != "API_KEY") {
+                val hasCloudToken = freshAcc.authProvider != "API_KEY" &&
+                    freshAcc.sessionToken.isNotBlank() &&
+                    !freshAcc.sessionToken.startsWith("msess_")
+                if (hasCloudToken) {
                     val req1 = Request.Builder()
                         .url("$MORPH_FIRESTORE_REST_BASE/documents/$noteId")
                         .delete()
-                    if (freshAcc.sessionToken.isNotBlank()) {
-                        req1.addHeader("Authorization", "Bearer ${freshAcc.sessionToken}")
-                    }
+                        .addHeader("Authorization", "Bearer ${freshAcc.sessionToken}")
                     client.newCall(req1.build()).execute().close()
 
                     val req2 = Request.Builder()
                         .url("$MORPH_FIRESTORE_REST_BASE/users/${freshAcc.accountId}/morph_notes/$noteId")
                         .delete()
-                    if (freshAcc.sessionToken.isNotBlank()) {
-                        req2.addHeader("Authorization", "Bearer ${freshAcc.sessionToken}")
-                    }
+                        .addHeader("Authorization", "Bearer ${freshAcc.sessionToken}")
                     client.newCall(req2.build()).execute().close()
                 }
-                if (freshAcc.apiKey.isNotBlank() || freshAcc.sessionToken.isNotBlank()) {
+                if (freshAcc.apiKey.isNotBlank()) {
                     val path = if (noteId.startsWith("task_")) {
                         "/tasks/${encodePath(noteId.removePrefix("task_"))}"
                     } else {
