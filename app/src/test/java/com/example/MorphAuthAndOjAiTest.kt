@@ -120,4 +120,33 @@ class MorphAuthAndOjAiTest {
         assertTrue("Invalid password must be rejected by production backend", result.isFailure)
         assertNull(morphRepo.connectedAccountFlow.value)
     }
+
+    @Test
+    fun `short or empty morph api key is rejected before network call`() = runBlocking {
+        val emptyRes = morphRepo.connectWithApiKey("")
+        assertTrue(emptyRes.isFailure)
+
+        val shortRes = morphRepo.connectWithApiKey("omk_123")
+        assertTrue(shortRes.isFailure)
+        assertNull(morphRepo.connectedAccountFlow.value)
+    }
+
+    @Test
+    fun `read-only morph scopes block write and task creation`() = runBlocking {
+        val readOnlyAccount = com.example.model.MorphAccount(
+            accountId = "morph_key_readonly",
+            email = "omk_live_••••9k1p",
+            displayName = "Public Widget",
+            authProvider = "API_KEY",
+            apiKey = "omk_live_publ_test_9k1p",
+            authorizedScopes = com.example.model.MorphAccount.READ_ONLY_SCOPES
+        )
+        assertTrue(readOnlyAccount.canReadDocs())
+        assertTrue(readOnlyAccount.canReadDatabases())
+        assertTrue(readOnlyAccount.canReadTasks())
+        assertFalse(readOnlyAccount.canWriteDocs())
+        assertFalse(readOnlyAccount.canWriteTasks())
+        assertFalse(readOnlyAccount.hasFullAccess())
+        assertEquals("omk_live_••••9k1p", readOnlyAccount.maskedApiKey())
+    }
 }

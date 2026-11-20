@@ -59,6 +59,9 @@ fun MorphScreen(
     val context = LocalContext.current
     val connectedAccount by repository.connectedAccountFlow.collectAsState()
     val notes by repository.notesFlow.collectAsState()
+    val isSyncing by repository.isSyncing.collectAsState()
+    val lastApiError by repository.lastApiError.collectAsState()
+    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(connectedAccount?.accountId) {
         if (connectedAccount != null) {
@@ -76,6 +79,15 @@ fun MorphScreen(
     var showAuthSheet by remember { mutableStateOf(false) }
     var pendingCreateAfterAuth by remember { mutableStateOf<Boolean?>(null) } // false = note, true = checklist
 
+    // Hydrate full document blocks via GET /api/v1/files/:id when opening a doc
+    LaunchedEffect(editingNote?.id) {
+        val targetId = editingNote?.id ?: return@LaunchedEffect
+        val hydrated = repository.fetchFileDetailsIfNeeded(targetId)
+        if (hydrated != null && editingNote?.id == targetId) {
+            editingNote = hydrated
+        }
+    }
+
     // Filter notes by search query and tag
     val filteredNotes = remember(notes, searchQuery, selectedTag) {
         notes.filter { !it.isArchived }.filter { note ->
@@ -86,6 +98,8 @@ fun MorphScreen(
 
             val matchesTag = when (selectedTag) {
                 "All" -> true
+                "Docs" -> note.sourceType != MorphNote.SOURCE_TASK
+                "Tasks" -> note.sourceType == MorphNote.SOURCE_TASK
                 "Pinned" -> note.isPinned
                 else -> note.labels.contains(selectedTag)
             }
@@ -97,7 +111,7 @@ fun MorphScreen(
     val otherNotes = remember(filteredNotes) { filteredNotes.filter { !it.isPinned } }
 
     val allTags = remember(notes) {
-        val tags = mutableSetOf("All", "Pinned")
+        val tags = mutableSetOf("All", "Docs", "Tasks", "Pinned")
         notes.forEach { tags.addAll(it.labels) }
         tags.toList()
     }
@@ -124,24 +138,26 @@ fun MorphScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 12.dp)
+                            .padding(start = 12.dp, end = 6.dp)
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_morph_notes),
                             contentDescription = "Omkun Morph",
                             tint = Color(0xFF007AFF),
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(22.dp)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
 
                         TextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
                             placeholder = {
                                 Text(
-                                    "Search your notes in Morph...",
-                                    fontSize = 15.sp,
-                                    color = Color(0xFF757575)
+                                    "Search Morph...",
+                                    fontSize = 14.5.sp,
+                                    color = Color(0xFF757575),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             },
                             colors = TextFieldDefaults.colors(
@@ -157,7 +173,10 @@ fun MorphScreen(
                         )
 
                         if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { searchQuery = "" }) {
+                            IconButton(
+                                onClick = { searchQuery = "" },
+                                modifier = Modifier.size(38.dp)
+                            ) {
                                 Icon(
                                     imageVector = Icons.Default.Close,
                                     contentDescription = "Clear",
@@ -167,25 +186,58 @@ fun MorphScreen(
                             }
                         }
 
-                        IconButton(onClick = { isGridView = !isGridView }) {
+                        if (connectedAccount != null) {
+                            IconButton(
+                                onClick = {
+                                    repository.syncWithServer { _, msg ->
+                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .testTag("morph_sync_button")
+                            ) {
+                                if (isSyncing) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                        color = Color(0xFF0160E3)
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Refresh,
+                                        contentDescription = "Sync Morph",
+                                        tint = Color(0xFF5F6368),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        IconButton(
+                            onClick = { isGridView = !isGridView },
+                            modifier = Modifier.size(38.dp)
+                        ) {
                             Icon(
                                 imageVector = if (isGridView) Icons.Outlined.ViewAgenda else Icons.Outlined.GridView,
                                 contentDescription = "Toggle View",
                                 tint = Color(0xFF5F6368),
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                         }
 
                         IconButton(
                             onClick = { showAuthSheet = true },
-                            modifier = Modifier.testTag("morph_account_button")
+                            modifier = Modifier
+                                .size(40.dp)
+                                .testTag("morph_account_button")
                         ) {
                             val activeAcc = connectedAccount
                             if (activeAcc != null) {
                                 Box(contentAlignment = Alignment.BottomEnd) {
                                     Box(
                                         modifier = Modifier
-                                            .size(30.dp)
+                                            .size(28.dp)
                                             .clip(CircleShape)
                                             .background(Color(0xFF0160E3)),
                                         contentAlignment = Alignment.Center
@@ -201,7 +253,7 @@ fun MorphScreen(
                                                 text = activeAcc.displayName.ifBlank { activeAcc.email }.take(1).uppercase(Locale.getDefault()),
                                                 color = Color.White,
                                                 fontWeight = FontWeight.Bold,
-                                                fontSize = 13.sp
+                                                fontSize = 12.sp
                                             )
                                         }
                                     }
@@ -218,9 +270,9 @@ fun MorphScreen(
                             } else {
                                 Icon(
                                     imageVector = Icons.Outlined.AccountCircle,
-                                    contentDescription = "Sign in to Morph",
+                                    contentDescription = "Connect Morph",
                                     tint = Color(0xFF0160E3),
-                                    modifier = Modifier.size(26.dp)
+                                    modifier = Modifier.size(25.dp)
                                 )
                             }
                         }
@@ -228,7 +280,7 @@ fun MorphScreen(
                 }
 
                 // Filter Tag Chips
-                if (connectedAccount != null && allTags.size > 2) {
+                if (connectedAccount != null) {
                     Spacer(modifier = Modifier.height(8.dp))
                     LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -245,6 +297,47 @@ fun MorphScreen(
                                     selectedLabelColor = Color(0xFF1A73E8)
                                 )
                             )
+                        }
+                    }
+                }
+
+                // Dismissible API Scope / Sync Error Banner
+                if (!lastApiError.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFFEF2F2),
+                        border = BorderStroke(1.dp, Color(0xFFFECACA)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.WarningAmber,
+                                contentDescription = null,
+                                tint = Color(0xFFB91C1C),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = lastApiError ?: "",
+                                fontSize = 12.sp,
+                                color = Color(0xFFB91C1C),
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(
+                                onClick = { repository.clearApiError() },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Dismiss",
+                                    tint = Color(0xFFB91C1C),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -334,14 +427,14 @@ fun MorphScreen(
                         }
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "Sign in to Omkun Morph",
+                            text = "Connect Omkun Morph",
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF0F172A)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Connect your Google or Omkun account to securely sync your personal notes, checklists, and let Oj AI read, create, or manage notes in your account.",
+                            text = "Sync your personal notes, checklists, and tasks across devices, and let Oj AI help organize them for you.",
                             fontSize = 13.5.sp,
                             color = Color(0xFF64748B),
                             lineHeight = 19.sp,
@@ -365,7 +458,7 @@ fun MorphScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Sign in & Activate Morph",
+                                text = "Connect Account",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp,
                                 color = Color.White
@@ -381,30 +474,64 @@ fun MorphScreen(
                     .padding(padding),
                 contentAlignment = Alignment.Center
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(32.dp)
-                ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_morph_notes),
-                        contentDescription = null,
-                        tint = Color(0xFFBDBDBD),
-                        modifier = Modifier.size(64.dp)
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        "No notes in ${connectedAccount?.email ?: "Omkun Morph"} yet",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFF5F6368)
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        "Tap the + button or ask Oj AI to create a note or checklist",
-                        fontSize = 13.sp,
-                        color = Color(0xFF9E9E9E),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                    )
+                if (isSyncing) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(32.dp)
+                    ) {
+                        CircularProgressIndicator(color = Color(0xFF0160E3))
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Syncing your Morph workspace...",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF475569)
+                        )
+                    }
+                } else {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(32.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_morph_notes),
+                            contentDescription = null,
+                            tint = Color(0xFFBDBDBD),
+                            modifier = Modifier.size(64.dp)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            "No notes in ${connectedAccount?.email ?: "Omkun Morph"} yet",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF5F6368),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            "Tap the + button or ask Oj AI to create a note or checklist",
+                            fontSize = 13.sp,
+                            color = Color(0xFF9E9E9E),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        OutlinedButton(
+                            onClick = {
+                                repository.syncWithServer { _, msg ->
+                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Refresh Workspace", fontSize = 13.sp)
+                        }
+                    }
                 }
             }
         } else {
@@ -520,7 +647,8 @@ fun MorphScreen(
     if (editingNote != null || isCreatingNew) {
         val targetNote = editingNote ?: MorphNote(
             isChecklist = newNoteAsChecklist,
-            colorHex = MorphPalette.Default
+            colorHex = if (newNoteAsChecklist) MorphPalette.Sky else MorphPalette.Default,
+            sourceType = if (newNoteAsChecklist) MorphNote.SOURCE_TASK else MorphNote.SOURCE_DOC
         )
 
         MorphNoteEditorDialog(
@@ -727,13 +855,24 @@ fun MorphNoteEditorDialog(
     onDelete: (String) -> Unit
 ) {
     val context = LocalContext.current
-    var title by remember { mutableStateOf(initialNote.title) }
-    var content by remember { mutableStateOf(initialNote.content) }
-    var isChecklist by remember { mutableStateOf(initialNote.isChecklist) }
-    var checklistItems by remember { mutableStateOf(initialNote.checklist) }
-    var colorHex by remember { mutableStateOf(initialNote.colorHex) }
-    var isPinned by remember { mutableStateOf(initialNote.isPinned) }
+    var title by remember(initialNote.id) { mutableStateOf(initialNote.title) }
+    var content by remember(initialNote.id) { mutableStateOf(initialNote.content) }
+    var isChecklist by remember(initialNote.id) { mutableStateOf(initialNote.isChecklist) }
+    var checklistItems by remember(initialNote.id) { mutableStateOf(initialNote.checklist) }
+    var colorHex by remember(initialNote.id) { mutableStateOf(initialNote.colorHex) }
+    var isPinned by remember(initialNote.id) { mutableStateOf(initialNote.isPinned) }
     var newChecklistText by remember { mutableStateOf("") }
+
+    // Update editor fields if GET /api/v1/files/:id hydrates fuller blocks/content
+    LaunchedEffect(initialNote.content, initialNote.checklist) {
+        if (content.isBlank() && initialNote.content.isNotBlank()) {
+            content = initialNote.content
+        }
+        if (checklistItems.isEmpty() && initialNote.checklist.isNotEmpty()) {
+            checklistItems = initialNote.checklist
+            isChecklist = initialNote.isChecklist
+        }
+    }
 
     val editorColor = remember(colorHex) {
         try {

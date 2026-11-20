@@ -111,7 +111,7 @@ object OjAiService {
         generateSmartFallback(userPrompt, agentManager)
     }
 
-    private fun handleMorphToolIntentIfApplicable(
+    private suspend fun handleMorphToolIntentIfApplicable(
         prompt: String,
         agentManager: OjAiAgentManager
     ): String? {
@@ -120,10 +120,14 @@ object OjAiService {
 
         val mentionsMorphExplicitly = lower.contains("morph")
         val mentionsNotes = lower.contains("note") || lower.contains("notes") ||
-            lower.contains("checklist") || lower.contains("todo") || lower.contains("to-do")
+            lower.contains("checklist") || lower.contains("todo") || lower.contains("to-do") ||
+            lower.contains("task") || lower.contains("database") || lower.contains("doc")
 
         if (!mentionsMorphExplicitly && !mentionsNotes) return null
 
+        val isTaskIntent = lower.contains("task") && !lower.contains("note") && !lower.contains("doc")
+        val isDatabaseIntent = lower.contains("database") || lower.contains("databases")
+        val isSearchIntent = (lower.contains("search") || lower.contains("find")) && mentionsMorphExplicitly
         val isCreate = lower.contains("create") || lower.contains("add") || lower.contains("save") ||
             lower.contains("new note") || lower.contains("make a note") || lower.contains("write a note") ||
             lower.contains("banao") || lower.contains("bana do") || lower.contains("likho") || lower.contains("save karo")
@@ -135,7 +139,7 @@ object OjAiService {
             lower.contains("my morph") || lower.contains("my notes") || lower.contains("what") ||
             lower.contains("dikhao") || lower.contains("batao") || lower.contains("padho") || lower.contains("search")
 
-        if (!isCreate && !isDelete && !isUpdate && !isListOrRead && !mentionsMorphExplicitly) {
+        if (!isCreate && !isDelete && !isUpdate && !isListOrRead && !isDatabaseIntent && !isSearchIntent && !mentionsMorphExplicitly) {
             return null
         }
 
@@ -145,54 +149,75 @@ object OjAiService {
         // Enforce strict account authentication before any Morph access!
         if (connectedAccount == null) {
             return "🔒 **Sign in to Omkun Morph Required**\n\n" +
-                "To read, create, or delete notes, Morph needs to know which account to use.\n\n" +
-                "1. Tap **Oj AI** at the top (or the **Agent Tools** menu)\n" +
-                "2. Tap **Omkun Morph Notes** and sign in with your account\n" +
-                "3. Authorize permissions — then ask me again!"
+                "Please connect your Omkun Morph account so Oj AI can read, create, and organize your notes & tasks.\n\n" +
+                "1. Tap **Oj AI** at the top (or **Agent Tools**)\n" +
+                "2. Tap **Omkun Morph Notes** and sign in\n" +
+                "3. Ask me again!"
         }
 
         if (!agentManager.isMorphAuthenticatedAndActive()) {
             return "⏸️ **Omkun Morph Integration Paused**\n\n" +
-                "Your Morph account (**${connectedAccount.email}**) is signed in, but Oj AI access is currently turned off. " +
+                "Your Morph account (**${connectedAccount.email}**) is connected, but Oj AI access is currently turned off. " +
                 "Enable the **Omkun Morph Notes** switch in **Oj AI Profile → Work Integrations** to continue."
         }
 
         // Handle DELETE Note
         if (isDelete) {
-            if (!connectedAccount.authorizedScopes.contains(MorphAccount.SCOPE_DELETE)) {
+            if (!connectedAccount.canDelete()) {
                 return "⚠️ **Delete Permission Not Granted**\n\n" +
-                    "Oj AI does not have permission to delete notes in **${connectedAccount.email}**. " +
-                    "You can update authorized scopes in **Omkun Morph Notes** settings."
+                    "Your Morph session (**${connectedAccount.email}**) does not have delete/write scope. " +
+                    "Use a Full Access API key or grant delete permission in **Omkun Morph** settings."
             }
             val query = extractTargetQueryForDelete(trimmed)
             val deleteResult = morphRepo.deleteNoteByQueryFromAi(query)
             return deleteResult.fold(
                 onSuccess = { deleted ->
-                    "🗑️ **Note Deleted from Omkun Morph**\n\n" +
+                    "🗑️ **Deleted from Omkun Morph**\n\n" +
                         "• **Deleted:** ${deleted.title.ifBlank { deleted.content.take(30) }}\n" +
                         "• **Account:** ${connectedAccount.email}\n" +
-                        "• **Remaining Notes:** ${morphRepo.notesFlow.value.count { !it.isArchived }}"
+                        "• **Remaining Items:** ${morphRepo.notesFlow.value.count { !it.isArchived }}"
                 },
                 onFailure = {
                     val existingTitles = morphRepo.notesFlow.value.filter { !it.isArchived }
                         .take(5)
                         .joinToString("\n") { "• ${it.title.ifBlank { "Untitled" }}" }
                     if (existingTitles.isBlank()) {
-                        "📭 Your Morph account (**${connectedAccount.email}**) currently has no notes to delete."
+                        "📭 Your Morph account (**${connectedAccount.email}**) currently has no items to delete."
                     } else {
-                        "🔍 Couldn't find a note matching *\"$query\"* in **${connectedAccount.email}**.\n\n" +
-                            "**Available notes in your account:**\n$existingTitles\n\n" +
+                        "🔍 Couldn't find an item matching *\"$query\"* in **${connectedAccount.email}**.\n\n" +
+                            "**Available items:**\n$existingTitles\n\n" +
                             "*Try saying: \"Delete Morph note [Title]\"*"
                     }
                 }
             )
         }
 
-        // Handle CREATE Note
+        // Handle CREATE Task (/api/v1/tasks)
+        if (isCreate && isTaskIntent) {
+            if (!connectedAccount.canWriteTasks()) {
+                return "⚠️ **Create Task Permission Needed**\n\n" +
+                    "Oj AI currently has read-only access for **${connectedAccount.email}**. Reconnect and allow creating notes & tasks to enable this."
+            }
+            val (title, body, _) = parseTitleAndContentForCreate(trimmed)
+            val taskResult = morphRepo.createTaskFromAi(title = title, description = body)
+            return taskResult.fold(
+                onSuccess = { task ->
+                    "✅ **Task Created in Omkun Morph**\n\n" +
+                        "• **Task:** ${task.title}\n" +
+                        (if (task.content.isNotBlank()) "• **Details:** ${task.content}\n" else "") +
+                        "• **Account:** ${connectedAccount.email}"
+                },
+                onFailure = {
+                    "⚠️ Could not create task in **${connectedAccount.email}**: ${it.message}"
+                }
+            )
+        }
+
+        // Handle CREATE Document / Note (/api/v1/files)
         if (isCreate) {
-            if (!connectedAccount.authorizedScopes.contains(MorphAccount.SCOPE_WRITE)) {
-                return "⚠️ **Create/Write Permission Not Granted**\n\n" +
-                    "Oj AI only has read access for **${connectedAccount.email}**. Re-authorize with Create & Edit permission to add notes."
+            if (!connectedAccount.canWriteDocs()) {
+                return "⚠️ **Create Permission Needed**\n\n" +
+                    "Oj AI currently has read-only access for **${connectedAccount.email}**. Reconnect and allow creating notes & tasks to enable this."
             }
             val (title, body, checklist) = parseTitleAndContentForCreate(trimmed)
             val createdResult = morphRepo.createNoteFromAi(
@@ -226,20 +251,60 @@ object OjAiService {
             )
         }
 
-        // Handle UPDATE Note
+        // Handle UPDATE / Append Blocks (/api/v1/docs/:id/blocks)
         if (isUpdate) {
+            if (!connectedAccount.canWriteDocs()) {
+                return "⚠️ **Edit Permission Needed**\n\n" +
+                    "Reconnect your Morph account and allow editing notes to enable updates."
+            }
             val payload = trimmed.substringAfter(":", "").trim()
             if (payload.isNotBlank()) {
                 val targetTitle = trimmed.substringBefore(":")
-                    .replace(Regex("(?i)(update|edit|append|morph|note|in|to)"), "")
+                    .replace(Regex("(?i)(update|edit|append|morph|note|doc|in|to)"), "")
                     .trim()
                 val updateRes = morphRepo.updateNoteByQueryFromAi(targetTitle, payload, append = true)
                 if (updateRes.isSuccess) {
                     val updated = updateRes.getOrThrow()
-                    return "✏️ **Updated Morph Note**\n\n" +
+                    return "✏️ **Updated Morph Document**\n\n" +
                         "• **Title:** ${updated.title}\n" +
-                        "• **Added:** $payload\n" +
+                        "• **Appended:** $payload\n" +
                         "• **Account:** ${connectedAccount.email}"
+                }
+            }
+        }
+
+        // Handle DATABASES query (/api/v1/databases)
+        if (isDatabaseIntent) {
+            if (!connectedAccount.canReadDatabases()) {
+                return "⚠️ **Access Restricted**\n\n" +
+                    "Your current Morph connection does not include workspace databases."
+            }
+            val dbs = morphRepo.databasesFlow.value
+            if (dbs.isEmpty()) {
+                return "🗄️ **Omkun Morph Databases (${connectedAccount.email})**\n\nNo databases were returned for this workspace yet. Tap **Sync Now** in Morph settings to refresh."
+            }
+            val listText = dbs.joinToString("\n") { db ->
+                "• **${db.title}** (`${db.id}`)" + if (db.description.isNotBlank()) " — ${db.description}" else ""
+            }
+            return "🗄️ **Your Omkun Morph Databases:**\n\n$listText"
+        }
+
+        // Handle GLOBAL SEARCH (/api/v1/search?q=...)
+        if (isSearchIntent) {
+            val query = trimmed
+                .replace(Regex("(?i)\\b(search|find|in|on|omkun|morph|for|docs|notes|please)\\b"), " ")
+                .replace(Regex("\\s+"), " ")
+                .trim()
+            if (query.isNotBlank()) {
+                val searchRes = morphRepo.searchMorphWorkspace(query)
+                searchRes.onSuccess { matches ->
+                    if (matches.isEmpty()) {
+                        return "🔍 No Morph documents or tasks matched *\"$query\"*."
+                    }
+                    val formatted = matches.take(6).joinToString("\n\n") { item ->
+                        "📄 **${item.title}**\n   ${item.content.take(110)}"
+                    }
+                    return "🔍 **Morph Search Results for \"$query\":**\n\n$formatted"
                 }
             }
         }
@@ -249,10 +314,10 @@ object OjAiService {
             val notes = morphRepo.notesFlow.value.filter { !it.isArchived }
             if (notes.isEmpty()) {
                 return "📭 **Omkun Morph (${connectedAccount.email})**\n\n" +
-                    "You don't have any notes saved in this account yet. Say *\"Create a Morph note: Meeting at 4 PM\"* to add one!"
+                    "You don't have any documents or notes saved in this account yet. Say *\"Create a Morph note: Meeting at 4 PM\"* to add one!"
             }
             val formatted = notes.take(8).joinToString("\n\n") { note ->
-                val pinIcon = if (note.isPinned) "📌 " else "📝 "
+                val pinIcon = if (note.isPinned) "📌 " else if (note.sourceType == com.example.model.MorphNote.SOURCE_TASK) "☑️ " else "📝 "
                 val body = if (note.isChecklist) {
                     note.checklist.joinToString("\n") { "   " + (if (it.isDone) "☑ " else "☐ ") + it.text }
                 } else {
@@ -260,7 +325,7 @@ object OjAiService {
                 }
                 "$pinIcon**${note.title.ifBlank { "Untitled" }}**\n$body"
             }
-            return "🗂️ **Your Omkun Morph Notes (${connectedAccount.email}):**\n\n$formatted"
+            return "🗂️ **Your Omkun Morph Workspace (${connectedAccount.email}):**\n\n$formatted"
         }
 
         return null
@@ -354,17 +419,24 @@ object OjAiService {
             if (agentManager.isMorphAuthenticatedAndActive()) {
                 val account = agentManager.morphRepository.connectedAccountFlow.value
                 val notes = agentManager.getAuthenticatedMorphNotes()
+                val databases = agentManager.morphRepository.databasesFlow.value
                 if (account != null) {
                     sb.append("\n\nConnected Omkun Morph Account: ${account.displayName} (${account.email}).")
                     if (notes.isNotEmpty()) {
-                        sb.append("\nUser's Live Morph Notes:\n")
+                        sb.append("\nUser's Live Morph Documents & Tasks:\n")
                         notes.take(10).forEach { n ->
                             val body = if (n.isChecklist) {
                                 n.checklist.joinToString(", ") { (if (it.isDone) "[Done] " else "[Todo] ") + it.text }
                             } else {
                                 n.content
                             }
-                            sb.append("- ${n.title.ifBlank { "Untitled" }}: $body\n")
+                            sb.append("- [${n.sourceType}] ${n.title.ifBlank { "Untitled" }}: $body\n")
+                        }
+                    }
+                    if (databases.isNotEmpty()) {
+                        sb.append("\nConnected Morph Databases:\n")
+                        databases.take(5).forEach { db ->
+                            sb.append("- ${db.title} (id: ${db.id})\n")
                         }
                     }
                 }

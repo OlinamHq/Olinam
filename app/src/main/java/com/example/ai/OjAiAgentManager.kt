@@ -60,12 +60,13 @@ class OjAiAgentManager(val appContext: Context) {
         loadSavedState()
         refreshPlugins()
 
-        // Reactively sync Oj AI plugin state whenever Morph account or notes change
+        // Reactively sync Oj AI plugin state whenever Morph account, notes, or databases change
         scope.launch {
             combine(
                 morphRepository.connectedAccountFlow,
-                morphRepository.notesFlow
-            ) { account, notes -> account to notes }.collect {
+                morphRepository.notesFlow,
+                morphRepository.databasesFlow
+            ) { account, notes, dbs -> Triple(account, notes, dbs) }.collect {
                 refreshPlugins()
             }
         }
@@ -80,6 +81,7 @@ class OjAiAgentManager(val appContext: Context) {
         } else {
             emptyList()
         }
+        val activeDatabases = if (morphAccount != null) morphRepository.databasesFlow.value else emptyList()
         val morphSamples = activeMorphNotes.take(4).map { note ->
             if (note.isChecklist) {
                 "☑️ ${note.title} (${note.checklist.count { it.isDone }}/${note.checklist.size} done)"
@@ -88,9 +90,14 @@ class OjAiAgentManager(val appContext: Context) {
             }
         }
         val morphSummary = when {
-            morphAccount == null -> "Not signed in • Tap to connect your Morph account"
+            morphAccount == null -> "Not connected • Tap to connect your Morph account"
             !morphPluginEnabled -> "Paused for ${morphAccount.email} • Toggle to resume"
-            else -> "Connected as ${morphAccount.email} • ${activeMorphNotes.size} notes"
+            else -> {
+                val docsCount = activeMorphNotes.count { it.sourceType != MorphNote.SOURCE_TASK }
+                val tasksCount = activeMorphNotes.count { it.sourceType == MorphNote.SOURCE_TASK }
+                val dbText = if (activeDatabases.isNotEmpty()) ", ${activeDatabases.size} DBs" else ""
+                "Connected (${morphAccount.displayName}) • $docsCount docs, $tasksCount tasks$dbText"
+            }
         }
 
         val (hasSim, simSummary) = getRealSimInfo()
@@ -105,7 +112,7 @@ class OjAiAgentManager(val appContext: Context) {
             AiPlugin(
                 id = "morph_plugin",
                 name = "Omkun Morph Notes",
-                description = "Reads, creates, updates, and deletes notes inside your authenticated Omkun Morph account.",
+                description = "Reads, creates, updates, and searches your notes, checklists, and tasks in Omkun Morph.",
                 iconType = "MORPH",
                 isConnected = isMorphActive,
                 connectedAccountEmail = morphAccount?.email.orEmpty(),
